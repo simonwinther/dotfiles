@@ -10,8 +10,15 @@ eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom.omp.json)"
 #eval "$(oh-my-posh init zsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/refs/heads/main/themes/tokyo.omp.json)"
 
 # ──────────────────────────── ZSH PLUGINS ────────────────────────────
-source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+if [[ "$XDG_CURRENT_DESKTOP" == "GNOME" ]]; then
+    # GNOME system paths (if you want to keep your old paths)
+    source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+    source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+else
+    # Arch correct paths
+    source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+    source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+fi
 
 # ──────────────────────────── HISTORY ────────────────────────────
 HISTFILE=$HOME/.zhistory 

@@ -1,142 +1,196 @@
-@import "../omarchy/current/theme/waybar.css";
 
-/* Bar itself transparent; the chips will be the only visible background */
-window#waybar {
-  background: transparent;
-  color: @foreground;
-  border: none;
-}
-
-/* Keep child container transparent too */
-window#waybar > box {
-  background: transparent;
-  border: none;
-}
-
-/* Tooltips (GTK3-safe) */
-tooltip,
-tooltip > box {
-  background-color: alpha(@background, 0.9);
-  color: @foreground;
-  border: none;
-  border-radius: 10px;
-  padding: 6px 8px;
-}
-tooltip label {
-  color: @foreground;
-}
-
-/* Base defaults */
 * {
-  background-color: transparent;
-  color: @foreground;
-  border: none;
-  border-radius: 0;
-  min-height: 0;
-  font-family: CaskaydiaMono Nerd Font;
-  font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    font-family: "JetBrainsMono Nerd Font";
+    font-weight: bold;
+    font-size: 12px;
+    min-height: 0;
 }
 
-/* Three floating containers (GTK3-safe: no backdrop-filter, no box-shadow) */
-.modules-left,
-.modules-center,
-.modules-right {
-  background-color: alpha(@background, 0.85);
-  border-radius: 12px;
-  padding: 0px 10px;
-
-  /* Faux depth using a subtle outline */
-  outline: 1px solid alpha(black, 0.12);
-
-  /* Space from screen edges and between chips */
-  margin: 6px 10px;
+window#waybar {
+    background: rgba(21, 18, 27, 0);
+    color: #cdd6f4;
 }
 
-/* Spacing between items inside each chip */
-.modules-left > *:not(:last-child),
-.modules-center > *:not(:last-child),
-.modules-right > *:not(:last-child) {
-  margin-right: 8px;
+tooltip {
+    background: #000000;
+    border-radius: 7px;
+    border-width: 2.5px;
+    border-style: solid;
+    border-color: #8aadf4;
+    padding-right: 5px;
+    padding-left: 5px;
+    padding-top: 5px;
+    padding-bottom: 5px;
 }
 
-#workspaces button.visible {
-  /* Keep transparent so your existing indicator shows */
-}
-#workspaces button:not(.visible) {
-  opacity: 0.6;
+
+
+#workspaces button {
+    color: #313244;
+    margin-right: 5px;
+    padding-right: 0px;
+    padding-left: 0px;
 }
 
-#workspaces button,
-#workspaces button:hover,
-#workspaces button:active,
+#workspaces button.active {
+    color: #89b4fa;
+}
+
 #workspaces button.focused {
-  background: transparent;
-  box-shadow: none;
+    color: #a6adc8;
+    background: #eba0ac;
+    border-radius: 13px;
 }
 
-/* Common element sizing */
-#tray,
+
+
+#workspaces button.persistent {
+    color: #f9e2af;
+}
+
+
+#workspaces button.empty {
+    color: #313244;
+}
+
+#workspaces button.active,
+#workspaces button.visible {
+    color: #89b4fa;
+    box-shadow: inset 0 -1px #1e1e2e;
+}
+
+#workspaces button.urgent {
+    color: #f38ba8;
+}
+#custom-weather,
+#language,
 #cpu,
-#battery,
-#network,
-#bluetooth,
+#window,
+#clock,
 #pulseaudio,
-#custom-omarchy,
-#custom-screenrecording-indicator,
-#custom-update,
-#mpris,
+#pulseaudio.microphone,
+#workspaces,
+#tray,
+#memory,
+#disk,
+#tray {
+    background: #1e1e2e;
+    opacity: 1.0;
+    padding: 1.5px 7px 1.5px 7px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border-radius: 13px;
+    margin-right: 5px;
+    margin-left: 5px;
+}
+
+#workspaces {
+    background: #1e1e2e;
+    border-radius: 13px;
+    margin-left: 5px;
+    padding-right: 0px;
+}
+
+#window {
+    border-radius: 7px;
+    margin-left: 60px;
+    margin-right: 60px;
+}
+
 #clock {
-  min-width: 12px;
-  padding-right: 8px;
+    color: #a6e3a1;
+    border-radius: 0px 13px 13px 0px;
+    margin-right: 0px;
+    margin-left: 0px;
 }
 
-/* Your previous tweaks */
-#custom-expand-icon {
-  margin-right: 6px;
-}
-#custom-update {
-  font-size: 10px;
-}
-#clock {
-  margin-left: 8.75px;
-}
-#custom-screenrecording-indicator {
-  font-size: 10px;
-  margin-left: 8.75px;
-}
-#custom-screenrecording-indicator.active {
-  color: #a55555;
-}
-#mpris {
-  margin-left: 5px;
+#network {
+    color: #f9e2af;
+    border-radius: 7px 7px 7px 7px;
+    margin-right: 5px;
 }
 
-/* Fix Omarchy icon clipping on the left edge */
-.modules-left {
-  margin-left: 14px; /* more space from screen edge */
-  padding-left: 12px; /* inner breathing room */
+#custom-notifications {
+    color: #f9e2af;
+    border-radius: 7px 7px 7px 7px;
+    padding-left: 9px;
+    padding-right: 15px;
+    margin-left:  2px;
+    margin-right: 2px;
+
 }
 
-#custom-omarchy {
-  padding-right: 4px; /* keep glyph from touching right edge of the chip */
-  padding-left: 2px;  /* slight left pad */
-  /* If needed, lock icon size explicitly: */
-  /* font-size: 18px; */
+#custom-updates {
+    color: #89b4fa;
+    border-radius: 7px 7px 7px 7px;
+    border-left:  0px;
+    border-right: 0px;
+    margin-left:  2px;
+    margin-right: 2px;
 }
 
-/* Small gap between Omarchy button and workspaces */
-#custom-omarchy + #workspaces {
-  margin-left: 6px;
+#custom-player {
+ color: #cba6f7;
+ border-radius: 7px 7px 7px 7px;
+ padding-left: 4px;
+ margin-left:  5px;
+ margin-right: 5px;
 }
 
-/* Hide utility */
-.hidden {
-  opacity: 0;
+#memory {
+    color: #89b4fa;
+    border-radius: 0px 0px 0px 0px;
+    margin-left: 0px;
+    margin-right:0px;
 }
 
-/* Weather Module extra spacing */
-.modules-right #custom-weather {
+#disk {
+    color: #f9e2af;
+    border-radius: 0px 13px 13px 0px;
+    margin-left: 0px;
+}
+
+
+#bluetooth {
+  color: #89b4fa;
+  border-radius: 0px 13px 13px 0px;
   margin-left: 5px;
   margin-right: 5px;
+} 
+
+#pulseaudio {
+  color: #89b4fa;
+  border-radius: 0px 0px 0px 0px;
+  margin-right: 0px;
+  margin-left: 0px;
 }
+
+#pulseaudio.microphone {
+    color: #cba6f7;
+    border-radius: 0px 0px 0px 0px;
+    margin-left: 0px;
+    margin-right: 0px;
+}
+
+#language {
+   border-radius: 13px 0px 0px 13px;
+   margin-right:0px;
+}
+
+#cpu {
+   border-radius: 13px 0px 0px 13px;
+   padding-left:10px;
+   margin-right:0px;
+   margin-left: 0px;
+}
+
+#custom-weather {
+   border-radius: 13px 13px 13px 13px;
+   margin-right: 0px
+   
+}
+
+
 
