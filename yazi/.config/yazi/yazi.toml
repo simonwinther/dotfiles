@@ -1,0 +1,11 @@
+# ~/.config/yazi/yazi.toml
+
+[mgr]
+show_hidden = true
+ratio = [1, 3, 4]  # parent | current | preview
+
+[preview]
+max_width  = 1600
+max_height = 1200
+wrap = "no"
+
