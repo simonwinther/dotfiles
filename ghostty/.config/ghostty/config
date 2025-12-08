@@ -31,7 +31,6 @@ cursor-text          = #1e1e2e
 cursor-style         = block_hollow
 
 # Transparency (set to 1.0 for max speed)
-# handle with picom or other compositor in GNOME
 background-opacity = 0.8
 #background-opacity-cells = true
 
@@ -41,8 +40,7 @@ window-decoration = none
 # Custom cursor shader (keep if you want it)
 custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 
-# This is a bit annoying, as it forces you inside a tmux session always
-# And sometimes I want to leave to be able to do other stuff
+# Don't do this!! super enter to open terminal then uses the same tmuxes....
 # command = tmux attach -t main || tmux new -s main
 
 # Use Ctrl+V to paste
