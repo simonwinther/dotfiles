@@ -17,7 +17,7 @@ printf '\033]11;rgb:00/00/00\007' # Set background color to black
 
 hyprctl keyword cursor:invisible true &>/dev/null
 
-files=(~/.config/omarchy/branding/screensaver/*.txt)
+files=(~/.config/omarchy/branding/screensavers/*.txt)
 
 while true; do
   tte -i "${files[RANDOM % ${#files[@]}]}" \
