@@ -3,6 +3,7 @@
  * ----------------------------------------------------- */
 @define-color base   #1e1e2e;
 @define-color text   #cdd6f4;
+@define-color yellow #f9e2af;
 @define-color blue   #89b4fa;
 @define-color surface0 #313244;
 @define-color surface2 #585b70;
@@ -113,6 +114,13 @@ tooltip {
     border-left: 1px solid @surface0;
 }
 
+#custom-separator {
+    color: @text;
+    background: transparent;
+    margin-left: 5px;
+    margin-right: 5px;
+}
+
 /* 5. Group 2 (Standalone Tray) */
 #tray {
     border-radius: 15px; /* Fully rounded */
@@ -133,8 +141,12 @@ tooltip {
 
 #workspaces button {
     padding: 5px;
-    color: @surface2;
+    color: @yellow;  
     transition: all 0.3s cubic-bezier(0.55, -0.68, 0.48, 1.68);
+}
+
+#workspaces button.empty {
+    color: @surface2;
 }
 
 #workspaces button.active {
