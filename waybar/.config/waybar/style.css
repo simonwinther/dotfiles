@@ -109,14 +109,14 @@ tooltip {
 #clock {
     border-radius: 0px 15px 15px 0px;
     margin-left: 0px;
-    margin-right: 0px; 
+    margin-right: 5px; /* Add space before separator */
     border-left: 1px solid @surface0;
 }
 
 /* 5. Group 2 (Standalone Tray) */
 #tray {
     border-radius: 15px; /* Fully rounded */
-    margin-left: 0px;
+    margin-left: 5px; /* Space after separator */
     padding-left: 15px;
     padding-right: 15px;
 }

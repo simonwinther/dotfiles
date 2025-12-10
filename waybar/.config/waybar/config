@@ -29,7 +29,7 @@
   ],
 
   "custom/separator": {
-    "format": " | ", 
+    "format": "|", 
     "tooltip": false
   },
 
@@ -44,7 +44,7 @@
 
   "hyprland/workspaces": {
     "format": "{icon}",
-    "on-clik": "activate",
+    "on-click": "activate",
     "format-icons": {
       "active": "",
       "default": ""
