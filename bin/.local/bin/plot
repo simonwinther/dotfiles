@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+import sys
+import matplotlib.pyplot as plt
+import numpy as np
+import re
+
+# Join arguments
+raw_input = " ".join(sys.argv[1:])
+formulas = raw_input.split(',')
+
+plt.figure(figsize=(10, 6))
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+plt.axhline(0, color='black', linewidth=0.8)
+plt.axvline(0, color='black', linewidth=0.8)
+
+# 1. Define X variable
+x_vals = np.linspace(-10, 10, 800)
+
+# 2. Create the context (what words the calculator understands)
+# We add 'x' specifically so it knows x is our array of numbers
+context = {k: v for k, v in np.__dict__.items() if not k.startswith("__")}
+context['x'] = x_vals 
+
+functions_plotted = 0
+
+for f in formulas:
+    f = f.strip()
+    if not f: continue
+    
+    # Clean up input
+    expression = re.sub(r'^y\s*=\s*', '', f)
+    expression = re.sub(r'(\d)(x)', r'\1*\2', expression) # 2x -> 2*x
+    expression = expression.replace('^', '**')
+
+    try:
+        # Calculate Y using the context that includes 'x'
+        y = eval(expression, {"__builtins__": {}}, context)
+        
+        if isinstance(y, (int, float)):
+             y = np.full_like(x_vals, y)
+
+        plt.plot(x_vals, y, label=f"y = {f}")
+        functions_plotted += 1
+    except Exception as e:
+        print(f"Error parsing '{f}': {e}")
+        continue
+
+if functions_plotted > 0:
+    plt.legend()
+    plt.ylim(-20, 20) 
+    plt.show()
