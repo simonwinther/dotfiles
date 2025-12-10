@@ -1,7 +1,3 @@
-# ──────────────────────────── PATH ────────────────────────────
-export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-typeset -U path PATH # keep PATH unique 
-
 # ──────────────────────────── GHCUP ────────────────────────────
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
 
