@@ -23,6 +23,7 @@
   "modules-right": [
     "pulseaudio",
     "pulseaudio#microphone",
+    "battery",
     "clock",
     "custom/separator",
     "tray"
@@ -137,6 +138,27 @@
     "on-click": "wpctl set-mute @DEFAULT_SOURCE@ toggle",
     "on-scroll-up": "wpctl set-volume @DEFAULT_SOURCE@ 5%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_SOURCE@ 5%-"
+  },
+
+  "battery": {
+    "interval": 10,
+    "states": {
+      "good": 80,
+      "warning": 40,
+      "critical": 15
+    },
+    "format": "<span color='#f9e2af'>{icon}</span> <span color='#cdd6f4'>{capacity}%</span>",
+    "format-charging": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
+    "format-plugged": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
+    "format-alt": "<span color='#cdd6f4'>{time}</span>",
+    "tooltip": true,
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ]
   },
 
   "disk": {
