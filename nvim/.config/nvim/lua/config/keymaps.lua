@@ -18,6 +18,13 @@ end
 vim.opt.mouse = ""
 
 -----------------------------------------
+--- Smart Leader just to try
+-----------------------------------------
+vim.keymap.set("n", "<leader>se", function()
+  Snacks.picker.smart()
+end, { desc = "Smart Find Files" })
+
+-----------------------------------------
 --- Overwriting LazyVim's default <leader>sw and <leader>sW keymaps for Snacks grep_word with hidden files enabled
 -----------------------------------------
 vim.keymap.set({ "n", "x" }, "<leader>sw", function()
