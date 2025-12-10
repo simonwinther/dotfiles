@@ -18,3 +18,6 @@ alias cl='clear'
 # ─────────── Quick Exit ─────────────
 alias q='exit'
 
+# ─────────── Tmux Shortcuts ─────────────
+alias ta="tmux attach"
+
