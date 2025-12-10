@@ -3,14 +3,13 @@
   "exclusive": true,
   "passthrough": false,
   "gtk-layer-shell": true,
+  "height": 41,
   "margin-top": 10,
   "margin-left": 10,
   "margin-right": 10,
-  "height": 41,
 
   "modules-left": [
     "custom/weather",
-    "custom/separator",
     "cpu",
     "memory",
     "disk"
@@ -29,19 +28,9 @@
     "tray"
   ],
 
-  "tray": {
-    "icon-size": 16,
-    "icon-theme": "Papirus",
-    "spacing": 2
-  },
-
-  "custom/spacer": {
-    "format": " ",
-    "tooltip": false
-  },
-
   "custom/separator": {
-    "format": " | "
+    "format": " | ", 
+    "tooltip": false
   },
 
   "hyprland/window": {
@@ -55,21 +44,9 @@
 
   "hyprland/workspaces": {
     "format": "{icon}",
-    "on-click": "activate",
+    "on-clik": "activate",
     "format-icons": {
-      "1": "",
-      "2": "",
-      "3": "",
-      "4": "",
-      "5": "",
-      "6": "",
-      "7": "",
-      "8": "",
-      "9": "",
       "active": "",
-      "urgent": "",
-      "persistent": "",
-      "focused": "",
       "default": ""
     },
     "sort-by-number": true,
@@ -79,6 +56,12 @@
     }
   },
 
+  "tray": {
+    "icon-size": 16,
+    "icon-theme": "Papirus",
+    "spacing": 10
+  },
+
   "clock": {
     "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
     "format": "<span color='#89b4fa'>󰥔 </span><span color='#cdd6f4'>{:%H:%M | %a %d %b}</span>",
@@ -86,13 +69,9 @@
   },
 
   "cpu": {
-    "format":"<span color='#00FF00'>{icon0}{icon1}{icon2}{icon3}</span> <span color='#FFFFFF'>{usage:>2}%</span> <span color='#00FF00'>󰍛</span>",
-    "interval":1,
-    "format-alt-click":"click",
-    "format-alt":"<span color='#89b4fa'>󰍛</span> <span color='#cdd6f4'>{usage}%</span>",
-    "format-icons":[
-      "▁","▂","▃","▄","▅","▆","▇","█"
-    ],
+    "format": "<span color='#a6e3a1'>{icon0}{icon1}{icon2}{icon3}</span> <span color='#f9e2af'>{usage:>2}%</span> <span color='#a6e3a1'>󰍛</span>",
+    "interval": 1,
+    "format-icons": ["▁","▂","▃","▄","▅","▆","▇","█"],
     "on-click": "missioncenter"
   },
 
@@ -110,12 +89,7 @@
 
   "pulseaudio": {
     "format": "<span color='#a6e3a1'>{icon} </span><span color='#cdd6f4'>{volume}%</span>",
-    "format-bluetooth": "<span color='#a6e3a1'>{icon}</span>  <span color='#cdd6f4'>{volume}%</span>",
-    "tooltip": false,
     "format-muted": "<span color='#f38ba8'>󰝟</span>",
-    "on-click": "wpctl set-mute @DEFAULT_SINK@ toggle",
-    "on-scroll-up": "wpctl set-volume @DEFAULT_SINK@ 10%+",
-    "on-scroll-down": "wpctl set-volume @DEFAULT_SINK@ 10%-",
     "format-icons": {
       "headphone": "",
       "hands-free": "",
@@ -123,12 +97,11 @@
       "phone": "",
       "portable": "",
       "car": "",
-      "default": [
-        "",
-        "",
-        ""
-      ]
-    }
+      "default": ["", "", ""]
+    },
+    "on-click": "wpctl set-mute @DEFAULT_SINK@ toggle",
+    "on-scroll-up": "wpctl set-volume @DEFAULT_SINK@ 10%+",
+    "on-scroll-down": "wpctl set-volume @DEFAULT_SINK@ 10%-"
   },
 
   "pulseaudio#microphone": {
@@ -150,22 +123,12 @@
     "format": "<span color='#f9e2af'>{icon}</span> <span color='#cdd6f4'>{capacity}%</span>",
     "format-charging": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
     "format-plugged": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
-    "format-alt": "<span color='#cdd6f4'>{time}</span>",
-    "tooltip": true,
-    "format-icons": [
-      "󰁺",
-      "󰁼",
-      "󰁾",
-      "󰂀",
-      "󰁹"
-    ]
+    "format-icons": ["󰁺", "󰁼", "󰁾", "󰂀", "󰁹"]
   },
 
   "disk": {
-    "interval": 3,
+    "interval": 30,
     "path": "/home",
-    "format": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{free}</span>",
-    "unit": "GB"
+    "format": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{free}</span>"
   }
 }
-
