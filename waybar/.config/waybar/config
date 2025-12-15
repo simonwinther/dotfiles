@@ -88,7 +88,7 @@
   },
 
   "pulseaudio": {
-    "format": "<span color='#a6e3a1'>{icon} </span><span color='#cdd6f4'>{volume}%</span>",
+    "format": "<span color='#a6e3a1'>{icon}  </span><span color='#cdd6f4'>{volume}%</span>",
     "format-muted": "<span color='#f38ba8'>󰝟</span>",
     "format-icons": {
       "headphone": "",
@@ -116,7 +116,7 @@
   "battery": {
     "interval": 10,
     "states": {
-      "good": 80,
+      "good": 70,
       "warning": 40,
       "critical": 15
     },

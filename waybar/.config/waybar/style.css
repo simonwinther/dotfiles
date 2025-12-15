@@ -17,7 +17,7 @@
     border: none;
     font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font";
     font-weight: bold;
-    font-size: 11px;
+    font-size: 14px;
     min-height: 0;
 }
 
@@ -33,7 +33,7 @@ tooltip {
 }
 
 /* -----------------------------------------------------
- * SHARED MODULE STYLES
+* SHARED MODULE STYLES
  * ----------------------------------------------------- */
 /* Apply common background and animation to ALL modules here */
 #custom-weather,
@@ -48,7 +48,7 @@ tooltip {
 #workspaces {
     background: @base;
     color: @text;
-    padding: 4px 12px;
+    padding: 8px 16px;
     margin-top: 5px;
     margin-bottom: 5px;
     /* The smooth transition animation */
@@ -61,9 +61,9 @@ tooltip {
 
 /* 1. The Start (Left Rounded) */
 #custom-weather {
-    border-radius: 15px 0px 0px 15px;
+    border-radius: 18px 0px 0px 18px;
     margin-right: 0px;
-    padding-right: 10px;
+    padding-right: 15px;
 }
 
 /* 2. The Middle (Square & Connected) */
@@ -72,14 +72,16 @@ tooltip {
     border-radius: 0px;
     margin-left: 0px;
     margin-right: 0px;
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: 15px;
+    padding-right: 15px;
     border-left: 1px solid @surface0; /* Subtle separator line */
 }
 
 /* 3. The End (Right Rounded) */
 #disk {
-    border-radius: 0px 15px 15px 0px;
+    border-radius: 0px 18px 18px 0px;
+    padding-right: 15px; 
+    /* border-left: 1px solid @surface0; */
     margin-left: 0px;
 }
 
@@ -90,8 +92,9 @@ tooltip {
 
 /* 1. Group 1 Start (Left Rounded) */
 #pulseaudio {
-    border-radius: 15px 0px 0px 15px;
+    border-radius: 18px 0px 0px 18px;
     margin-right: 0px;
+    padding-right: 15px;
 }
 
 /* 2. Group 1 Middle (Square) */
@@ -100,18 +103,20 @@ tooltip {
     border-radius: 0px;
     margin-left: 0px;
     margin-right: 0px;
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: 15px;
+    padding-right: 15px;
     border-left: 1px solid @surface0;
 }
 
 /* 3. Group 1 End (Right Rounded) */
 /* We round off the clock now because the separator comes next */
 #clock {
-    border-radius: 0px 15px 15px 0px;
+    border-radius: 0px 18px 18px 0px;
     margin-left: 0px;
     margin-right: 5px; /* Add space before separator */
     border-left: 1px solid @surface0;
+    padding-left: 15px;
+    padding-right: 15px;
 }
 
 #custom-separator {
@@ -123,7 +128,7 @@ tooltip {
 
 /* 5. Group 2 (Standalone Tray) */
 #tray {
-    border-radius: 15px; /* Fully rounded */
+    border-radius: 18px; /* Fully rounded */
     margin-left: 5px; /* Space after separator */
     padding-left: 15px;
     padding-right: 15px;
@@ -133,14 +138,14 @@ tooltip {
  * WORKSPACES
  * ----------------------------------------------------- */
 #workspaces {
-    border-radius: 15px;
+    border-radius: 18px;
     margin-left: 10px;
     margin-right: 10px;
-    padding: 0px 10px;
+    padding: 0px 15px;
 }
 
 #workspaces button {
-    padding: 5px;
+    padding: 7px 5px;
     color: @yellow;  
     transition: all 0.3s cubic-bezier(0.55, -0.68, 0.48, 1.68);
 }
