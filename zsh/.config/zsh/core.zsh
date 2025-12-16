@@ -36,3 +36,10 @@ export NVM_DIR="$HOME/.nvm"
 # ──────────────────────────── SDKMAN ────────────────────────────
 export SDKMAN_DIR="$HOME/.sdkman"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+
+#  ──────────────────────────── CURSOR FIX (Allow zsh to draw cursor in tmux) ────────────────────────────
+_fix_cursor() {
+   echo -ne '\033[6 q'
+}
+precmd_functions+=(_fix_cursor)
