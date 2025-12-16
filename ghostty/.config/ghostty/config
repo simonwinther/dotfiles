@@ -28,11 +28,10 @@ selection-background = #89b4fa
 selection-foreground = #1e1e2e
 cursor-color         = #cdd6f4
 cursor-text          = #1e1e2e
-cursor-style         = block_hollow
+cursor-style = bar
 
 # Transparency (set to 1.0 for max speed)
 background-opacity = 0.8
-#background-opacity-cells = true
 
 # Window decorations (GNOME handles corners, not Ghostty)
 window-decoration = none
