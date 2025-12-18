@@ -27,10 +27,4 @@ return {
       show_hidden = true,
     },
   },
-  config = function(_, opts)
-    require("oil").setup(opts)
-
-    -- Global: "-" opens Oil on parent dir (works in normal buffers)
-    vim.keymap.set("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory" })
-  end,
 }

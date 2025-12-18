@@ -4,13 +4,17 @@ local opts = { noremap = true, silent = true }
 ----------------------------------------
 --- Helper functions
 ----------------------------------------
-
 local function is_mapped(mode, lhs)
   if vim.keymap and vim.keymap.get then
     local maps = vim.keymap.get(mode, lhs)
     return maps and #maps > 0, maps
   end
 end
+
+----------------------------------------
+--- Oil
+----------------------------------------
+vim.keymap.set("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory" })
 
 -----------------------------------------
 --- Disable mouse support
