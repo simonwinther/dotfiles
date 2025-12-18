@@ -16,6 +16,24 @@ return {
       { "0", "1" },
       { "define", "undef" },
 
+      -- 1. Visibility / Access Modifiers (Crucial for OOP)
+      S({ "public", "protected", "private" }),
+
+      -- 2. Dimensions & Directions (CSS, UI, Game Dev)
+      { "width", "height" },
+      { "top", "bottom" },
+      { "left", "right" },
+      { "up", "down" },
+      { "row", "column" },
+      { "horizontal", "vertical" },
+
+      -- 3. Loop Control
+      { "break", "continue" },
+
+      -- 4. Testing / Assertions (Common in unit tests)
+      { "assert", "refute" },
+      { "expected", "actual" },
+
       -- comparison and assignment
       { "==", "!=" },
       { ">=", "<=" },
@@ -55,6 +73,10 @@ return {
         ["'\\(\\k\\+\\)'"] = [["\1"]],
       },
     }
+
+    ---------------------------------------------------------------------------
+    -- 🖥 C / C++ specific definitions
+    ---------------------------------------------------------------------------
 
     vim.api.nvim_create_autocmd("FileType", {
       pattern = { "cpp" },
