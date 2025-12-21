@@ -30,10 +30,17 @@ cursor-color         = #cdd6f4
 cursor-text          = #1e1e2e
 cursor-style = bar
 
-# Transparency (set to 1.0 for max speed)
-background-opacity = 0.8
 
-# Window decorations (GNOME handles corners, not Ghostty)
+window-padding-balance = true   
+window-padding-color = extend
+window-padding-y = 0
+window-padding-x = 0
+
+# 0.8 is best, but 0.7 when im retarded 
+# Transparency (set to 1.0 for max speed)
+background-opacity = 0.7
+
+# Window decorations 
 window-decoration = none
 
 # Custom cursor shader (keep if you want it)
@@ -42,13 +49,13 @@ custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 # Don't do this!! super enter to open terminal then uses the same tmuxes....
 # command = tmux attach -t main || tmux new -s main
 
-# Use Ctrl+V to paste
-keybind = ctrl+v=paste_from_clipboard
-keybind = performable:ctrl+c=copy_to_clipboard
-
-# Remove the default Ctrl+Shift+C/V bindings
-keybind = ctrl+shift+c=unbind
-keybind = ctrl+shift+v=unbind
+# # Use Ctrl+V to paste
+# keybind = ctrl+v=paste_from_clipboard
+# keybind = performable:ctrl+c=copy_to_clipboard
+#
+# # Remove the default Ctrl+Shift+C/V bindings
+# keybind = ctrl+shift+c=unbind
+# keybind = ctrl+shift+v=unbind
 
 
 
