@@ -12,4 +12,8 @@ bindkey "^M" expand_fzf_enter
 bindkey -s '^[f' 'fcd\n'
 bindkey -s '^[g' 'gcd\n'
 
+# Alt + r to search and run command from history
+bindkey '^[r' fzf-history-widget
+
+
 
