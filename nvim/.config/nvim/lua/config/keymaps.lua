@@ -56,7 +56,7 @@ end, { desc = "Grep in Neovim config" })
 vim.keymap.set("n", "<leader>f.", function()
   require("snacks").picker.files({
     title = "Find Files in Dotfiles",
-    cwd = vim.env.DOTFILES or "~/.dotfiles",
+    cwd = "~/dotfiles",
     hidden = true,
   })
 end, { desc = "Find files in Dotfiles config" })
@@ -64,7 +64,7 @@ end, { desc = "Find files in Dotfiles config" })
 vim.keymap.set("n", "<leader>f:", function()
   require("snacks").picker.grep({
     title = "Grep Dotfiles",
-    cwd = vim.env.DOTFILES or "~/.dotfiles",
+    cwd = vim.env.DOTFILES or "~/dotfiles",
     hidden = true,
   })
 end, { desc = "Grep in Dotfiles config" })
