@@ -48,4 +48,16 @@ gcd() {
     [[ -n "$dir" ]] && cd "$HOME/$dir"
 }
 
+# Fuzzy search history 
+fzf-history-widget() {
+  local selected
+  selected=$(history 1 | fzf | sed 's/^[ ]*[0-9]*[ ]*//')
+  [[ -n $selected ]] && {
+    BUFFER="$selected"
+    zle accept-line
+  }
+}
+
+zle -N fzf-history-widget
+
 
