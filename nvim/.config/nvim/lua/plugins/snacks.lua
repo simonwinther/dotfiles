@@ -178,7 +178,59 @@ return {
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
+        layouts = {
+          -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md#%EF%B8%8F-layouts
+          -- copied from docs, and slight changes :)
+          my_telescope = {
+            layout = {
+              reverse = true,
+              box = "horizontal",
+              backdrop = false,
+              width = 0.9,
+              height = 0.9,
+              border = "none",
+              {
+                box = "vertical",
+                { win = "list", title = " Results ", title_pos = "center", border = true },
+                { win = "input", height = 1, border = true, title = "{title} {live} {flags}", title_pos = "center" },
+              },
+              {
+                win = "preview",
+                title = "{preview:Preview}",
+                width = 0.65,
+                border = true,
+                title_pos = "center",
+              },
+            },
+          },
+          tall_ivy = {
+            layout = {
+              box = "vertical",
+              backdrop = false,
+              row = -1,
+              width = 0,
+              height = 0.85,
+              border = "top",
+              title = " {title} {live} {flags}",
+              title_pos = "left",
+              { win = "input", height = 1, border = "bottom" },
+              {
+                box = "horizontal",
+                { win = "list", border = "none" },
+                { win = "preview", title = "{preview}", width = 0.65, border = "left" },
+              },
+            },
+          },
+        },
+        layout = {
+          preset = "my_telescope", -- Or "center", "top", "bottom", "single"
+        },
         enabled = true,
+        formatters = {
+          file = {
+            filename_first = true,
+          },
+        },
       },
     },
   },
