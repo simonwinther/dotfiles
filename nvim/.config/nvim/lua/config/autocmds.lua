@@ -46,7 +46,7 @@ vim.api.nvim_create_autocmd("WinScrolled", {
 
     -- dedupe: ignore tiny movements
     local last = last_topline[win]
-    if last and math.abs(topline - last) < 6 then
+    if last and math.abs(topline - last) < 10 then
       return
     end
     last_topline[win] = topline
