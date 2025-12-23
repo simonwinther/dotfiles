@@ -107,9 +107,7 @@ end, { expr = true, silent = true })
 --- Saving keymaps
 ----------------------------------------
 -- Save with Ctrl+S in all modes
-vim.keymap.set("n", "<C-s>", ":w<CR>", { noremap = true, silent = true, desc = "Save file" })
-vim.keymap.set("i", "<C-s>", "<Esc>:w<CR>a", { noremap = true, silent = true, desc = "Save file (insert mode)" })
-vim.keymap.set("v", "<C-s>", "<Esc>:w<CR>", { noremap = true, silent = true, desc = "Save file (visual mode)" })
+vim.keymap.set({ "n", "i", "v" }, "<C-s>", "<Esc>:w<CR>", { noremap = true, silent = true, desc = "Save file" })
 
 ----------------------------------------
 --- Move lines keymaps
