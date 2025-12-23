@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# --- Network guard
+if ! ping -c 1 -W 1 8.8.8.8 &>/dev/null; then
+  echo "{ \"text\": \"󰤮  No net\", \"tooltip\": \"Waiting for network\", \"class\": \"weather\", \"color\": \"${COLOR_ERR}\" }"
+  exit 0
+fi
+
 # SETTINGS
 APIKEY=$(cat "$HOME/.owm-key")
 CITY_NAME="Copenhagen"
