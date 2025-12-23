@@ -26,17 +26,6 @@ function v() {
 }
 
 # ──────────────────────────── FZF UTILS ────────────────────────────
-# Fuzzy CD from current directory
-fcd() {
-    local dir
-    dir=$(fd --type d --hidden --follow --exclude .git \
-        | fzf --height=60% --layout=reverse --border \
-              --prompt="   cd> " \
-              --preview 'eza --color=always --icons --group-directories-first -1 {}' \
-              --preview-window="right,50%")
-    [[ -n "$dir" ]] && cd "$dir"
-}
-
 # Global fuzzy CD from $HOME
 gcd() {
     local dir

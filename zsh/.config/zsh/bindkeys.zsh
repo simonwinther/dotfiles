@@ -8,8 +8,7 @@ bindkey '5B' history-search-forward
 bindkey " " expand_fzf_space
 bindkey "^M" expand_fzf_enter
 
-# Alt + f and Alt + g to trigger fuzzy `cd`
-bindkey -s '^[f' 'fcd\n'
+# Alt + g to trigger fuzzy `cd`
 bindkey -s '^[g' 'gcd\n'
 
 # Alt + r to search and run command from history
