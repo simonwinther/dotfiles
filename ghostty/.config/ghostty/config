@@ -56,7 +56,3 @@ custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 # # Remove the default Ctrl+Shift+C/V bindings
 # keybind = ctrl+shift+c=unbind
 # keybind = ctrl+shift+v=unbind
-
-
-
-
