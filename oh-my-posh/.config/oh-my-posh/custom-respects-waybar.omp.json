@@ -49,8 +49,7 @@
             "opensuse": "\uf314",
             "raspbian": "\uf315",
             "ubuntu": "\uf31c",
-            "windows": "\ue62a",
-            "wsl": "\ue712"
+            "windows": "\ue62a"
           },
           "template": " {{ if .WSL }}WSL · {{ end }}{{ .Icon }} "
         },
