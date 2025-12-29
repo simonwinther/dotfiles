@@ -2,24 +2,42 @@ return {
   "nvim-lualine/lualine.nvim",
   event = "VeryLazy",
   opts = function(_, opts)
+    --
+    local mode_icons = {
+      n = "",
+      i = "",
+      v = "",
+      V = "",
+      ["\22"] = "",
+      c = "",
+      t = "",
+      R = "",
+      s = "",
+    }
     -- Ensure the section table exists
     opts.sections = opts.sections or {}
     opts.sections.lualine_a = {
       {
         "mode",
         fmt = function(str)
-          local mode_map = {
-            ["NORMAL"] = "N",
-            ["INSERT"] = "I",
-            ["VISUAL"] = "V",
-            ["V-LINE"] = "VL",
-            ["V-BLOCK"] = "VB",
-            ["REPLACE"] = "R",
-            ["COMMAND"] = "C",
-            ["TERMINAL"] = "T",
-          }
-          return mode_map[str] or "unknown"
+          local mode_code = vim.fn.mode()
+          local icon = mode_icons[mode_code] or " "
+          return icon .. " " .. str:sub(1, 1)
         end,
+        color = function()
+          local mode_color = {
+            n = "#1793d1", -- Arch Linux Blue
+            i = "#98c379", -- Green
+            v = "#c678dd", -- Purple
+            ["\22"] = "#c678dd",
+            V = "#c678dd",
+            c = "#e5c07b", -- Yellow
+            R = "#e06c75", -- Red
+          }
+          local mode = vim.fn.mode()
+          return { bg = mode_color[mode] or "#1793d1", fg = "#ffffff", gui = "bold" }
+        end,
+        padding = { right = 1, left = 1 },
       },
     }
     opts.sections.lualine_x = opts.sections.lualine_x or {}
@@ -30,6 +48,7 @@ return {
       "searchcount",
       maxcount = 999,
       timeout = 500,
+      icon = "",
     })
 
     -- Add Copilot Status
