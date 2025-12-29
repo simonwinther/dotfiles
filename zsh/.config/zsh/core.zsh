@@ -1,6 +1,9 @@
 # ──────────────────────────── GHCUP ────────────────────────────
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
 
+# ──────────────────────────── Zoxide ────────────────────────────
+eval "$(zoxide init zsh)"
+
 # ──────────────────────────── OH MY POSH ────────────────────────────
 eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom-respects-waybar.omp.json)"
 #eval "$(oh-my-posh init zsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/refs/heads/main/themes/tokyo.omp.json)"
