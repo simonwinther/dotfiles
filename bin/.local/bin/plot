@@ -36,18 +36,19 @@ for f in formulas:
     f = f.strip()
     if not f: continue
     
-    # Clean up input
     expression = re.sub(r'^y\s*=\s*', '', f)
-    expression = re.sub(r'(\d)(x)', r'\1*\2', expression) # 2x -> 2*x
+    expression = re.sub(r'(\d)(x)', r'\1*\2', expression) 
     expression = expression.replace('^', '**')
 
     try:
-        # Calculate Y using the context that includes 'x'
-        y = eval(expression, {"__builtins__": {}}, context)
+        with np.errstate(all='ignore'):
+            y = eval(expression, {"__builtins__": __builtins__}, context)
         
         if isinstance(y, (int, float)):
-             y = np.full_like(x_vals, y)
+            y = np.full_like(x_vals, y)
 
+        y = np.ma.masked_invalid(y)
+        
         plt.plot(x_vals, y, label=f"y = {f}")
         functions_plotted += 1
     except Exception as e:
