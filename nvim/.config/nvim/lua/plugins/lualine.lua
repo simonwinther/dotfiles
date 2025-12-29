@@ -2,7 +2,7 @@ return {
   "nvim-lualine/lualine.nvim",
   event = "VeryLazy",
   opts = function(_, opts)
-    --
+    -- Define mode icons
     local mode_icons = {
       n = "",
       i = "",
@@ -13,6 +13,16 @@ return {
       t = "",
       R = "",
       s = "",
+    }
+    -- Define mode colors
+    local mode_color = {
+      n = "#1793d1",
+      i = "#98c379",
+      v = "#c678dd",
+      ["\22"] = "#c678dd",
+      V = "#c678dd",
+      c = "#e5c07b",
+      R = "#e06c75",
     }
     -- Ensure the section table exists
     opts.sections = opts.sections or {}
@@ -25,15 +35,6 @@ return {
           return icon .. " " .. str:sub(1, 1)
         end,
         color = function()
-          local mode_color = {
-            n = "#1793d1", -- Arch Linux Blue
-            i = "#98c379", -- Green
-            v = "#c678dd", -- Purple
-            ["\22"] = "#c678dd",
-            V = "#c678dd",
-            c = "#e5c07b", -- Yellow
-            R = "#e06c75", -- Red
-          }
           local mode = vim.fn.mode()
           return { bg = mode_color[mode] or "#1793d1", fg = "#ffffff", gui = "bold" }
         end,
