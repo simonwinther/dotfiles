@@ -1,0 +1,45 @@
+/* Window */
+window {
+    background: #11111b;
+    border-radius: 16px;
+}
+
+/* Thumbnails */
+flowboxchild {
+    margin: 12px;
+    padding: 10px;
+    background: #1e1e2e;
+    border-radius: 12px;
+    border: 2px solid #313244;
+}
+
+/* Selected */
+flowboxchild:selected {
+    background: #f5c2e7;
+    border-color: #ffffff;
+}
+
+/* Hover */
+flowboxchild:hover {
+    border-color: #89b4fa;
+}
+
+/* Buttons */
+button {
+    background: #313244;
+    color: #cdd6f4;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+button:hover {
+    background: #89b4fa;
+    color: #11111b;
+}
+
+/* Scrollbar */
+scrollbar slider {
+    background: #89b4fa;
+    border-radius: 20px;
+}
+
