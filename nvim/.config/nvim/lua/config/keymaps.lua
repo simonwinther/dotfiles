@@ -104,12 +104,6 @@ vim.keymap.set("i", "<S-Tab>", function()
 end, { expr = true, silent = true })
 
 ----------------------------------------
---- Saving keymaps
-----------------------------------------
--- Save with Ctrl+S in all modes
-vim.keymap.set({ "n", "i", "v" }, "<C-s>", "<Esc>:w<CR>", { noremap = true, silent = true, desc = "Save file" })
-
-----------------------------------------
 --- Move lines keymaps
 ----------------------------------------
 -- Move selected line / block of text in visual mode
