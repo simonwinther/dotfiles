@@ -2,6 +2,17 @@ return {
   "nvim-lualine/lualine.nvim",
   event = "VeryLazy",
   opts = function(_, opts)
+    -- Define mode abbreviations
+    local mode_map = {
+      NORMAL = "N",
+      INSERT = "I",
+      VISUAL = "V",
+      ["V-LINE"] = "VL",
+      ["V-BLOCK"] = "VB",
+      REPLACE = "R",
+      COMMAND = "C",
+      TERMINAL = "T",
+    }
     -- Define mode icons
     local mode_icons = {
       n = "",
@@ -32,7 +43,7 @@ return {
         fmt = function(str)
           local mode_code = vim.fn.mode()
           local icon = mode_icons[mode_code] or " "
-          return icon .. " " .. str:sub(1, 1)
+          return icon .. " " .. (mode_map[str] or "?")
         end,
         color = function()
           local mode = vim.fn.mode()
