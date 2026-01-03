@@ -72,6 +72,9 @@ end, { desc = "Grep in Dotfiles config" })
 ----------------------------------------
 --- System clipboard keymaps
 ----------------------------------------
+-- Delete to system clipboard
+vim.keymap.set({ "n", "v" }, "<leader>dd", '"+dd', { desc = "Delete to system clipboard" })
+
 -- Yank to system clipboard
 vim.keymap.set({ "n", "v" }, "<leader>y", '"+y', { desc = "Yank to system clipboard" })
 vim.keymap.set({ "n", "v" }, "<leader>Y", '"+Y', { desc = "Yank to system clipboard (line)" })
