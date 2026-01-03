@@ -20,12 +20,20 @@ return {
           auto_trigger = false,
           keymap = {
             accept = false,
+            accept_word = "<C-l>",
             next = "<M-]>",
             prev = "<M-[>",
             dismiss = "<C-_>",
           },
         },
-        panel = { enabled = false },
+        panel = {
+          enabled = true,
+          auto_refresh = true,
+          keymap = {
+            open = "<M-CR>",
+          },
+          layout = { position = "bottom", ratio = 0.4 },
+        },
         filetypes = { markdown = true, help = true },
       }
     end,
