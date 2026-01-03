@@ -57,7 +57,7 @@ return {
         },
       },
 
-      -- 5. Keymaps
+      -- Keymaps
       keymap = {
         preset = "default",
         ["<Tab>"] = { "accept", "fallback" },
