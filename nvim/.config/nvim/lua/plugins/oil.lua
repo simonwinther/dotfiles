@@ -5,8 +5,7 @@ return {
     "mini.icons",
   },
   opts = {
-    default_file_explorer = false,
-
+    -- default_file_explorer = false,
     use_default_keymaps = true, -- keep Oil defaults unless we override them
     keymaps = {
       ["l"] = "actions.select", -- enter dir / open file
