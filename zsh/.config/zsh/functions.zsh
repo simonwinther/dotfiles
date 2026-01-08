@@ -1,4 +1,3 @@
-
 # ──────────────────────────── FZF ────────────────────────────
 expand_fzf_space() {
   if [[ $LBUFFER == *";f" ]]; then
@@ -49,4 +48,9 @@ fzf-history-widget() {
 
 zle -N fzf-history-widget
 
-
+# ──────────────────────────── TLDRF ────────────────────────────
+# Too Long; Didn't Read [the] Flags: Explains a specific command string.
+# Usage: tldrf <command> (e.g., 'tldrf tar -xvf archive.tar.gz')
+tldrf () {
+  curl -Gs "https://www.mankier.com/api/explain/?cols=$(tput cols)" --data-urlencode "q=$*"
+}
