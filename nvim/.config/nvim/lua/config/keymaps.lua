@@ -19,7 +19,7 @@ vim.keymap.set("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory" })
 -- -----------------------------------------
 -- --- Disable mouse support
 -- -----------------------------------------
--- vim.opt.mouse = ""
+vim.opt.mouse = ""
 
 -----------------------------------------
 --- Smart Leader just to try
@@ -73,7 +73,8 @@ end, { desc = "Grep in Dotfiles config" })
 --- System clipboard keymaps
 ----------------------------------------
 -- Delete to system clipboard
-vim.keymap.set({ "n", "v" }, "<leader>dd", '"+dd', { desc = "Delete to system clipboard" })
+vim.keymap.set({ "n" }, "<leader>dd", '"+dd', { desc = "Delete to system clipboard" })
+vim.keymap.set({ "v" }, "<leader>d", '"+d', { desc = "Delete to system clipboard" })
 
 -- Yank to system clipboard
 vim.keymap.set({ "n", "v" }, "<leader>y", '"+y', { desc = "Yank to system clipboard" })
@@ -81,30 +82,6 @@ vim.keymap.set({ "n", "v" }, "<leader>Y", '"+Y', { desc = "Yank to system clipbo
 
 -- Paste from system clipboard
 vim.keymap.set({ "n", "v" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
-
-----------------------------------------
---- Copilot and completion integration
-----------------------------------------
--- Smart <Tab>: Copilot if visible, else completion, else insert tab
-vim.keymap.set("i", "<Tab>", function()
-  local ok, s = pcall(require, "copilot.suggestion")
-  if ok and s.is_visible() then
-    s.accept()
-    return ""
-  end
-  if vim.fn.pumvisible() == 1 then
-    return "<C-n>"
-  end
-  return "\t"
-end, { expr = true, silent = true })
-
--- Smart <S-Tab>: previous completion item, else backspace a tab stop
-vim.keymap.set("i", "<S-Tab>", function()
-  if vim.fn.pumvisible() == 1 then
-    return "<C-p>"
-  end
-  return "<BS>"
-end, { expr = true, silent = true })
 
 ----------------------------------------
 --- Move lines keymaps
