@@ -175,6 +175,11 @@ return {
       },
       image = {
         enabled = true,
+        math = {
+          latex = {
+            font_size = "normalsize",
+          },
+        },
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
