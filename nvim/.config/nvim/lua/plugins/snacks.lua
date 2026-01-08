@@ -176,9 +176,7 @@ return {
       image = {
         enabled = true,
         math = {
-          latex = {
-            font_size = "normalsize",
-          },
+          enabled = false,
         },
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
