@@ -12,6 +12,7 @@ return {
       REPLACE = "R",
       COMMAND = "C",
       TERMINAL = "T",
+      SELECT = "S",
     }
     -- Define mode icons
     local mode_icons = {
@@ -24,16 +25,20 @@ return {
       t = "",
       R = "",
       s = "",
+      S = "",
     }
     -- Define mode colors
     local mode_color = {
       n = "#1793d1",
       i = "#98c379",
       v = "#c678dd",
+      s = "#c678dd",
+      S = "#c678dd",
       ["\22"] = "#c678dd",
       V = "#c678dd",
       c = "#e5c07b",
       R = "#e06c75",
+      t = "#e06c75",
     }
     -- Ensure the section table exists
     opts.sections = opts.sections or {}
@@ -43,7 +48,7 @@ return {
         fmt = function(str)
           local mode_code = vim.fn.mode()
           local icon = mode_icons[mode_code] or " "
-          return icon .. " " .. (mode_map[str] or "?")
+          return icon .. " " .. (mode_map[str] or str)
         end,
         color = function()
           local mode = vim.fn.mode()
