@@ -174,6 +174,11 @@ return {
         },
       },
       image = {
+        doc = {
+          max_width = 40,
+          max_height = 20,
+          enabled = true,
+        },
         enabled = true,
         math = {
           enabled = false,
