@@ -6,18 +6,20 @@ return {
       "rafamadriz/friendly-snippets",
       config = function()
         require("luasnip.loaders.from_vscode").lazy_load()
-        require("luasnip.loaders.from_vscode").lazy_load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
+        require("luasnip.loaders.from_lua").lazy_load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
       end,
     },
 
     opts = {
       history = true,
-      delete_check_events = "TextChanged",
+      updateevents = "TextChanged,TextChangedI",
+      enable_autosnippets = true,
+      -- delete_check_events = "TextChanged",
     },
 
     keys = {
       {
-        "<C-J>",
+        "<C-K>",
         function()
           local ls = require("luasnip")
           if ls.expand_or_jumpable() then
@@ -30,7 +32,7 @@ return {
 
       -- 2. JUMP BACKWARD
       {
-        "<C-K>",
+        "<C-J>",
         function()
           local ls = require("luasnip")
           if ls.jumpable(-1) then
