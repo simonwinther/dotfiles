@@ -74,14 +74,14 @@ end, { desc = "Grep in Dotfiles config" })
 ----------------------------------------
 -- Delete to system clipboard
 vim.keymap.set({ "n" }, "<leader>dd", '"+dd', { desc = "Delete to system clipboard" })
-vim.keymap.set({ "v" }, "<leader>d", '"+d', { desc = "Delete to system clipboard" })
+vim.keymap.set({ "x" }, "<leader>d", '"+d', { desc = "Delete to system clipboard" })
 
 -- Yank to system clipboard
-vim.keymap.set({ "n", "v" }, "<leader>y", '"+y', { desc = "Yank to system clipboard" })
-vim.keymap.set({ "n", "v" }, "<leader>Y", '"+Y', { desc = "Yank to system clipboard (line)" })
+vim.keymap.set({ "n", "x" }, "<leader>y", '"+y', { desc = "Yank to system clipboard" })
+vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipboard (line)" })
 
 -- Paste from system clipboard
-vim.keymap.set({ "n", "v" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
+vim.keymap.set({ "n", "x" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
 
 ----------------------------------------
 --- Move lines keymaps
