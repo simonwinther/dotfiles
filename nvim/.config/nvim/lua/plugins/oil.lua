@@ -21,6 +21,7 @@ return {
       ["<C-s>"] = false,
       ["<C-l>"] = false, -- Refresh current directory list, consider changin to C-r
       ["<C-h>"] = false,
+      ["<leader>q"] = "actions.send_to_qflist",
     },
     view_options = {
       show_hidden = true,
