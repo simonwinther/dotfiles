@@ -84,6 +84,15 @@ vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipbo
 vim.keymap.set({ "n", "x" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
 
 ----------------------------------------
+--- Buffer
+----------------------------------------
+-- Move the current buffer to the left
+vim.keymap.set("n", "<A-S-h>", "<cmd>BufferLineMovePrev<cr>", { desc = "Move buffer left" })
+
+-- Move the current buffer to the right
+vim.keymap.set("n", "<A-S-l>", "<cmd>BufferLineMoveNext<cr>", { desc = "Move buffer right" })
+
+----------------------------------------
 --- Move lines keymaps
 ----------------------------------------
 -- Move selected line / block of text in visual mode
