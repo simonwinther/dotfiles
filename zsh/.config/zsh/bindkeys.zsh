@@ -19,4 +19,8 @@ bindkey '^[r' fzf-history-widget
 # <Alt + [v]im> Open nvim in current directory
 bindkey -s '^[v' 'nvim .^M'
 
+# <Alt + [s]ource>: Source .zshrc
+bindkey -s '^[s' 'source ~/.zshrc^M'
 
+#<Alt + [t]mux>: Start or attach to tmux session
+bindkey -s '^[t' 'tmux new -A -s main\n'
