@@ -8,11 +8,15 @@ bindkey '5B' history-search-forward
 bindkey " " expand_fzf_space
 bindkey "^M" expand_fzf_enter
 
-# Alt + g to trigger fuzzy `cd`
+# ───────────────── Grouping by Alt ───────────────── 
+
+# <Alt + [g]o>: Trigger fuzzy `cd`
 bindkey -s '^[g' 'gcd\n'
 
-# Alt + r to search and run command from history
+# <Alt + [r]un>: Search and run command from history
 bindkey '^[r' fzf-history-widget
 
+# <Alt + [v]im> Open nvim in current directory
+bindkey -s '^[v' 'nvim .^M'
 
 
