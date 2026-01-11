@@ -1,4 +1,4 @@
-# ──────────────────────────── FZF ────────────────────────────
+# ───────────────── FZF ───────────────── 
 expand_fzf_space() {
   if [[ $LBUFFER == *";f" ]]; then
     LBUFFER="${LBUFFER%";f"}| fzf"
@@ -15,7 +15,7 @@ expand_fzf_enter() {
 }
 zle -N expand_fzf_enter
 
-# ──────────────────────────── NVIM ────────────────────────────  
+# ───────────────── NVIM ───────────────── 
 function v() {
   if [ $# -eq 0 ]; then 
     nvim .
@@ -24,7 +24,7 @@ function v() {
   fi
 }
 
-# ──────────────────────────── FZF UTILS ────────────────────────────
+# ───────────────── FZF UTILS ───────────────── 
 # Global fuzzy CD from $HOME
 gcd() {
     local dir
@@ -48,7 +48,7 @@ fzf-history-widget() {
 
 zle -N fzf-history-widget
 
-# ──────────────────────────── TLDRF ────────────────────────────
+# ───────────────── TLDRF ───────────────── 
 # Too Long; Didn't Read [the] Flags: Explains a specific command string.
 # Usage: tldrf <command> (e.g., 'tldrf tar -xvf archive.tar.gz')
 tldrf () {
