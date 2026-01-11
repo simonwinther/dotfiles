@@ -5,8 +5,8 @@
 -- KEYMAPS
 --------------------------------------------------------------------------------
 -- Paste Image (img-clip.nvim)
-vim.keymap.set("n", "<leader>i", "<cmd>PasteImage<cr>", {
-  desc = "[LaTeX] Paste image from system clipboard",
+vim.keymap.set("n", "\\lp", "<cmd>PasteImage<cr>", {
+  desc = "[img-clip.nvim] Paste image from system clipboard",
   buffer = true,
 })
 
