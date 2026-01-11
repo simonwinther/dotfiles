@@ -1,4 +1,4 @@
-# ───────────────── FZF ───────────────── 
+#  ───────────────── FZF ───────────────── 
 expand_fzf_space() {
   if [[ $LBUFFER == *";f" ]]; then
     LBUFFER="${LBUFFER%";f"}| fzf"
