@@ -5,7 +5,10 @@
 -- KEYMAPS
 --------------------------------------------------------------------------------
 -- Paste Image (img-clip.nvim)
-vim.keymap.set("n", "\\lp", "<cmd>PasteImage<cr>", {
+-- Use require
+vim.keymap.set("n", "\\lp", function()
+  require("img-clip").paste_image()
+end, {
   desc = "[img-clip.nvim] Paste image from system clipboard",
   buffer = true,
 })
