@@ -12,7 +12,7 @@ return {
 
     opts = {
       history = true,
-      updateevents = "TextChanged,TextChangedI",
+      update_events = "TextChanged,TextChangedI",
       enable_autosnippets = true,
       -- delete_check_events = "TextChanged",
     },
