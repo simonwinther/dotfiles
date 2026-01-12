@@ -61,24 +61,24 @@ return {
 
     -- Add Search Count (The [2/13] indicator)
     -- I added this because with git blame it’s sometimes hard to see, but I want git blame on the current line = true.)
-    table.insert(opts.sections.lualine_x, 1, {
+    table.insert(opts.sections.lualine_y, 1, {
       "searchcount",
       maxcount = 999,
       timeout = 500,
-      icon = "",
     })
 
-    -- Add Copilot Status
-    table.insert(
-      opts.sections.lualine_x,
-      2,
-      LazyVim.lualine.status(LazyVim.config.icons.kinds.Copilot, function()
-        local clients = package.loaded["copilot"] and vim.lsp.get_clients({ name = "copilot", bufnr = 0 }) or {}
-        if #clients > 0 then
-          local status = require("copilot.status").data.status
-          return (status == "InProgress" and "pending") or (status == "Warning" and "error") or "ok"
-        end
-      end)
-    )
+    -- I overwrite lualine_z (is timer by default) to show filesize and lazy updates
+    opts.sections.lualine_z = {
+      {
+        "filesize",
+        icon = "",
+        padding = { left = 1, right = 1 },
+      },
+      {
+        require("lazy.status").updates,
+        cond = require("lazy.status").has_updates,
+        padding = { left = 1, right = 1 },
+      },
+    }
   end,
 }
