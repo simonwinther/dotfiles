@@ -1,6 +1,7 @@
 return {
   "NStefan002/screenkey.nvim",
   version = "*",
+  lazy = true,
   opts = {
     win_opts = {
       height = 1,
