@@ -8,7 +8,7 @@ return {
         enabled = true,
       },
       char = {
-        jump_labels = true,
+        jump_labels = false, -- This is for f/F, t/T, I love it except, when using df' i need an extra <CR>
       },
     },
   },
