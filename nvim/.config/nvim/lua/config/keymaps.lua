@@ -19,7 +19,7 @@ vim.keymap.set("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory" })
 -- -----------------------------------------
 -- --- Disable mouse support
 -- -----------------------------------------
-vim.opt.mouse = ""
+-- vim.opt.mouse = ""
 
 -----------------------------------------
 --- Smart Leader just to try
