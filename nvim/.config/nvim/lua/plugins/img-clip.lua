@@ -1,4 +1,11 @@
 return {
   "HakonHarnes/img-clip.nvim",
-  event = "VeryLazy",
+  lazy = true,
+  opts = {
+    default = {
+      drag_and_drop = {
+        enabled = false,
+      },
+    },
+  },
 }
