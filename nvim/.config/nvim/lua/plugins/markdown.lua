@@ -2,7 +2,7 @@
 return {
   {
     "OXY2DEV/markview.nvim",
-    lazy = false,
+    ft = { "markdown" },
     opts = {
       preview = { icon_provider = "internal" }, -- optional
     },
