@@ -1,25 +1,28 @@
 return {
   "stevearc/oil.nvim",
+
+  cmd = "Oil",
+  keys = {
+    { "-", "<cmd>Oil<cr>", desc = "Open Parent Directory" },
+  },
+
   dependencies = {
     "nvim-tree/nvim-web-devicons",
     "mini.icons",
   },
+
   opts = {
-    -- default_file_explorer = false,
-    use_default_keymaps = true, -- keep Oil defaults unless we override them
+    use_default_keymaps = true,
     keymaps = {
-      ["l"] = "actions.select", -- enter dir / open file
-      ["h"] = "actions.parent", -- go up
+      ["l"] = "actions.select",
+      ["h"] = "actions.parent",
 
-      -- Inside Oil: "-" = open in *horizontal* split
+      -- These mappings only work INSIDE Oil
       ["-"] = { "actions.select", opts = { horizontal = true } },
-
-      -- Alt + | → vertical split (might be <A-Bslash> depending on layout)
       ["|"] = { "actions.select", opts = { vertical = true } },
 
-      -- Disable Oil's own <C-s> so your save mapping can use it
       ["<C-s>"] = false,
-      ["<C-l>"] = false, -- Refresh current directory list, consider changin to C-r
+      ["<C-l>"] = false,
       ["<C-h>"] = false,
       ["<leader>q"] = "actions.send_to_qflist",
     },
