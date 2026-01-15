@@ -16,8 +16,8 @@ bindkey -s '^[g' 'gcd\n'
 # <Alt + [r]un>: Search and run command from history
 bindkey '^[r' fzf-history-widget
 
-# <Alt + [v]im> Open nvim in current directory
-bindkey -s '^[v' 'nvim .^M'
+# <Alt + [v]im> Open nvim 
+bindkey -s '^[v' 'nvim\n'
 
 # <Alt + [s]ource>: Source .zshrc
 bindkey -s '^[s' 'source ~/.zshrc^M'
