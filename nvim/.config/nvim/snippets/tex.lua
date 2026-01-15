@@ -5,7 +5,7 @@ local f = ls.function_node
 local fmt = require("luasnip.extras.fmt").fmt
 
 ----------------------------------------
---- HELPER FUNCTIONS
+--- HELPER FUNCTIONS :)
 ----------------------------------------
 
 -- Helper function: Converts "My Title" -> "my_title"
