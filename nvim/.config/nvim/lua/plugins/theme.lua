@@ -1,10 +1,11 @@
 return {
+  { "folke/tokyonight.nvim", enabled = false },
   {
     "catppuccin/nvim",
     name = "catppuccin",
-
     lazy = false,
     priority = 1000,
+    build = ":CatppuccinCompile",
     opts = {
       flavour = "mocha",
       transparent_background = true, -- Set to true if you want your Ghostty terminal background to show through
