@@ -1,5 +1,10 @@
+-- FIX: Check if lazy loaded
 return {
   "AndrewRadev/switch.vim",
+  keys = {
+    { "gs", "<Plug>(Switch)", desc = "Switch case/bool/item" },
+    { "GS", "<Plug>(SwitchReverse)", desc = "Switch item reverse" },
+  },
   config = function()
     local S = vim.fn["switch#NormalizedCaseWords"]
 
