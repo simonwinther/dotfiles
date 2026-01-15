@@ -8,4 +8,5 @@
 ./install-tmux.sh
 ./install-dotfiles.sh
 ./install-zsh.sh
+./install-tree.sh
 ./set-shell.sh
