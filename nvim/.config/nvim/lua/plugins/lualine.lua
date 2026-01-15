@@ -67,16 +67,11 @@ return {
       timeout = 500,
     })
 
-    -- I overwrite lualine_z (is timer by default) to show filesize and lazy updates
+    -- I overwrite lualine_z (is timer by default) to show filesize
     opts.sections.lualine_z = {
       {
         "filesize",
         icon = "",
-        padding = { left = 1, right = 1 },
-      },
-      {
-        require("lazy.status").updates,
-        cond = require("lazy.status").has_updates,
         padding = { left = 1, right = 1 },
       },
     }
