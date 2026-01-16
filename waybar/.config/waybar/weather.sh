@@ -31,8 +31,8 @@ COLOR_NORMAL_TEMP="#fab387" # Orange (15–19°C)
 COLOR_WHITE="#cdd6f4"
 
 # Icons (Nerd Font)
-WIND_ICON=""        # wind
-TEMP_ICON_SYMBOL="" # thermometer
+WIND_ICON="󰖝"        # wind
+TEMP_ICON_SYMBOL="" # thermometer
 
 # Temperature Thresholds (tune these if you want)
 HOT_TEMP=20
@@ -154,4 +154,9 @@ formatTemperature() {
 setIcons
 formatTemperature
 
-echo "{ \"text\": \"<span color='${ICON_COLOR}'>${ICON}</span> <span color='${TEMP_COLOR}'>${TEMP_ICON}</span> ${TEMP}°C <span color='${COLOR_WIND}'>${WIND_ICON}</span> ${WIND_KMH} km/h\", \"tooltip\": \"Weather: ${DESC} (${TEMP}°C, ${WIND_KMH} km/h)\", \"class\": \"weather\", \"color\": \"${COLOR_WHITE}\" }"
+echo "{\"text\":\"\
+<span color='${ICON_COLOR}'>${ICON}</span>  \
+<span color='${TEMP_COLOR}'>${TEMP_ICON}</span> <span color='${COLOR_WHITE}'>${TEMP}°</span> \
+<span color='#585b70'>·</span> \
+<span color='${COLOR_WIND}'>${WIND_ICON}</span> <span color='${COLOR_WHITE}'>${WIND_KMH}</span><span color='#585b70'>km/h</span>\
+\",\"tooltip\":\"Weather: ${DESC}\nTemp: ${TEMP}°C\nWind: ${WIND_KMH} km/h\",\"class\":\"weather\"}"

@@ -1,0 +1,31 @@
+{
+    "output": ["DVI-D-1", "HDMI-A-1"],
+    "position": "top",
+    "layer": "top",
+    "height": 41,
+    "margin-top": 10,
+    "margin-left": 10,
+    "margin-right": 10,
+
+    "modules-left": [],
+    "modules-center": ["hyprland/workspaces"],
+    "modules-right": ["clock"],
+
+    "hyprland/workspaces": {
+        "format": "{icon}",
+        "on-click": "activate",
+        "format-icons": {
+            "active": "",
+            "default": ""
+        },
+        "sort-by-number": true,
+        "persistent-workspaces": {
+            "*": 5
+        }
+    },
+
+    "clock": {
+        "format": "<span color='#cdd6f4'>{:%H:%M}</span>",
+        "tooltip": false
+    }
+}
