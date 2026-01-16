@@ -21,6 +21,19 @@ vim.keymap.set("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory" })
 -- -----------------------------------------
 -- vim.opt.mouse = ""
 
+----------------------------------
+--- Fuzzy search buffer keymap
+--- The smart thing is that my flash.nvim is set to use / by default
+--- So, `s` remaps to /, and `S` remaps to ?
+--- But they are done before this keymap overrides /,
+--- Hence `s` and `S` still work with flash.nvim (normal /)
+--- But now allowing / to do fuzzy search with snacks.nvim
+--- This is the exact same as LazyVim's default keymap for <leader>sb (search buffer)
+----------------------------------
+vim.keymap.set("n", "/", function()
+  require("snacks").picker.lines()
+end, { desc = "Fuzzy search buffer" })
+
 -----------------------------------------
 --- Smart Leader just to try
 -----------------------------------------
