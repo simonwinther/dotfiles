@@ -1,5 +1,8 @@
 {
-  "output": "DP-2", 
+  "output": [
+    "eDP-1",
+    "DP-2"
+  ],
   "position": "top",
   "exclusive": true,
   "passthrough": false,
@@ -8,18 +11,15 @@
   "margin-top": 10,
   "margin-left": 10,
   "margin-right": 10,
-
   "modules-left": [
     "custom/weather",
     "cpu",
     "memory",
     "disk"
   ],
-
   "modules-center": [
     "hyprland/workspaces"
   ],
-
   "modules-right": [
     "pulseaudio",
     "pulseaudio#microphone",
@@ -28,12 +28,10 @@
     "custom/separator",
     "tray"
   ],
-
   "custom/separator": {
-    "format": "|", 
+    "format": "|",
     "tooltip": false
   },
-
   "hyprland/window": {
     "format": "{}",
     "max-length": 35,
@@ -42,7 +40,6 @@
     },
     "separate-outputs": true
   },
-
   "hyprland/workspaces": {
     "format": "{icon}",
     "on-click": "activate",
@@ -55,7 +52,6 @@
       "*": 9,
     }
   },
-
   "custom/voxtype": {
     "exec": "omarchy-voxtype-status",
     "return-type": "json",
@@ -74,32 +70,36 @@
     "icon-theme": "Papirus",
     "spacing": 10
   },
-
   "clock": {
     "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
     "format": "<span color='#89b4fa'>󰥔 </span><span color='#cdd6f4'>{:%H:%M | %a %d %b}</span>",
     "format-alt": "{:%Y-%m-%d}"
   },
-
   "cpu": {
     "format": "<span color='#a6e3a1'>{icon0}{icon1}{icon2}{icon3}</span> <span color='#f9e2af'>{usage:>2}%</span> <span color='#a6e3a1'>󰍛</span>",
     "interval": 1,
-    "format-icons": ["▁","▂","▃","▄","▅","▆","▇","█"],
+    "format-icons": [
+      "▁",
+      "▂",
+      "▃",
+      "▄",
+      "▅",
+      "▆",
+      "▇",
+      "█"
+    ],
     "on-click": "missioncenter"
   },
-
   "memory": {
     "interval": 3,
     "format": "<span color='#f38ba8'> </span> <span color='#cdd6f4'>{used:0.1f}G / {total:0.1f}G</span>"
   },
-
   "custom/weather": {
     "exec": "~/.config/waybar/weather.sh",
     "return-type": "json",
     "interval": 600,
     "format": "{text}"
   },
-
   "pulseaudio": {
     "format": "<span color='#a6e3a1'>{icon}  </span><span color='#cdd6f4'>{volume}%</span>",
     "format-muted": "<span color='#f38ba8'>󰝟</span>",
@@ -110,13 +110,16 @@
       "phone": "",
       "portable": "",
       "car": "",
-      "default": ["", "", ""]
+      "default": [
+        "",
+        "",
+        ""
+      ]
     },
     "on-click": "wpctl set-mute @DEFAULT_SINK@ toggle",
     "on-scroll-up": "wpctl set-volume @DEFAULT_SINK@ 10%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_SINK@ 10%-"
   },
-
   "pulseaudio#microphone": {
     "format": "{format_source}",
     "format-source": "<span color='#f38ba8'> </span><span color='#cdd6f4'>{volume}%</span>",
@@ -125,7 +128,6 @@
     "on-scroll-up": "wpctl set-volume @DEFAULT_SOURCE@ 5%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_SOURCE@ 5%-"
   },
-
   "battery": {
     "interval": 10,
     "states": {
@@ -136,9 +138,14 @@
     "format": "<span color='#f9e2af'>{icon}</span> <span color='#cdd6f4'>{capacity}%</span>",
     "format-charging": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
     "format-plugged": "<span color='#a6e3a1'> </span><span color='#cdd6f4'>{capacity}%</span>",
-    "format-icons": ["󰁺", "󰁼", "󰁾", "󰂀", "󰁹"]
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ]
   },
-
   "disk": {
     "interval": 30,
     "path": "/home",

@@ -19,8 +19,8 @@ bindkey '^[r' fzf-history-widget
 # <Alt + [v]im> Open nvim 
 bindkey -s '^[v' 'nvim\n'
 
-# <Alt + [s]ource>: Source .zshrc
-bindkey -s '^[s' 'source ~/.zshrc^M'
+# <Alt + [s]ource>: Source zsh config with reminder
+bindkey '^[s' reload_zsh_with_reminder
 
 #<Alt + [t]mux>: Start or attach to tmux session
 bindkey -s '^[t' 'tmux new -A -s main\n'
