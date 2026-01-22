@@ -21,8 +21,8 @@ fi
 
 # ──────────────────────────── HISTORY ────────────────────────────
 HISTFILE=$HOME/.zhistory 
-SAVEHIST=1000
-HISTSIZE=999
+SAVEHIST=10000
+HISTSIZE=10000
 setopt share_history
 setopt hist_expire_dups_first
 setopt hist_ignore_dups 
