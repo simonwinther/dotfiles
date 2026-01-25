@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
   "version": 3,
-  "final_space": true,
+  "final_space": false,
   "palette": {
     "base": "#1e1e2e",
     "surface": "#313244",
@@ -23,58 +23,30 @@
       "alignment": "left",
       "segments": [
         {
-          "type": "root",
-          "style": "plain",
-          "background": "transparent",
-          "foreground": "p:red",
-          "template": " \u26a1"
-        },
-        {
           "type": "os",
           "style": "plain",
-          "background": "transparent",
-          "foreground": "p:subtext",
-          "properties": {
-            "alpine": "\uf300",
-            "arch": "\uf303",
-            "centos": "\uf304",
-            "debian": "\uf306",
-            "elementary": "\uf309",
-            "fedora": "\uf30a",
-            "gentoo": "\uf30d",
-            "linux": "\ue712",
-            "macos": "\ue711",
-            "manjaro": "\uf312",
-            "mint": "\uf30f",
-            "opensuse": "\uf314",
-            "raspbian": "\uf315",
-            "ubuntu": "\uf31c",
-            "windows": "\ue62a"
-          },
-          "template": " {{ if .WSL }}WSL · {{ end }}{{ .Icon }} "
+          "foreground": "p:teal",
+          "template": "\uf303 "
         },
         {
           "type": "path",
-          "style": "powerline",
-          "background": "p:surface",
+          "style": "plain",
           "foreground": "p:text",
-          "properties": {
+          "options": {
             "style": "agnoster_short",
-            "home_icon": "\ueb06",
-            "folder_icon": "\ue5fe",
-            "folder_separator_icon": " <#45475a>\ue0bd </>"
+            "home_icon": "~",
+            "max_depth": 4
           },
-          "template": " \ue5fe {{ .Path }} "
+          "template": "<b>{{ .Path }}</b>"
         },
         {
           "type": "git",
-          "style": "powerline",
-          "background": "p:overlay",
+          "style": "plain",
           "foreground": "p:subtext",
-          "properties": {
+          "options": {
             "fetch_status": true
           },
-          "template": " \ue725 {{ .HEAD }}{{ if .Staging.Changed }} <#a6e3a1>\uf046 {{ .Staging.String }}</>{{ end }}{{ if and (.Working.Changed) (.Staging.Changed) }} |{{ end }}{{ if .Working.Changed }} <#fab387>\uf044 {{ .Working.String }}</>{{ end }}{{ if gt .StashCount 0 }} <#89b4fa>\ueb4b {{ .StashCount }}</>{{ end }} "
+          "template": " <p:overlay>\ue0b1</> \ue725 {{ .HEAD }}{{ if .Staging.Changed }} <p:green>\uf046 {{ .Staging.String }}</>{{ end }}{{ if .Working.Changed }} <p:peach>\ueb62 {{ .Working.String }}</>{{ end }}"
         }
       ]
     },
@@ -85,13 +57,8 @@
         {
           "type": "executiontime",
           "style": "plain",
-          "background": "transparent",
-          "foreground": "p:teal",
-          "properties": {
-            "style": "dallas",
-            "threshold": 0
-          },
-          "template": " ⏱  {{ .FormattedMs }}s "
+          "foreground": "p:yellow",
+          "template": "{{ .FormattedMs }} \uf252"
         }
       ]
     },
@@ -101,11 +68,10 @@
       "newline": true,
       "segments": [
         {
-          "type": "session",
+          "type": "text",
           "style": "plain",
-          "foreground": "p:text",
-          "template": " \u03bb ",
-          "OLDtemplate": " {{ if .SSHSession }}\ueba9 {{ end }}{{ .UserName }} <#bac2de>·</> {{ .HostName | lower }} "
+          "foreground": "p:overlay",
+          "template": "\u2570\u2500"
         },
         {
           "type": "status",
@@ -114,12 +80,10 @@
           "foreground_templates": [
             "{{ if gt .Code 0 }}p:red{{ end }}"
           ],
-          "properties": {
+          "options": {
             "always_enabled": true
           },
-          "template": "\uf061",
-          "OLDtemplate": "\uf432",
-          "OLD1template": "\u226B"
+          "template": "\ueab6 "
         }
       ]
     }
