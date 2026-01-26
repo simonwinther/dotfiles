@@ -24,3 +24,11 @@ bindkey '^[s' reload_zsh_with_reminder
 
 #<Alt + [t]mux>: Start or attach to tmux session
 bindkey -s '^[t' 'tmux new -A -s main\n'
+
+# Alt + h/l to move by word
+bindkey '^[h' backward-word
+bindkey '^[l' forward-word
+
+# Ctrl + Left/Right to move by word
+bindkey "^[[1;5C" forward-word 
+bindkey "^[[1;5D" backward-word
