@@ -139,4 +139,9 @@ else
   print("Mapping <leader>ww already exists")
 end
 
+-----------------------------------------
+--- Visual Selection keymap
+-----------------------------------------
+vim.keymap.set("n", "gb", "`[v`]", { desc = "Select last pasted text" })
+
 ---------- End of File ----------
