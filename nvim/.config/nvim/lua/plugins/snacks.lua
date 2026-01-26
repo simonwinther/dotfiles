@@ -186,6 +186,33 @@ return {
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
+        actions = {
+          inspect_picker = function(picker)
+            vim.print(picker)
+          end,
+          pivot_smart = function(picker)
+            local is_grep = picker.opts.source == "grep"
+
+            local current_text = picker.input.filter.search ~= "" and picker.input.filter.search
+              or picker.input.filter.pattern
+
+            local show_hidden = picker.opts.hidden
+            picker:close()
+
+            if is_grep then
+              Snacks.picker.files({ pattern = current_text, hidden = show_hidden })
+            else
+              Snacks.picker.grep({ search = current_text, hidden = show_hidden })
+            end
+          end,
+        },
+        win = {
+          input = {
+            keys = {
+              ["<M-e>"] = { "pivot_smart", mode = { "i", "n" }, desc = "Switch Grep/Files" },
+            },
+          },
+        },
         layouts = {
           -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md#%EF%B8%8F-layouts
           -- copied from docs, and slight changes :)
