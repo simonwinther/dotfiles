@@ -193,16 +193,26 @@ return {
           pivot_smart = function(picker)
             local is_grep = picker.opts.source == "grep"
 
-            local current_text = picker.input.filter.search ~= "" and picker.input.filter.search
+            local current_text = (picker.input.filter.search ~= "" and picker.input.filter.search)
               or picker.input.filter.pattern
 
             local show_hidden = picker.opts.hidden
+            local current_cwd = picker.input.filter.cwd
+
             picker:close()
 
             if is_grep then
-              Snacks.picker.files({ pattern = current_text, hidden = show_hidden })
+              Snacks.picker.files({
+                pattern = current_text,
+                hidden = show_hidden,
+                cwd = current_cwd,
+              })
             else
-              Snacks.picker.grep({ search = current_text, hidden = show_hidden })
+              Snacks.picker.grep({
+                search = current_text,
+                hidden = show_hidden,
+                cwd = current_cwd,
+              })
             end
           end,
         },
