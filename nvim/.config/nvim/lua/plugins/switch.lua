@@ -1,4 +1,3 @@
--- FIX: Check if lazy loaded
 return {
   "AndrewRadev/switch.vim",
   keys = {
