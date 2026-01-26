@@ -25,6 +25,8 @@ alias q='exit'
 # ─────────── Tmux Shortcuts ─────────────
 alias ta="tmux attach"
 
-
 # ─────────── fastfetch Shortcuts ─────────────
 alias ff="fastfetch"
+
+# ─────────── Git Shortcuts ─────────────
+alias g='git'
