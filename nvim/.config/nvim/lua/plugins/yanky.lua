@@ -3,8 +3,11 @@ return {
   "gbprod/yanky.nvim",
   recommended = true,
   desc = "Better Yank/Paste",
-  event = "LazyFile",
+  lazy = true,
   opts = {
+    ring = {
+      history_length = 100,
+    },
     system_clipboard = {
       sync_with_ring = not vim.env.SSH_CONNECTION,
     },
