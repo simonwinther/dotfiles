@@ -95,6 +95,7 @@ vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipbo
 
 -- Paste from system clipboard
 vim.keymap.set({ "n", "x" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
+vim.keymap.set({ "n", "x" }, "<leader>P", '"+P', { desc = "Paste from system clipboard" })
 
 -- Paste the entire buffer to system clipboard
 vim.keymap.set("n", "<leader>ay", function()
