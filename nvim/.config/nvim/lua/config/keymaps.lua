@@ -55,7 +55,7 @@ end, { desc = "Visual selection or word (cwd)" })
 ----------------------------------------
 --- Grep in Neovim config keymap
 ----------------------------------------
-vim.keymap.set("n", "<leader>s,", function()
+vim.keymap.set("n", "<leader>fC", function()
   require("snacks").picker.grep({
     hidden = true,
     title = "Grep Config",
