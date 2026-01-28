@@ -58,9 +58,9 @@ local function run_python(is_visual)
 end
 
 -- Buffer-local mappings
-vim.keymap.set("n", "<leader>r", function()
+vim.keymap.set("n", "<localleader>r", function()
   run_python(false)
 end, { buffer = true, desc = "Run File" })
-vim.keymap.set("v", "<leader>r", function()
+vim.keymap.set("v", "<localleader>r", function()
   run_python(true)
 end, { buffer = true, desc = "Run Selection" })
