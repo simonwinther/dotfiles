@@ -55,7 +55,7 @@ end, { desc = "Visual selection or word (cwd)" })
 ----------------------------------------
 --- Grep in Neovim config keymap
 ----------------------------------------
-vim.keymap.set("n", "<leader>fC", function()
+vim.keymap.set("n", "<leader>s,", function()
   require("snacks").picker.grep({
     hidden = true,
     title = "Grep Config",
@@ -74,7 +74,7 @@ vim.keymap.set("n", "<leader>f.", function()
   })
 end, { desc = "Find files in Dotfiles config" })
 
-vim.keymap.set("n", "<leader>f:", function()
+vim.keymap.set("n", "<leader>s.", function()
   require("snacks").picker.grep({
     title = "Grep Dotfiles",
     cwd = vim.env.DOTFILES or "~/dotfiles",
@@ -144,5 +144,26 @@ end
 --- Visual Selection keymap
 -----------------------------------------
 vim.keymap.set("n", "gb", "`[v`]", { desc = "Select last pasted text" })
+
+----------------------------------------
+--- Search and Find in Home Directory (~)
+----------------------------------------
+-- Find Files in Home
+vim.keymap.set("n", "<leader>f~", function()
+  Snacks.picker.files({
+    cwd = "~",
+    hidden = true,
+    title = "Find Files (Home)",
+  })
+end, { desc = "Find Files (Home)" })
+
+-- Grep in Home
+vim.keymap.set("n", "<leader>s~", function()
+  Snacks.picker.grep({
+    cwd = "~",
+    hidden = true,
+    title = "Grep (Home)",
+  })
+end, { desc = "Grep (Home)" })
 
 ---------- End of File ----------
