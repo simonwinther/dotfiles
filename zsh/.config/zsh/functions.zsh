@@ -70,7 +70,7 @@ fzf-history-logic() {
     --prompt="   History > " \
     --header="  RET: Exec  󰅍  C-y: Edit " \
     --header-first \
-    --color="prompt:4,pointer:2,hl:3,hl+:3,border:7,header:italic:4" \
+    --color="prompt:4,pointer:2,hl:2,hl+:2,border:7,header:italic:4" \
     --preview="$preview_cmd" \
     --preview-window="up:2:wrap:border-bottom" \
     --expect="ctrl-y") # Tells fzf to return the key pressed as the first line
