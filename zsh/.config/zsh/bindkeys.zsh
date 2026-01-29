@@ -14,7 +14,7 @@ bindkey "^M" expand_fzf_enter
 bindkey -s '^[g' 'gcd\n'
 
 # <Alt + [r]un>: Search and run command from history
-bindkey '^[r' fzf-history-widget
+bindkey '^[r' fzf-history-logic
 
 # <Alt + [v]im> Open nvim 
 bindkey -s '^[v' 'nvim\n'
