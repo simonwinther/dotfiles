@@ -9,7 +9,6 @@ bindkey " " expand_fzf_space
 bindkey "^M" expand_fzf_enter
 
 # ───────────────── Grouping by Alt ───────────────── 
-
 # <Alt + [g]o>: Trigger fuzzy `cd`
 bindkey -s '^[g' 'gcd\n'
 
