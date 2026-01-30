@@ -1,0 +1,11 @@
+# Global fuzzy CD from $HOME
+gcd() {
+    local dir
+    dir=$(fd --base-directory "$HOME" --type d --hidden --follow --exclude .git \
+        | fzf --height=60% --layout=reverse --border \
+              --prompt="   gcd> " \
+              --preview "eza --color=always --icons --group-directories-first -1 $HOME/{}" \
+              --preview-window="right,50%")
+    [[ -n "$dir" ]] && cd "$HOME/$dir"
+}
+

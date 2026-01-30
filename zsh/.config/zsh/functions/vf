@@ -1,0 +1,12 @@
+# Fuzzy find file and open in nvim
+vf() {
+  local file
+  file=$(fd --type f --hidden --exclude .git | fzf \
+    --height=60% \
+    --layout=reverse \
+    --border \
+    --prompt="   Open File> " \
+    --preview '[[ -f {} ]] && (bat --style=numbers --color=always {} || cat {})')
+    
+  [[ -n "$file" ]] && nvim "$file"
+}
