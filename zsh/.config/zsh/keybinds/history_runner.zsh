@@ -39,3 +39,4 @@ fzf-history-logic() {
   fi
   return 1
 }
+zle -N fzf-history-logic
