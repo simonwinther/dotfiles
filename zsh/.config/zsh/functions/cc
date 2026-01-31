@@ -16,7 +16,7 @@ cc() {
 - Host: $(hostname)
 ")"
 
-  # If stdin is piped, capture it
+  # If stdin is piped, then capture it
   if [[ ! -t 0 ]]; then
     extra="$(cat)"
     final="$specs"$'\n'"$extra"
