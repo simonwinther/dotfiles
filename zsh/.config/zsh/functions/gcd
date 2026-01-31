@@ -3,6 +3,9 @@ gcd() {
     local dir
     dir=$(fd --base-directory "$HOME" --type d --hidden --follow --exclude .git \
         | fzf --height=60% --layout=reverse --border \
+              --margin=1 \
+              --padding=1 \
+              --color="prompt:4,pointer:2,hl:2,hl+:2,border:7,header:italic:4" \
               --prompt="   gcd> " \
               --preview "eza --color=always --icons --group-directories-first -1 $HOME/{}" \
               --preview-window="right,50%")
