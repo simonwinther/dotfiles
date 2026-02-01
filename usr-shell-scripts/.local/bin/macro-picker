@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Define your macros here. 
+# Format: "Label | The actual text to copy"
+# You can add as many as you like.
+cat <<EOF | fzf --delimiter='|' --with-nth=1 | awk -F '|' '{print $2}' | sed 's/^[ \t]*//' | tr -d '\n' | wl-copy
+Email Signature | Best regards, Name
+Zoom Link | https://zoom.us/j/123456789
+Shrug | ¯\_(ツ)_/¯
+Meeting Template | Hi team, here is the agenda for today: 
+EOF
