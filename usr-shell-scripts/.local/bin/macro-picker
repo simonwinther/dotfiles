@@ -14,6 +14,6 @@ cat <<EOF | fzf \
 
 CMP: Carpenter              | Java vs JavaScript is like a car vs a carpenter.
 Mod: No Personal Commentary | Leave the comments to advice and help, and keep the personal commentary out of it.
-Mod: Positive Environment  | We aim to keep the learning environment here positive for all members, and this type of criticism doesn't adhere to that so please avoid it in the future.
+Mod: Positive Environment   | We aim to keep the learning environment here positive for all members, and this type of criticism doesn't adhere to that so please avoid it in the future.
 EOF
   awk -F '|' '{print $2}' | sed 's/^[ \t]*//' | tr -d '\n' | wl-copy
