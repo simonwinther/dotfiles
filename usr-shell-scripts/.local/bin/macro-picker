@@ -8,11 +8,11 @@ cat <<EOF | fzf \
   --prompt="Search > " \
   --color=fg:white,fg+:white,bg+:-1 \
   --color=hl:green,hl+:bright-green \
-  --color=border:green,prompt:green,pointer:green,marker:green,spinner:green,info:gray |
+  --color=border:green,prompt:green,pointer:green,marker:green,spinner:green,info:gray \
+  --preview-window=right:45%:wrap \
+  --preview="echo {} | cut -d'|' -f2- | sed 's/^[ \t]*//'" |
 
-Email Signature   | Best regards, Name
-Zoom Link         | https://zoom.us/j/123456789
-Shrug             | ¯\_(ツ)_/¯
-Meeting Template  | Hi team, here is the agenda for today: 
+Mod: No Personal Commentary | Leave the comments to advice and help, and keep the personal commentary out of it.
+Mod: Positive Environment   | We aim to keep the learning environment here positive for all members, and this type of criticism doesn't adhere to that so please avoid it in the future.
 EOF
   awk -F '|' '{print $2}' | sed 's/^[ \t]*//' | tr -d '\n' | wl-copy
