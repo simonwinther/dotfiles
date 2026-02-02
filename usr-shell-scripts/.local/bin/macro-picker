@@ -12,8 +12,9 @@ cat <<EOF | fzf \
   --preview-window=right:45%:wrap \
   --preview="echo {} | cut -d'|' -f2- | sed 's/^[ \t]*//'" |
 
-CMP: Carpenter              | Java vs JavaScript is like a car vs a carpenter.
-Mod: No Personal Commentary | Leave the comments to advice and help, and keep the personal commentary out of it.
-Mod: Positive Environment   | We aim to keep the learning environment here positive for all members, and this type of criticism doesn't adhere to that so please avoid it in the future.
+Macro: Carpenter                 |   Java vs JavaScript is like a car vs a carpenter.
+CALM: De-esculate                |   Quick reminder to keep things civil. If this topic’s starting to cause friction, let’s move on and keep the chat chill.
+Mod: No Personal Commentary      |    Leave the comments to advice and help, and keep the personal commentary out of it.
+Mod: Positive Environment        |    We aim to keep the learning environment here positive for all members, and this type of criticism doesn't adhere to that so please avoid it in the future.
 EOF
   awk -F '|' '{print $2}' | sed 's/^[ \t]*//' | tr -d '\n' | wl-copy
