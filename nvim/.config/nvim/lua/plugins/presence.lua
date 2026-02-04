@@ -1,3 +1,5 @@
+-- https://github.com/flathub/com.discordapp.Discord/wiki/Rich-Precense-(discord-rpc)
+-- Run `Unsandboxed applications` section (Not `flatpak applications`, even though I have Discord in Flatpak)
 return {
   "andweeb/presence.nvim",
   lazy = false,
