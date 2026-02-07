@@ -1,7 +1,6 @@
 -- Transparent background
 vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
 vim.api.nvim_set_hl(0, "FloatBorder", { bg = "none" })
-vim.api.nvim_set_hl(0, "Pmenu", { bg = "none" })
 vim.api.nvim_set_hl(0, "Terminal", { bg = "none" })
 vim.api.nvim_set_hl(0, "EndOfBuffer", { bg = "none" })
 vim.api.nvim_set_hl(0, "FoldColumn", { bg = "none" })
@@ -64,3 +63,14 @@ vim.api.nvim_set_hl(0, "WhichKeyValue", { bg = "none" })
 
 -- Transparent background for Assistant plugin
 vim.api.nvim_set_hl(0, "NavicText", { bg = "none" })
+
+-- Disable transparency for blink.cmp completion menu
+-- vim.api.nvim_set_hl(0, "Pmenu", { bg = "#1e1e2e" }) -- pick a solid color
+-- vim.api.nvim_set_hl(0, "PmenuSel", { bg = "#313244" }) -- selected item
+-- vim.api.nvim_set_hl(0, "PmenuSbar", { bg = "#181825" })
+-- vim.api.nvim_set_hl(0, "PmenuThumb", { bg = "#45475a" })
+
+vim.api.nvim_set_hl(0, "Pmenu", { bg = "#16161e" }) -- popup background
+vim.api.nvim_set_hl(0, "PmenuSel", { bg = "#2f3549" }) -- selected item
+vim.api.nvim_set_hl(0, "PmenuSbar", { bg = "#1f2335" }) -- scrollbar
+vim.api.nvim_set_hl(0, "PmenuThumb", { bg = "#3b4261" }) -- scrollbar thumb
