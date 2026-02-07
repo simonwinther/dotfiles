@@ -9,6 +9,7 @@ cc() {
 - Editor: ${EDITOR:-${VISUAL:-None}}
 - Desktop: ${XDG_CURRENT_DESKTOP:-Unknown}
 - Session: ${XDG_SESSION_TYPE:-Unknown}
+- Terminal: ${TERM_PROGRAM:-${TERM:-Unknown}}
 - CPU: $(lscpu | awk -F: '/Model name/ {print $2}' | sed 's/^ *//')
 - Cores: $(nproc)
 - RAM: $(free -h | awk '/Mem:/ {print $2}')
