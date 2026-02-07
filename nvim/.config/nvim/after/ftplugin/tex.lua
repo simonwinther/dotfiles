@@ -40,16 +40,17 @@ end
 --------------------------------------------------------------------------------
 -- Define custom toggle pairs for LaTeX
 local latex_switches = {
-  -- Environments
   { [[\\begin{itemize}]], [[\\begin{enumerate}]], [[\\begin{description}]] },
   { [[\\end{itemize}]], [[\\end{enumerate}]], [[\\end{description}]] },
 
-  -- Sections
   { [[\\section]], [[\\subsection]], [[\\subsubsection]] },
+  { [[\\section*]], [[\\subsection*]], [[\\subsubsection*]] },
 
-  -- Math Environments
   { [[\\begin{equation}]], [[\\begin{align}]], [[\\begin{gather}]] },
   { [[\\end{equation}]], [[\\end{align}]], [[\\end{gather}]] },
+
+  { [[\\begin{equation*}]], [[\\begin{align*}]], [[\\begin{gather*}]] },
+  { [[\\end{equation*}]], [[\\end{align*}]], [[\\end{gather*}]] },
 }
 
 -- Merge with existing switches safely
