@@ -1,16 +1,27 @@
 local ls = require("luasnip")
 local s = ls.snippet
+local t = ls.text_node
 local i = ls.insert_node
 local f = ls.function_node
 local fmt = require("luasnip.extras.fmt").fmt
 
 ----------------------------------------
---- HELPER FUNCTIONS :)
+--- CONDITIONS (MATH MODE)
 ----------------------------------------
 
--- Helper function: Converts "My Title" -> "my_title"
+local function in_mathzone()
+  return vim.fn["vimtex#syntax#in_mathzone"]() == 1
+end
+
+local function not_in_mathzone()
+  return vim.fn["vimtex#syntax#in_mathzone"]() == 0
+end
+
+----------------------------------------
+--- HELPER FUNCTIONS
+----------------------------------------
+
 local function to_label(args)
-  -- args[1][1] is the text content of the first node linked to this function
   return args[1][1]:lower():gsub("%p", ""):gsub("%s+", "_")
 end
 
@@ -73,5 +84,98 @@ return {
         lbl_mirror = f(to_label, { 1 }),
       }
     )
+  ),
+
+  -- FRACTION
+  s(
+    "/",
+    fmt([[\frac{{{}}}{{{}}}]], {
+      i(1),
+      i(2),
+    }),
+    { condition = in_mathzone }
+  ),
+
+  -- SUPERSCRIPT
+  s(
+    { trig = "^", snippetType = "autosnippet", wordTrig = false },
+    fmt("^{{{}}}", { i(1) }),
+    { condition = in_mathzone }
+  ),
+
+  -- SUBSCRIPT
+  s(
+    { trig = "_", snippetType = "autosnippet", wordTrig = false },
+    fmt("_{{{}}}", { i(1) }),
+    { condition = in_mathzone }
+  ),
+
+  -- CROSS PRODUCT
+  s({ trig = "xx", snippetType = "autosnippet" }, { t("\\times ") }, { condition = in_mathzone }),
+
+  -- DOT PRODUCT
+  s({ trig = "**", snippetType = "autosnippet" }, { t("\\cdot ") }, { condition = in_mathzone }),
+
+  -- EQUATION (Numbered)
+  -- FIXED: Added delimiters option
+  s(
+    "eq",
+    fmt(
+      [[
+      \begin{equation}
+          <>
+      \end{equation}
+      ]],
+      { i(1) },
+      { delimiters = "<>" } -- <--- THIS WAS MISSING
+    ),
+    { condition = not_in_mathzone }
+  ),
+
+  -- EQUATION (Unnumbered)
+  -- FIXED: Added delimiters option
+  s(
+    { trig = "eqq", wordTrig = false },
+    fmt(
+      [[
+      \begin{equation*}
+          <>
+      \end{equation*}
+      ]],
+      { i(1) },
+      { delimiters = "<>" } -- <--- THIS WAS MISSING
+    ),
+    { condition = not_in_mathzone }
+  ),
+  -- ALIGN (Numbered)
+  -- Trigger: al
+  s(
+    "al",
+    fmt(
+      [[
+      \begin{align}
+          <>
+      \end{align}
+      ]],
+      { i(1) },
+      { delimiters = "<>" }
+    ),
+    { condition = not_in_mathzone }
+  ),
+
+  -- ALIGN (Unnumbered)
+  -- Trigger: all
+  s(
+    "all",
+    fmt(
+      [[
+      \begin{align*}
+          <>
+      \end{align*}
+      ]],
+      { i(1) },
+      { delimiters = "<>" }
+    ),
+    { condition = not_in_mathzone }
   ),
 }
