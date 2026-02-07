@@ -27,4 +27,5 @@ set completion-highlight-fg     "#FFFFFF"
 set recolor false              
 set recolor-keephue true       
 set recolor-lightcolor         "#000000"
-set recolor-darkcolor          "#DCDCCC"
+set recolor-darkcolor          "#FFFFFF"
+# set recolor-darkcolor          "#DCDCCC"
