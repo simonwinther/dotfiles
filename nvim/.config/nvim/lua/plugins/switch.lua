@@ -7,10 +7,15 @@ return {
   config = function()
     local S = vim.fn["switch#NormalizedCaseWords"]
 
+    local danish_lower = vim.fn.split("abcdefghijklmnopqrstuvwxyzæøå", "\\zs")
+    local danish_upper = vim.fn.split("ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ", "\\zs")
     ---------------------------------------------------------------------------
     -- 🌍 Global definitions (apply to all filetypes)
     ---------------------------------------------------------------------------
     vim.g.switch_custom_definitions = {
+      -- Danish alphabet
+      danish_lower,
+      danish_upper,
       -- Boolean / flag switches (case-aware)
       S({ "true", "false" }),
       S({ "on", "off" }),
