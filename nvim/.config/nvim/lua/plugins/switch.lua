@@ -13,9 +13,6 @@ return {
     -- 🌍 Global definitions (apply to all filetypes)
     ---------------------------------------------------------------------------
     vim.g.switch_custom_definitions = {
-      -- Danish alphabet
-      danish_lower,
-      danish_upper,
       -- Boolean / flag switches (case-aware)
       S({ "true", "false" }),
       S({ "on", "off" }),
@@ -81,6 +78,9 @@ return {
         ["`\\(\\k\\+\\)`"] = [=['\1']=],
         ["'\\(\\k\\+\\)'"] = [["\1"]],
       },
+      -- -- Danish alphabet
+      -- danish_lower,
+      -- danish_upper,
     }
   end,
 }
