@@ -40,6 +40,7 @@ end
 --------------------------------------------------------------------------------
 -- Define custom toggle pairs for LaTeX
 local latex_switches = {
+  { "mathcal", "mathbb", "mathfrak", "mathbf", "mathrm", "mathsf", "mathtt" },
   { [[\\begin{itemize}]], [[\\begin{enumerate}]], [[\\begin{description}]] },
   { [[\\end{itemize}]], [[\\end{enumerate}]], [[\\end{description}]] },
 
@@ -53,11 +54,19 @@ local latex_switches = {
   { [[\\end{equation*}]], [[\\end{align*}]], [[\\end{gather*}]] },
 }
 
--- Merge with existing switches safely
-local current_defs = vim.b.switch_custom_definitions or {}
+local global_defs = vim.g.switch_custom_definitions or {}
 
+local master_list = {}
+
+-- Insert LaTeX rules first (High Priority)
 for _, def in ipairs(latex_switches) do
-  table.insert(current_defs, def)
+  table.insert(master_list, def)
 end
 
-vim.b.switch_custom_definitions = current_defs
+-- Insert Global rules second (Low Priority)
+for _, def in ipairs(global_defs) do
+  table.insert(master_list, def)
+end
+
+-- Apply to the buffer
+vim.b.switch_custom_definitions = master_list
