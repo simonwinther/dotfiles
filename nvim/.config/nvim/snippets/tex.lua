@@ -1,4 +1,6 @@
 local ls = require("luasnip")
+local d = ls.dynamic_node
+local sn = ls.snippet_node
 local s = ls.snippet
 local t = ls.text_node
 local i = ls.insert_node
@@ -85,17 +87,62 @@ return {
       }
     )
   ),
-
-  -- FRACTION
+  -- ITEMIZE LIST
   s(
-    "/",
-    fmt([[\frac{{{}}}{{{}}}]], {
-      i(1),
-      i(2),
-    }),
-    { condition = in_mathzone }
+    { trig = "(%d+)item", regTrig = true, snippetType = "autosnippet" },
+    d(1, function(args, parent)
+      -- Capture the number from the trigger
+      local count = tonumber(parent.captures[1])
+      local nodes = {}
+
+      -- Start the environment
+      table.insert(nodes, t({ "\\begin{itemize}", "" }))
+
+      -- Loop to generate items
+      for j = 1, count do
+        table.insert(nodes, t("\t\\item "))
+        table.insert(nodes, i(j)) -- Create a jump point for each item
+        table.insert(nodes, t({ "", "" })) -- Add a newline
+      end
+
+      -- End the environment
+      table.insert(nodes, t("\\end{itemize}"))
+
+      return sn(nil, nodes)
+    end),
+    { condition = not_in_mathzone }
   ),
 
+  -- ENUMERATE LIST
+  s(
+    { trig = "(%d+)enum", regTrig = true, snippetType = "autosnippet" },
+    d(1, function(args, parent)
+      local count = tonumber(parent.captures[1])
+      local nodes = {}
+
+      table.insert(nodes, t({ "\\begin{enumerate}", "" }))
+
+      for j = 1, count do
+        table.insert(nodes, t("\t\\item "))
+        table.insert(nodes, i(j))
+        table.insert(nodes, t({ "", "" }))
+      end
+
+      table.insert(nodes, t("\\end{enumerate}"))
+
+      return sn(nil, nodes)
+    end),
+    { condition = not_in_mathzone }
+  ),
+  -- FRACTION
+  s(
+    { trig = "//", snippetType = "autosnippet" },
+    fmt("\\frac{<>}{<>}", {
+      i(1),
+      i(2),
+    }, { delimiters = "<>" }),
+    { condition = in_mathzone }
+  ),
   -- SUPERSCRIPT
   s(
     { trig = "^", snippetType = "autosnippet", wordTrig = false },
@@ -175,29 +222,52 @@ return {
     ),
     { condition = not_in_mathzone }
   ),
+  -- MEDSKIP + NOINDENT
+  s({ trig = "mn" }, {
+    t({ "\\medskip", "\\noindent " }),
+  }, { condition = not_in_mathzone }),
+
+  -- MEDSKIP
+  s({ trig = "ms" }, {
+    t("\\medskip"),
+  }, { condition = not_in_mathzone }),
   -- NOINDENT
   s("ni", {
-    t({ "\\noindent", "" }),
+    t({ "\\noindent" }),
   }, { condition = not_in_mathzone }),
 
   -- NEWLINE
   s("nl", {
-    t({ "\\newline", "" }),
+    t({ "\\newline" }),
   }, { condition = not_in_mathzone }),
   -- NOT EQUAL
-  s({ trig = "neq", snippetType = "autosnippet" }, { t("\\neq") }, { condition = in_mathzone }),
+  s({ trig = "neq", snippetType = "autosnippet" }, { t("\\neq ") }, { condition = in_mathzone }),
   -- NABLA
-  s({ trig = "nbla", snippetType = "autosnippet" }, { t("\\nabla") }, { condition = in_mathzone }),
+  s({ trig = "nbla", snippetType = "autosnippet" }, { t("\\nabla ") }, { condition = in_mathzone }),
   -- MU
-  s({ trig = "mu", snippetType = "autosnippet" }, { t("\\mu") }, { condition = in_mathzone }),
+  s({ trig = "mu", snippetType = "autosnippet" }, { t("\\mu ") }, { condition = in_mathzone }),
   -- PI
-  s({ trig = "pi", snippetType = "autosnippet" }, { t("\\pi") }, { condition = in_mathzone }),
+  s({ trig = "pi", snippetType = "autosnippet" }, { t("\\pi ") }, { condition = in_mathzone }),
   -- IN
-  s({ trig = "in", snippetType = "autosnippet" }, { t("\\in") }, { condition = in_mathzone }),
+  s({ trig = "in", snippetType = "autosnippet" }, { t("\\in ") }, { condition = in_mathzone }),
   -- PI (P)
-  s({ trig = "Pi", snippetType = "autosnippet" }, { t("\\Pi") }, { condition = in_mathzone }),
+  s({ trig = "Pi", snippetType = "autosnippet" }, { t("\\Pi ") }, { condition = in_mathzone }),
   -- TEXT
   s({ trig = "tt", snippetType = "autosnippet" }, fmt("\\text{{{}}}", { i(1) }), { condition = in_mathzone }),
   -- MATHCAL
   s({ trig = "cal", snippetType = "autosnippet" }, fmt("\\mathcal{{{}}}", { i(1) }), { condition = in_mathzone }),
+  -- SET
+  s(
+    { trig = "set", snippetType = "autosnippet" },
+    fmt(
+      [[
+      \left\{ <> \right\}
+      ]],
+      { i(1) },
+      { delimiters = "<>" } -- Use <> to avoid clashing with LaTeX {}
+    ),
+    { condition = in_mathzone }
+  ),
+  -- DOTS
+  s({ trig = "...", snippetType = "autosnippet" }, { t("\\dots ") }, { condition = in_mathzone }),
 }
