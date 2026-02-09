@@ -7,6 +7,15 @@ return {
       config = function()
         require("luasnip.loaders.from_vscode").lazy_load()
         require("luasnip.loaders.from_lua").lazy_load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
+
+        -- Hot Reload on Save
+        vim.api.nvim_create_autocmd("BufWritePost", {
+          pattern = "*/snippets/*.lua",
+          callback = function()
+            require("luasnip.loaders.from_lua").load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
+            print("Snippets reloaded successfully!")
+          end,
+        })
       end,
     },
 
