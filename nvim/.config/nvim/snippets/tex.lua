@@ -116,8 +116,7 @@ return {
   -- DOT PRODUCT
   s({ trig = "**", snippetType = "autosnippet" }, { t("\\cdot ") }, { condition = in_mathzone }),
 
-  -- EQUATION (Numbered)
-  -- FIXED: Added delimiters option
+  -- EQUATION
   s(
     "eq",
     fmt(
@@ -132,8 +131,7 @@ return {
     { condition = not_in_mathzone }
   ),
 
-  -- EQUATION (Unnumbered)
-  -- FIXED: Added delimiters option
+  -- EQUATION
   s(
     { trig = "eqq", wordTrig = false },
     fmt(
@@ -143,7 +141,7 @@ return {
       \end{equation*}
       ]],
       { i(1) },
-      { delimiters = "<>" } -- <--- THIS WAS MISSING
+      { delimiters = "<>" }
     ),
     { condition = not_in_mathzone }
   ),
@@ -163,8 +161,7 @@ return {
     { condition = not_in_mathzone }
   ),
 
-  -- ALIGN (Unnumbered)
-  -- Trigger: all
+  -- ALIGN
   s(
     "all",
     fmt(
@@ -178,4 +175,29 @@ return {
     ),
     { condition = not_in_mathzone }
   ),
+  -- NOINDENT
+  s("ni", {
+    t({ "\\noindent", "" }),
+  }, { condition = not_in_mathzone }),
+
+  -- NEWLINE
+  s("nl", {
+    t({ "\\newline", "" }),
+  }, { condition = not_in_mathzone }),
+  -- NOT EQUAL
+  s({ trig = "neq", snippetType = "autosnippet" }, { t("\\neq") }, { condition = in_mathzone }),
+  -- NABLA
+  s({ trig = "nbla", snippetType = "autosnippet" }, { t("\\nabla") }, { condition = in_mathzone }),
+  -- MU
+  s({ trig = "mu", snippetType = "autosnippet" }, { t("\\mu") }, { condition = in_mathzone }),
+  -- PI
+  s({ trig = "pi", snippetType = "autosnippet" }, { t("\\pi") }, { condition = in_mathzone }),
+  -- IN
+  s({ trig = "in", snippetType = "autosnippet" }, { t("\\in") }, { condition = in_mathzone }),
+  -- PI (P)
+  s({ trig = "Pi", snippetType = "autosnippet" }, { t("\\Pi") }, { condition = in_mathzone }),
+  -- TEXT
+  s({ trig = "tt", snippetType = "autosnippet" }, fmt("\\text{{{}}}", { i(1) }), { condition = in_mathzone }),
+  -- MATHCAL
+  s({ trig = "cal", snippetType = "autosnippet" }, fmt("\\mathcal{{{}}}", { i(1) }), { condition = in_mathzone }),
 }
