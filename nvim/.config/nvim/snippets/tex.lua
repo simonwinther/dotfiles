@@ -5,6 +5,7 @@ local s = ls.snippet
 local t = ls.text_node
 local i = ls.insert_node
 local f = ls.function_node
+local c = ls.choice_node
 local fmt = require("luasnip.extras.fmt").fmt
 
 ----------------------------------------
@@ -256,6 +257,8 @@ return {
   s({ trig = "tt", snippetType = "autosnippet" }, fmt("\\text{{{}}}", { i(1) }), { condition = in_mathzone }),
   -- MATHCAL
   s({ trig = "cal", snippetType = "autosnippet" }, fmt("\\mathcal{{{}}}", { i(1) }), { condition = in_mathzone }),
+  -- MATHBB
+  s({ trig = "bb", snippetType = "autosnippet" }, fmt("\\mathbb{{{}}}", { i(1) }), { condition = in_mathzone }),
   -- SET
   s(
     { trig = "set", snippetType = "autosnippet" },
@@ -268,6 +271,74 @@ return {
     ),
     { condition = in_mathzone }
   ),
+  -- PARENTHESES: \left( ... \right)
+  s(
+    { trig = "prn", snippetType = "autosnippet" },
+    fmt(
+      [[
+      \left( <> \right)
+      ]],
+      { i(1) },
+      { delimiters = "<>" }
+    ),
+    { condition = in_mathzone }
+  ),
+
+  -- BRACKETS: \left[ ... \right]
+  s(
+    { trig = "brk", snippetType = "autosnippet" },
+    fmt(
+      [[
+      \left[ <> \right]
+      ]],
+      { i(1) },
+      { delimiters = "<>" }
+    ),
+    { condition = in_mathzone }
+  ),
+  -- SUMMATION
+  -- 1. Full: \sum_{i=0}^{\infty}
+  -- 2. Sub:  \sum_{i}
+  -- 3. Sup:  \sum^{n}
+  -- 4. Bare: \sum
+  s(
+    { trig = "sum", snippetType = "autosnippet" },
+    c(1, {
+      -- Full Limits
+      fmt(
+        [[
+        \sum_{<>}^{<>}
+        ]],
+        { i(1, "i=0"), i(2, "\\infty") },
+        { delimiters = "<>" }
+      ),
+      -- Subscript only
+      fmt(
+        [[
+        \sum_{<>}
+        ]],
+        { i(1, "i") },
+        { delimiters = "<>" }
+      ),
+      -- Superscript only
+      fmt(
+        [[
+        \sum^{<>}
+        ]],
+        { i(1, "n") },
+        { delimiters = "<>" }
+      ),
+      -- Bare
+      t("\\sum"),
+    }),
+    { condition = in_mathzone }
+  ),
   -- DOTS
   s({ trig = "...", snippetType = "autosnippet" }, { t("\\dots ") }, { condition = in_mathzone }),
+  -- QUAD
+  s({ trig = "qq", snippetType = "autosnippet" }, { t("\\quad ") }, { condition = in_mathzone }),
+  -- GREATER THAN OR EQUAL
+  s({ trig = "geq", snippetType = "autosnippet" }, { t("\\geq ") }, { condition = in_mathzone }),
+  -- LESS THAN OR EQUAL
+  s({ trig = "leq", snippetType = "autosnippet" }, { t("\\leq ") }, { condition = in_mathzone }),
 }
