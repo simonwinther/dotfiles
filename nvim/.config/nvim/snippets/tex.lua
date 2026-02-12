@@ -329,7 +329,13 @@ return {
         { delimiters = "<>" }
       ),
       -- Bare
-      t("\\sum"),
+      fmt(
+        [[
+        \sum <>
+        ]],
+        { i(1, "x") },
+        { delimiters = "<>" }
+      ),
     }),
     { condition = in_mathzone }
   ),
@@ -341,4 +347,13 @@ return {
   s({ trig = "geq", snippetType = "autosnippet" }, { t("\\geq ") }, { condition = in_mathzone }),
   -- LESS THAN OR EQUAL
   s({ trig = "leq", snippetType = "autosnippet" }, { t("\\leq ") }, { condition = in_mathzone }),
+  -- DELTA (Upper case)
+  s({ trig = "Delta", snippetType = "autosnippet" }, { t("\\Delta ") }, { condition = in_mathzone }),
+
+  -- delta (Lower case) - just in case you want it too
+  s({ trig = "delta", snippetType = "autosnippet" }, { t("\\delta ") }, { condition = in_mathzone }),
+  -- TEXTSTYLE
+  s({ trig = "ts", snippetType = "autosnippet" }, { t("\\textstyle ") }, { condition = in_mathzone }),
+  -- FORALL SYMBOL
+  s({ trig = "fa", snippetType = "autosnippet" }, { t("\\forall ") }, { condition = in_mathzone }),
 }
