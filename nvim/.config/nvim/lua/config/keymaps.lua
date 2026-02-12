@@ -126,8 +126,11 @@ vim.keymap.set("n", "<A-S-l>", "<cmd>BufferLineMoveNext<cr>", { desc = "Move buf
 --- Move lines keymaps
 ----------------------------------------
 -- Move selected line / block of text in visual mode
-vim.keymap.set("v", "J", ":m '>+1<CR>gv=gv", opts)
-vim.keymap.set("v", "K", ":m '<-2<CR>gv=gv", opts)
+-- This does not work with Luasnip, try to do a snip, then when in
+-- Select mode, and I try to write 'Justification', it will move
+-- because of 'J' and same with 'K'.
+-- vim.keymap.set("v", "J", ":m '>+1<CR>gv=gv", opts)
+-- vim.keymap.set("v", "K", ":m '<-2<CR>gv=gv", opts)
 
 ----------------------------------------
 --- Window management keymaps
