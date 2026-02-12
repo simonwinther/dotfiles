@@ -88,6 +88,12 @@ return {
       }
     )
   ),
+  -- PARAGRAPH
+  s(
+    { trig = "par", priority = 2000 },
+    fmt([[\paragraph{<>} <>]], { i(1, "Title"), i(0) }, { delimiters = "<>" }),
+    { condition = not_in_mathzone }
+  ),
   -- ITEMIZE LIST
   s(
     { trig = "(%d+)item", regTrig = true, snippetType = "autosnippet" },
@@ -356,4 +362,66 @@ return {
   s({ trig = "ts", snippetType = "autosnippet" }, { t("\\textstyle ") }, { condition = in_mathzone }),
   -- FORALL SYMBOL
   s({ trig = "fa", snippetType = "autosnippet" }, { t("\\forall ") }, { condition = in_mathzone }),
+  -- THERE EXISTS (te)
+  s({ trig = "te", snippetType = "autosnippet" }, { t("\\exists ") }, { condition = in_mathzone }),
+
+  -- DELIMITER SHORTCUTS
+  -- @s   set         \left\{ · \right\}
+  -- @p   parentheses \left( · \right)
+  -- @b   brackets    \left[ · \right]
+  -- @a   angle       \left\langle · \right\rangle
+
+  -- SET / BRACES
+  s(
+    { trig = "@s", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\left\\{ <> \\right\\}", { i(1) }, { delimiters = "<>" }),
+    { condition = in_mathzone }
+  ),
+
+  -- PARENTHESES
+  s(
+    { trig = "@p", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\left( <> \\right)", { i(1) }, { delimiters = "<>" }),
+    { condition = in_mathzone }
+  ),
+
+  -- BRACKETS
+  s(
+    { trig = "@b", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\left[ <> \\right]", { i(1) }, { delimiters = "<>" }),
+    { condition = in_mathzone }
+  ),
+
+  -- ANGLE BRACKETS
+  s(
+    { trig = "@a", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\left\\langle <> \\right\\rangle", { i(1) }, { delimiters = "<>" }),
+    { condition = in_mathzone }
+  ),
+
+  -- MULTIPLE \text{...} (e.g. 3tt → \text{…}, \text{…}, \text{…})
+  -- I love this, when I do like @s 3tt
+  -- Which expands to
+  -- \left\{ \text{…}, \text{…}, \text{…} \right\}
+  -- Feels smooth
+  s(
+    { trig = "(%d)tt", regTrig = true, snippetType = "autosnippet" },
+    d(1, function(_, parent)
+      local n = tonumber(parent.captures[1])
+      local nodes = {}
+
+      for j = 1, n do
+        table.insert(nodes, t("\\text{"))
+        table.insert(nodes, i(j))
+        table.insert(nodes, t("}"))
+
+        if j < n then
+          table.insert(nodes, t(", "))
+        end
+      end
+
+      return sn(nil, nodes)
+    end),
+    { condition = in_mathzone }
+  ),
 }
