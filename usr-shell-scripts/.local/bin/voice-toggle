@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PIDFILE="/tmp/voice2text.pid"
+WAV="/tmp/voice2text.wav"
+LOG="/tmp/voice2text.sox.log"
+
+# whisper.cpp (new CLI)
+WHISPER_BIN="$HOME/.local/lib/whisper/build/bin/whisper-cli"
+MODEL="$HOME/.local/lib/whisper/models/ggml-large-v3.bin"
+
+die() {
+  echo "voice-toggle: $*" >&2
+  exit 1
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  if have notify-send; then
+    notify-send "Voice" "$1" -t 1200 || true
+  fi
+  echo "voice-toggle: $1" >&2
+}
+
+require_deps() {
+  have sox || die "missing: sox (sudo pacman -S sox)"
+  have wl-copy || die "missing: wl-clipboard (sudo pacman -S wl-clipboard)"
+  [[ -x "$WHISPER_BIN" ]] || die "whisper-cli not executable: $WHISPER_BIN"
+  [[ -f "$MODEL" ]] || die "model missing: $MODEL"
+}
+
+pid_alive() { kill -0 "$1" 2>/dev/null; }
+
+start_recording() {
+  rm -f "$WAV" "$LOG"
+
+  # Detach so it survives Hyprland exec
+  nohup sox -q -d -c 1 -r 16000 "$WAV" >"$LOG" 2>&1 &
+  local pid=$!
+  echo "$pid" >"$PIDFILE"
+
+  # If sox dies instantly, show log
+  sleep 0.15
+  if ! pid_alive "$pid"; then
+    rm -f "$PIDFILE"
+    notify "Recording failed (see $LOG)"
+    die "sox exited immediately. Log:\n$(tail -n 50 "$LOG" 2>/dev/null || true)"
+  fi
+
+  notify "Recording… (toggle again to stop)"
+}
+
+stop_and_transcribe() {
+  [[ -f "$PIDFILE" ]] || {
+    start_recording
+    return
+  }
+  local pid
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  [[ -n "${pid}" ]] || {
+    rm -f "$PIDFILE"
+    start_recording
+    return
+  }
+
+  if ! pid_alive "$pid"; then
+    rm -f "$PIDFILE"
+    notify "Stale PID removed. Toggle again to start."
+    exit 0
+  fi
+
+  notify "Stopping…"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$PIDFILE"
+
+  [[ -f "$WAV" ]] || die "no audio recorded"
+  local bytes
+  bytes="$(stat -c%s "$WAV" 2>/dev/null || echo 0)"
+  [[ "$bytes" -gt 2000 ]] || die "audio too small ($bytes bytes)."
+
+  notify "Transcribing…"
+  local text
+  text="$("$WHISPER_BIN" \
+    -m "$MODEL" \
+    -f "$WAV" \
+    -nt \
+    -of - \
+    2>/dev/null | tr -d '\r')"
+
+  echo -n "$text" | wl-copy
+  notify "Copied to clipboard"
+}
+
+main() {
+  require_deps
+  if [[ -f "$PIDFILE" ]]; then
+    stop_and_transcribe
+  else
+    start_recording
+  fi
+}
+
+main "$@"
