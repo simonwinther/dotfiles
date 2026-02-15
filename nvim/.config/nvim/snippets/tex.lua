@@ -364,6 +364,8 @@ return {
   s({ trig = "fa", snippetType = "autosnippet" }, { t("\\forall ") }, { condition = in_mathzone }),
   -- THERE EXISTS (te)
   s({ trig = "te", snippetType = "autosnippet" }, { t("\\exists ") }, { condition = in_mathzone }),
+  -- PRIME
+  s({ trig = "pp", snippetType = "autosnippet" }, { t("\\prime") }, { condition = in_mathzone }),
 
   -- DELIMITER SHORTCUTS
   -- @s   set         \left\{ · \right\}
@@ -421,6 +423,79 @@ return {
       end
 
       return sn(nil, nodes)
+    end),
+    { condition = in_mathzone }
+  ),
+  -- GREEK LETTERS
+  s(
+    { trig = ";([a-zA-Z]+)", regTrig = true, snippetType = "autosnippet", wordTrig = false },
+    f(function(_, snip)
+      local match = snip.captures[1]
+
+      local greek_map = {
+        a = "alpha",
+        A = "Alpha",
+        b = "beta",
+        B = "Beta",
+        g = "gamma",
+        G = "Gamma",
+        d = "delta",
+        D = "Delta",
+        e = "epsilon",
+        E = "Epsilon",
+        z = "zeta",
+        Z = "Zeta",
+        h = "eta",
+        H = "Eta",
+        q = "theta",
+        Q = "Theta", -- 't' is usually tau, so 'q' is theta
+        i = "iota",
+        I = "Iota",
+        k = "kappa",
+        K = "Kappa",
+        l = "lambda",
+        L = "Lambda",
+        m = "mu",
+        M = "Mu",
+        n = "nu",
+        N = "Nu",
+        x = "xi",
+        X = "Xi",
+        p = "pi",
+        P = "Pi",
+        r = "rho",
+        R = "Rho",
+        s = "sigma",
+        S = "Sigma",
+        t = "tau",
+        T = "Tau",
+        u = "upsilon",
+        U = "Upsilon",
+        f = "phi",
+        F = "Phi",
+        c = "chi",
+        C = "Chi",
+        v = "psi",
+        V = "Psi", -- 'p' is pi, so 'v' is psi
+        o = "omega",
+        O = "Omega",
+        w = "omega",
+        W = "Omega", -- Common alias
+
+        -- Variants
+        ve = "varepsilon",
+        vf = "varphi",
+        vk = "varkappa",
+        vq = "vartheta",
+        vr = "varrho",
+      }
+
+      if greek_map[match] then
+        -- Returns the greek letter + a space
+        return "\\" .. greek_map[match] .. " "
+      else
+        return ";" .. match
+      end
     end),
     { condition = in_mathzone }
   ),
