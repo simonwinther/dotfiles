@@ -1,99 +1,86 @@
-# gai - generate a conventional commit message from staged changes using gh copilot
-# Drop this in a file sourced by your shell (e.g. ~/.bashrc, ~/.zshrc, or an autoload file).
-
 gai() (
   set -euo pipefail
 
-  echo "Analyzing staged changes..."
-
-  # Ensure we're inside a git repo
+  # Must be in a repo
   if ! command git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Not inside a git repository."
     exit 1
   fi
 
-  # Ensure there are staged changes
+  # Must have staged changes
   if command git diff --cached --quiet; then
     echo "No staged changes."
     exit 1
   fi
 
-  tmp="$(mktemp)"
-  cleanup() { rm -f "$tmp"; }
-  trap cleanup EXIT INT TERM
+  # Show staged diff
+  command git -c pager.diff=true diff --cached
+  echo
 
-  # Get staged diff (context for Copilot)
-  staged_patch="$(command git diff --cached --no-color)"
-
-  # Optional: cap extremely large diffs to keep the CLI stable
-  # (Keeps the first ~4000 lines; adjust as you like)
-  staged_patch="$(printf "%s\n" "$staged_patch" | head -n 4000)"
+  # Build prompt
+  staged_names="$(command git diff --cached --name-status --no-color)"
+  staged_stat="$(command git diff --cached --stat --no-color)"
 
   prompt="$(
     cat <<'PROMPT'
-Write a semantic/conventional commit message for the staged git diff below.
+Output MUST be exactly ONE line and NOTHING ELSE.
 
-Rules:
-- Output ONLY the commit message text.
-- First line must be: type(scope?): subject (<= 72 chars).
-- Optional body after a blank line. Wrap body at ~72 chars.
-- No markdown fences, no bullets, no commentary, no commands, no stats/costs/model info.
+Write a Conventional Commits SUBJECT line for the staged changes.
 
-Staged diff:
+Hard rules:
+- Format: type(scope?): subject
+- type must be one of: feat fix refactor docs test chore perf ci build style revert
+- subject length <= 72 characters
+- No preamble, no questions, no quotes, no markdown, no bullets, no stats/cost/model info.
+
+Staged files:
 PROMPT
   )"
 
-  # Run Copilot via stdin; fail gracefully without killing the parent shell
-  if ! raw="$(printf "%s\n\n%s\n" "$prompt" "$staged_patch" | gh copilot -p - 2>&1)"; then
-    echo "gh copilot failed."
-    printf "%s\n" "$raw" >&2
-    exit 1
-  fi
+  prompt="${prompt}
+${staged_names}
 
-  # Scrub common CLI noise and trim leading/trailing blank lines
-  clean="$(
-    printf "%s\n" "$raw" |
-      sed -E '
-        /^[[:space:]]*●/d
-        /^[[:space:]]*\$/d
-        /^[[:space:]]*└/d
-        /^[[:space:]]*Est/d
-        /^[[:space:]]*Total/d
-        /^[[:space:]]*API time spent:/d
-        /^[[:space:]]*Breakdown by AI model:/d
-        /^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]+[0-9.]+k[[:space:]]+in,/d
-        /^[[:space:]]*```/d
-      ' |
-      awk '
-        BEGIN{n=0}
-        {lines[++n]=$0}
-        END{
-          i=1; while (i<=n && lines[i] ~ /^[[:space:]]*$/) i++
-          j=n; while (j>=1 && lines[j] ~ /^[[:space:]]*$/) j--
-          for (k=i; k<=j; k++) print lines[k]
-        }
-      '
+Diffstat:
+${staged_stat}
+"
+
+  echo "Generating commit message..."
+
+  msg="$(gh copilot -- -s -p "$prompt" 2>/dev/null || true)"
+
+  msg="$(
+    printf "%s\n" "$msg" |
+      awk 'NF {print; exit}' |
+      sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^["'\''`]+//; s/["'\''`]+$//'
   )"
 
-  if [ -z "${clean//[[:space:]]/}" ]; then
-    echo "No usable commit message produced."
-    printf "%s\n" "$raw" >&2
-    exit 1
-  fi
-
-  # Validate conventional commit subject line
-  subject="$(printf "%s\n" "$clean" | head -n 1)"
-  if ! printf "%s\n" "$subject" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .{1,72}$'; then
-    echo "Copilot output does not look like a conventional commit message."
-    echo "Got:"
-    printf "%s\n" "$clean" >&2
+  if ! printf "%s\n" "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .{1,72}$'; then
+    echo "Copilot output does not look like a conventional commit subject:"
+    printf "%s\n" "$msg" >&2
     echo
-    echo "Falling back to manual commit editor."
-    command git commit -e
-    exit 0
+    printf "Enter commit subject manually (blank cancels): "
+    read msg
+    msg="$(printf "%s\n" "$msg" | awk 'NF {print; exit}')"
+    [ -z "$msg" ] && echo "Cancelled." && exit 0
   fi
 
-  # Prefill editor with the message (subject + optional body)
-  printf "%s\n" "$clean" > "$tmp"
-  command git commit -e -F "$tmp"
+  echo
+  echo "Proposed commit subject:"
+  echo "  $msg"
+  echo
+
+  read ans\?"Commit with this message? [Y/n] "
+  case "${ans:-Y}" in
+    Y|y|yes|YES)
+      command git commit -m "$msg"
+      ;;
+    N|n|no|NO)
+      echo "Cancelled."
+      exit 0
+      ;;
+    *)
+      echo "Cancelled."
+      exit 1
+      ;;
+  esac
 )
