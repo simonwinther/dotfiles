@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REGION="$(slurp)" || exit 1
+
+notify-send -t 1000 "LaTeX OCR" "Processing..."
+
+TMP_IMG="$(mktemp --suffix=.png /tmp/latex_snip.XXXXXX)"
+trap 'rm -f "$TMP_IMG"' EXIT # in case of early exit, ensure temp file is removed
+
+grim -g "$REGION" "$TMP_IMG"
+
+source "$HOME/.local/share/latex-ocr/bin/activate"
+
+LATEX_OUT=$(pix2tex "$TMP_IMG" | sed 's/^.*: //' | tr -d '\n')
+
+if [[ -n "${LATEX_OUT}" ]]; then
+  printf '%s' "$LATEX_OUT" | wl-copy --trim-newline
+  notify-send -t 1500 "Done" "Copied to clipboard"
+else
+  notify-send "Error" "OCR Failed"
+  exit 2
+fi
