@@ -1,0 +1,67 @@
+gai() (
+  set -euo pipefail
+
+  echo "Analyzing staged changes..."
+
+  if git diff --cached --quiet; then
+    echo "No staged changes."
+    exit 1
+  fi
+
+  tmp="$(mktemp)"
+  cleanup() { rm -f "$tmp"; }
+  trap cleanup EXIT INT TERM
+
+  diff="$(git diff --cached --no-color)"
+
+  prompt="$(
+    cat <<'PROMPT'
+Write a semantic/conventional commit message for the staged git diff below.
+
+Rules:
+- Output ONLY the commit message text.
+- First line: type(scope?): subject (<= 72 chars).
+- Optional body after a blank line. Wrap at ~72 chars.
+- No markdown fences, no bullets, no commentary, no commands.
+
+Staged diff:
+PROMPT
+  )"
+
+  # Capture gh output without letting a nonzero exit kill the whole shell session
+  if ! raw="$(printf "%s\n\n%s\n" "$prompt" "$diff" | gh copilot -p - 2>&1)"; then
+    echo "gh copilot failed."
+    printf "%s\n" "$raw" >&2
+    exit 1
+  fi
+
+  clean="$(
+    printf "%s\n" "$raw" |
+      sed -E '
+        /^[[:space:]]*●/d
+        /^[[:space:]]*\$/d
+        /^[[:space:]]*└/d
+        /^[[:space:]]*Est/d
+        /^[[:space:]]*Total/d
+        /^[[:space:]]*```/d
+      ' |
+      awk '
+        BEGIN{n=0}
+        {lines[++n]=$0}
+        END{
+          i=1; while (i<=n && lines[i] ~ /^[[:space:]]*$/) i++
+          j=n; while (j>=1 && lines[j] ~ /^[[:space:]]*$/) j--
+          for (k=i; k<=j; k++) print lines[k]
+        }
+      '
+  )"
+
+  if [ -z "${clean//[[:space:]]/}" ]; then
+    echo "No usable commit message produced."
+    printf "%s\n" "$raw" >&2
+    exit 1
+  fi
+
+  printf "%s\n" "$clean" > "$tmp"
+  git commit -e -F "$tmp"
+)
