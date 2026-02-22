@@ -24,6 +24,7 @@ set completion-highlight-bg     "#44475A"
 set completion-highlight-fg     "#FFFFFF"
 
 # --- Recolor Mode 
+set render-loading false
 set recolor false              
 set recolor-keephue true       
 set recolor-lightcolor         "#000000"

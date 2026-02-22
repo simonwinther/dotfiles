@@ -14,8 +14,9 @@ gai() (
   fi
 
   # Show staged diff
-  command git -c pager.diff=true diff --cached
-  echo
+  # Uncomment to show diff in pager before prompt
+  # command git -c pager.diff=true diff --cached
+  # echo
 
   # Build prompt
   staged_names="$(command git diff --cached --name-status --no-color)"
