@@ -499,4 +499,26 @@ return {
     end),
     { condition = in_mathzone }
   ),
+  -- if and only if
+  s({ trig = "iff", snippetType = "autosnippet" }, { t("\\iff ") }, { condition = in_mathzone }),
+  -- implies
+  s({ trig = "imp", snippetType = "autosnippet" }, { t("\\implies ") }, { condition = in_mathzone }),
+  -- BOLD TEXT
+  s(
+    { trig = "tbf", snippetType = "autosnippet" },
+    fmt("\\textbf{<>}", { i(1) }, { delimiters = "<>" }),
+    { condition = not_in_mathzone }
+  ),
+  -- TEXT ITALIC
+  s(
+    { trig = "tit", snippetType = "autosnippet" },
+    fmt("\\textit{<>}", { i(1) }, { delimiters = "<>" }),
+    { condition = not_in_mathzone }
+  ),
+  --
+  s(
+    { trig = "ttt", snippetType = "autosnippet" },
+    fmt("\\texttt{<>}", { i(1) }, { delimiters = "<>" }),
+    { condition = not_in_mathzone }
+  ),
 }
