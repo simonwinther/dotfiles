@@ -55,7 +55,7 @@ ${staged_stat}
       sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^["'\''`]+//; s/["'\''`]+$//'
   )"
 
-  if ! printf "%s\n" "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .{1,72}$'; then
+  if ! printf "%s\n" "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .+$'; then
     echo "Copilot output does not look like a conventional commit subject:"
     printf "%s\n" "$msg" >&2
     echo
