@@ -1,35 +1,18 @@
 cc() {
-  local specs extra final
-
-  specs="$(print -r -- "
-### System Specs
-- OS: $(uname -srmo 2>/dev/null)
-- Kernel: $(uname -r)
-- Shell: zsh $ZSH_VERSION
-- Editor: ${EDITOR:-${VISUAL:-None}}
-- Desktop: ${XDG_CURRENT_DESKTOP:-Unknown}
-- Session: ${XDG_SESSION_TYPE:-Unknown}
-- Terminal: ${TERM_PROGRAM:-${TERM:-Unknown}}
-- CPU: $(lscpu | awk -F: '/Model name/ {print $2}' | sed 's/^ *//')
-- Cores: $(nproc)
-- RAM: $(free -h | awk '/Mem:/ {print $2}')
-- GPU: $(lspci | grep -i 'vga\|3d' | sed 's/.*: //')
-- Host: $(hostname)
-")"
-
-  # If stdin is piped, capture it
+  local final
+  
   if [[ ! -t 0 ]]; then
-    extra="$(cat)"
-    final="$specs"$'\n'"$extra"
+    final=$(cat)
   else
-    final="$specs"
+    echo "No input provided. Please pipe something into cc." >&2
+    return 1
   fi
 
   if command -v wl-copy >/dev/null; then
-    print -r -- "$final" | wl-copy
-    print "󰅍 Copied to clipboard"
+    printf '%s' "$final" | wl-copy
+    echo "󰅍 Copied to clipboard"
   else
-    print -u2 "cc: wl-copy not found"
+    echo "cc: wl-copy not found" >&2
     return 1
   fi
 }

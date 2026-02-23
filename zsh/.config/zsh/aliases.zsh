@@ -22,3 +22,7 @@ alias ff="fastfetch"
 
 # ─────────── Git Shortcuts ─────────────
 alias g='git'
+
+# 
+alias lzg='lazygit'
+alias lzd='lazydocker'
