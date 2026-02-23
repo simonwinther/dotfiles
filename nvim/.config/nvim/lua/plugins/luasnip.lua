@@ -10,7 +10,7 @@ return {
 
         -- Hot Reload on Save
         vim.api.nvim_create_autocmd("BufWritePost", {
-          pattern = "*/snippets/*.lua",
+          pattern = "*/snippets/**/*.lua",
           callback = function()
             require("luasnip.loaders.from_lua").load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
             print("Snippets reloaded successfully!")
