@@ -28,7 +28,7 @@ local function to_label(args)
   return args[1][1]:lower():gsub("%p", ""):gsub("%s+", "_")
 end
 
-return {
+local snippets = {
   -- SECTION
   s(
     "sec",
@@ -499,6 +499,7 @@ return {
     end),
     { condition = in_mathzone }
   ),
+
   -- if and only if
   s({ trig = "iff", snippetType = "autosnippet" }, { t("\\iff ") }, { condition = in_mathzone }),
   -- implies
@@ -515,10 +516,75 @@ return {
     fmt("\\textit{<>}", { i(1) }, { delimiters = "<>" }),
     { condition = not_in_mathzone }
   ),
+  -- ELL SYMBOL
+  s({ trig = "ll", snippetType = "autosnippet" }, { t("\\ell ") }, { condition = in_mathzone }),
   --
   s(
     { trig = "ttt", snippetType = "autosnippet" },
     fmt("\\texttt{<>}", { i(1) }, { delimiters = "<>" }),
     { condition = not_in_mathzone }
   ),
+  -- MATHCAL SHORTCUT (e.g., cB -> \mathcal{B}, cC -> \mathcal{C})
+  s(
+    { trig = "c([A-Z])", regTrig = true, snippetType = "autosnippet" },
+    f(function(_, snip)
+      return "\\mathcal{" .. snip.captures[1] .. "}"
+    end),
+    { condition = in_mathzone }
+  ),
+
+  -- MATHBB SHORTCUT (e.g., bR -> \mathbb{R}, bZ -> \mathbb{Z})
+  s(
+    { trig = "b([A-Z])", regTrig = true, snippetType = "autosnippet" },
+    f(function(_, snip)
+      return "\\mathbb{" .. snip.captures[1] .. "}"
+    end),
+    { condition = in_mathzone }
+  ),
 }
+
+-- AUTO-GENERATE GREEK LETTER SNIPPETS (full names like "alpha" → "\alpha ")
+local greek_letters = {
+  "alpha",
+  "beta",
+  "gamma",
+  "delta",
+  "epsilon",
+  "zeta",
+  "eta",
+  "theta",
+  "iota",
+  "kappa",
+  "lambda",
+  "mu",
+  "nu",
+  "xi",
+  "pi",
+  "rho",
+  "sigma",
+  "tau",
+  "upsilon",
+  "phi",
+  "chi",
+  "psi",
+  "omega",
+  -- variants
+  "varepsilon",
+  "varphi",
+  "varkappa",
+  "vartheta",
+  "varrho",
+}
+
+local greek_snippets = {}
+
+for _, name in ipairs(greek_letters) do
+  table.insert(
+    greek_snippets,
+    s({ trig = name, snippetType = "autosnippet" }, { t("\\" .. name .. " ") }, { condition = in_mathzone })
+  )
+end
+
+vim.list_extend(snippets, greek_snippets)
+
+return snippets
