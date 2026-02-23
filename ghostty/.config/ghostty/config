@@ -2,7 +2,11 @@
 # Ctrl + shift + , 
 
 # --- Theme & colors ---
-font-size = 12
+font-family = "JetBrainsMono Nerd Font Mono"
+font-size = 14
+font-feature = "calt"
+font-feature = "liga"
+
 background = #1e1e2e
 foreground = #cdd6f4
 
@@ -36,15 +40,15 @@ window-padding-color = extend
 window-padding-y = 0
 window-padding-x = 0
 
-# 0.8 is best, but 0.7 when im retarded 
-# Transparency (set to 1.0 for max speed)
-background-opacity = 0.7
+# background-opacity = 0.7
+background-opacity = 1
 
 # Window decorations 
 window-decoration = none
 
 # Custom cursor shader (keep if you want it)
-custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
+# custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
+# custom-shader-animation = true
 
 # Don't do this!! super enter to open terminal then uses the same tmuxes....
 # command = tmux attach -t main || tmux new -s main
