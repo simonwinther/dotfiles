@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DELAY_FOCUS=0.20
+DELAY_TYPE=0.05
+
+need() { command -v "$1" >/dev/null 2>&1 || {
+  printf 'missing: %s\n' "$1" >&2
+  exit 127
+}; }
+for cmd in fzf wtype hyprctl setsid; do need "$cmd"; done
+
+choice="$(
+  fzf \
+    --delimiter=$'\t' \
+    --with-nth=1,2 \
+    --nth=1,2 \
+    --reverse \
+    --border=rounded \
+    --margin=5% \
+    --prompt="Search > " \
+    --color=fg:white,fg+:white,bg+:-1 \
+    --color=hl:green,hl+:bright-green \
+    --color=border:green,prompt:green,pointer:green,marker:green,spinner:green,info:gray \
+    --preview-window=right:45%:wrap \
+    --preview="cut -f2- <<< {}" \
+    --tabstop=2 \
+    --separator=' │ ' \
+    --no-hscroll <<'EOF'
+Concise	Rewrite this to be as concise as possible without losing any meaning.
+Explain Concise	Explain this as concise and short, as possible without losing any meaning.
+Exact	Rewrite the exact same text you just wrote, without changing its structure, order, or content. The only difference should be that every line is explained in much more depth. Do not assume any prior knowledge. Define and explain all terms, symbols, and concepts as they appear, and go through the text line by line, explaining what each part means and why it is written that way.
+Short	Rewrite this to be as concise as possible without losing any meaning.
+Formal	Rewrite this in a formal, academic tone.
+Explain	Explain this from first principles. Do not assume prior knowledge, and clearly define all terms and concepts before using them.
+Fix	Fix grammar, spelling, and obvious wording mistakes in this text. Keep the original tone, style, and sentence structure as much as possible. Do not rewrite or over-polish. Only make changes where something is incorrect, unclear, or unnatural, and prefer minimal edits. Do not use em dashes, en dashes, hyphens as separators, or semicolons. Use simple sentences and standard punctuation only.
+LLM Summary	Summarize the entire conversation so far so it can be given to another LLM. Include all relevant context, decisions, constraints, preferences, and what has already been tried. Be factual and concise but complete. Do not add commentary, framing phrases, or explanations. Output only the summary text and nothing else.
+Help Topic	I do not want the solution yet. I want to understand the topic behind this task. Explain the big picture first. Then define all important terms and symbols. Then explain the core ideas step by step with intuition. Then show how this type of task is usually solved in general. Only at the end, relate it back to this specific exercise.
+Study	I do not want the solution yet. I want to understand the topic behind this task. Explain the big picture first. Then define all important terms and symbols. Then explain the core ideas step by step with intuition. Then show how this type of task is usually solved in general. Only at the end, relate it back to this specific exercise. /study
+EOF
+)" || exit 0
+
+[[ "$choice" == *$'\t'* ]] || exit 0
+snippet="${choice#*$'\t'}"
+
+setsid -f bash -c '
+  sleep "$1"
+  hyprctl dispatch focuswindow previous >/dev/null 2>&1 || true
+  sleep "$2"
+  wtype -- "$3"
+' _ "$DELAY_FOCUS" "$DELAY_TYPE" "$snippet" >/dev/null 2>&1
+
+hyprctl dispatch closewindow "class:^(global\.snip)$" >/dev/null 2>&1 || true
