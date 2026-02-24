@@ -31,7 +31,7 @@ table.insert(
 table.insert(
   snippets,
   s(
-    { trig = "//", snippetType = "autosnippet" },
+    { trig = "/", snippetType = "autosnippet" },
     fmt("\\frac{<>}{<>}", { i(1), i(2) }, { delimiters = "<>" }),
     { condition = cond.in_mathzone }
   )

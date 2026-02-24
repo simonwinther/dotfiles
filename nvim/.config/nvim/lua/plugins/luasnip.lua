@@ -1,7 +1,8 @@
 return {
   {
     "L3MON4D3/LuaSnip",
-    event = "InsertEnter",
+    -- event = "InsertEnter",
+    ft = "tex", -- Currently only load for LaTeX, but can be extended to other filetypes as needed
     dependencies = {
       "rafamadriz/friendly-snippets",
       config = function()

@@ -28,6 +28,12 @@ local math_auto = {
   { "iff", "\\iff " },
   { "imp", "\\implies " },
   { "ll", "\\ell " },
+  { "tf", "\\therefore" },
+  { "bc", "\\because " },
+  { "approx", "\\approx " },
+  { ":=", "\\coloneqq " },
+  { "~", "\\sim " },
+  { "sim", "\\sim " },
 }
 
 for _, pair in ipairs(math_auto) do
