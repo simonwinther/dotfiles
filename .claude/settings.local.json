@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__canvas-api__get_my_upcoming_assignments"
+    ]
+  }
+}
