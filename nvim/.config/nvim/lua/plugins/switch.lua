@@ -6,14 +6,16 @@ return {
   },
   config = function()
     local S = vim.fn["switch#NormalizedCaseWords"]
+    local W = vim.fn["switch#Words"]
 
     local danish_lower = vim.fn.split("abcdefghijklmnopqrstuvwxyzæøå", "\\zs")
     local danish_upper = vim.fn.split("ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ", "\\zs")
+
     ---------------------------------------------------------------------------
-    -- 🌍 Global definitions (apply to all filetypes)
+    -- Global definitions
     ---------------------------------------------------------------------------
     vim.g.switch_custom_definitions = {
-      -- Boolean / flag switches (case-aware)
+      -- Boolean / flag switches
       S({ "true", "false" }),
       S({ "on", "off" }),
       S({ "yes", "no" }),
@@ -22,10 +24,10 @@ return {
       { "0", "1" },
       { "define", "undef" },
 
-      -- 1. Visibility / Access Modifiers (Crucial for OOP)
+      -- Visibility / Access Modifiers
       S({ "public", "protected", "private" }),
 
-      -- 2. Dimensions & Directions (CSS, UI, Game Dev)
+      -- Dimensions & Directions (CSS, UI, Game Dev)
       { "width", "height" },
       { "top", "bottom" },
       { "left", "right" },
@@ -33,10 +35,10 @@ return {
       { "row", "column" },
       { "horizontal", "vertical" },
 
-      -- 3. Loop Control
+      -- Loop Control
       { "break", "continue" },
 
-      -- 4. Testing / Assertions (Common in unit tests)
+      -- Testing / Assertions
       { "assert", "refute" },
       { "expected", "actual" },
 
@@ -46,7 +48,7 @@ return {
       { "+=", "-=" },
       { "*=", "/=" },
 
-      -- increment / decrement (multi-char operators)
+      -- increment / decrement
       { "++", "--" },
       { "--", "++" },
 
@@ -78,9 +80,50 @@ return {
         ["`\\(\\k\\+\\)`"] = [=['\1']=],
         ["'\\(\\k\\+\\)'"] = [["\1"]],
       },
-      -- -- Danish alphabet
+
       -- danish_lower,
       -- danish_upper,
     }
+
+    ---------------------------------------------------------------------------
+    -- Filetype Specific definitions (C / C++)
+    ---------------------------------------------------------------------------
+    local function setup_cpp_switch()
+      if vim.b.switch_cpp_loaded then
+        return
+      end
+      vim.b.switch_cpp_loaded = true
+
+      local cpp_defs = {
+        W({ "int8_t", "int16_t", "int32_t", "int64_t", "__int128" }),
+        W({ "uint8_t", "uint16_t", "uint32_t", "uint64_t", "__uint128_t" }),
+        W({ "__int128", "__int256", "__int512", "__int1024" }),
+        W({ "__uint128_t", "__uint256", "__uint512", "__uint1024" }),
+        {
+          ["\\<char\\>"] = "short",
+          ["\\<short\\>"] = "int",
+          ["\\<int\\>"] = "long",
+          ["\\<long\\>\\%( \\+long\\)\\@!"] = "long long",
+          ["\\<long\\>\\s\\+\\<long\\>"] = "char",
+        },
+      }
+
+      local current = vim.b.switch_custom_definitions or {}
+      for _, def in ipairs(cpp_defs) do
+        table.insert(current, def)
+      end
+      vim.b.switch_custom_definitions = current
+    end
+
+    -- Apply immediately if the buffer that triggered the lazy-load is C/C++
+    if vim.bo.filetype == "cpp" or vim.bo.filetype == "c" then
+      setup_cpp_switch()
+    end
+
+    -- Create an autocommand for any new C/C++ files opened later in the session
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = { "cpp", "c" },
+      callback = setup_cpp_switch,
+    })
   end,
 }
