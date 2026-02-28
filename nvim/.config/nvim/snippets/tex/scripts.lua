@@ -80,6 +80,76 @@ table.insert(
   )
 )
 
+-- PRODUCT
+table.insert(
+  snippets,
+  s(
+    { trig = "prod", snippetType = "autosnippet" },
+    c(1, {
+      -- Full Limits
+      fmt(
+        [[
+        \prod_{<>}^{<>}
+        ]],
+        { i(1, "i=1"), i(2, "n") },
+        { delimiters = "<>" }
+      ),
+      -- Subscript only
+      fmt(
+        [[
+        \prod_{<>}
+        ]],
+        { i(1, "i") },
+        { delimiters = "<>" }
+      ),
+      -- Bare
+      fmt(
+        [[
+        \prod <>
+        ]],
+        { i(1, "x") },
+        { delimiters = "<>" }
+      ),
+    }),
+    { condition = cond.in_mathzone }
+  )
+)
+
+-- INTEGRAL
+table.insert(
+  snippets,
+  s(
+    { trig = "int", snippetType = "autosnippet" },
+    c(1, {
+      -- Full Limits
+      fmt(
+        [[
+        \int_{<>}^{<>}
+        ]],
+        { i(1, "a"), i(2, "b") },
+        { delimiters = "<>" }
+      ),
+      -- Subscript only (e.g., over a domain D)
+      fmt(
+        [[
+        \int_{<>}
+        ]],
+        { i(1, "\\Omega") },
+        { delimiters = "<>" }
+      ),
+      -- Bare
+      fmt(
+        [[
+        \int <>
+        ]],
+        { i(1, "f(x)") },
+        { delimiters = "<>" }
+      ),
+    }),
+    { condition = cond.in_mathzone }
+  )
+)
+
 -- MULTIPLE \text{...} (e.g. 3tt)
 table.insert(
   snippets,

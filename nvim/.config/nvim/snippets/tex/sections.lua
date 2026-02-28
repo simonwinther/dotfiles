@@ -3,7 +3,7 @@ if type(C) ~= "table" or not C.snippets then
   return {}
 end
 
-local s, i, f, fmt = C.P.s, C.P.i, C.P.f, C.P.fmt
+local s, t, i, c, f, fmt = C.P.s, C.P.t, C.P.i, C.P.c, C.P.f, C.P.fmt
 local cond = C.cond
 local helpers = C.helpers
 local snippets = C.snippets
@@ -84,5 +84,47 @@ table.insert(
     { trig = "par", priority = 2000 },
     fmt([[\paragraph{<>} <>]], { i(1, "Title"), i(0) }, { delimiters = "<>" }),
     { condition = cond.not_in_mathzone }
+  )
+)
+
+-- LABEL
+table.insert(
+  snippets,
+  s(
+    { trig = "lbl", snippetType = "autosnippet" },
+    c(1, {
+      -- Bare Label
+      fmt(
+        [[
+        \label{<>}
+        ]],
+        { i(1, "name") },
+        { delimiters = "<>" }
+      ),
+      -- Equation Label
+      fmt(
+        [[
+        \label{eq:<>}
+        ]],
+        { i(1, "name") },
+        { delimiters = "<>" }
+      ),
+      -- Figure Label
+      fmt(
+        [[
+        \label{fig:<>}
+        ]],
+        { i(1, "name") },
+        { delimiters = "<>" }
+      ),
+      -- Section Label
+      fmt(
+        [[
+        \label{sec:<>}
+        ]],
+        { i(1, "name") },
+        { delimiters = "<>" }
+      ),
+    })
   )
 )

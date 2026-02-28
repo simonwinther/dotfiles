@@ -3,7 +3,7 @@ if type(C) ~= "table" or not C.snippets then
   return {}
 end
 
-local s, i, fmt = C.P.s, C.P.i, C.P.fmt
+local s, i, t, fmt = C.P.s, C.P.i, C.P.t, C.P.fmt
 local cond = C.cond
 local snippets = C.snippets
 
@@ -78,3 +78,5 @@ table.insert(
     { condition = cond.not_in_mathzone }
   )
 )
+
+table.insert(snippets, s({ trig = "nn" }, { t("\\nonumber") }, { condition = cond.in_mathzone }))

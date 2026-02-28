@@ -56,3 +56,5 @@ table.insert(
     { condition = cond.not_in_mathzone }
   )
 )
+-- SINGLE ITEM
+table.insert(snippets, s({ trig = "it" }, { t("\\item ") }, { condition = cond.not_in_mathzone }))
