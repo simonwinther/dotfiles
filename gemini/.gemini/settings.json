@@ -1,0 +1,22 @@
+{
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "general": {
+    "previewFeatures": true,
+    "vimMode": false,
+    "sessionRetention": {
+      "enabled": true,
+      "maxAge": "30d",
+      "warningAcknowledged": true
+    }
+  },
+  "mcpServers": {
+    "canvas-api": {
+      "command": "/home/simon/dev/canvas-mcp/.venv/bin/canvas-mcp-server",
+      "cwd": "/home/simon/dev/canvas-mcp"
+    }
+  }
+}
