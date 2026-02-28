@@ -167,6 +167,28 @@ local selected_header = headers[math.random(#headers)]
 return {
   {
     "folke/snacks.nvim",
+    keys = {
+      { "<leader>.", false },
+      {
+        "<leader>bs",
+        function()
+          vim.ui.input({ prompt = "Scratch Filetype (e.g., cpp, lua, py): " }, function(ft)
+            if ft and ft ~= "" then
+              Snacks.scratch({ ft = ft })
+            end
+          end)
+        end,
+        desc = "Create Specific Scratch",
+      },
+      { "<leader>S", false },
+      {
+        "<leader>bS",
+        function()
+          Snacks.scratch.select()
+        end,
+        desc = "Select Scratch Buffer",
+      },
+    },
     opts = {
       dashboard = {
         preset = {
