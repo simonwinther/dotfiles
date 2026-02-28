@@ -11,6 +11,8 @@ local function is_mapped(mode, lhs)
   end
 end
 
+-- <leader>. is free , and a very fast bind for something i use often, <leader>S is also free
+
 ----------------------------------------
 --- Oil
 ----------------------------------------
