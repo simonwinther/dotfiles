@@ -1,0 +1,25 @@
+model = "gpt-5.3-codex"
+[projects."/home/simon"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/numerical-optimization"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/online-reinforcement-and-learning"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/sofi-lang"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/UpRank"]
+trust_level = "trusted"
+
+[projects."/home/simon/dotfiles"]
+trust_level = "trusted"
+
+[notice.model_migrations]
+"gpt-5.2-codex" = "gpt-5.3-codex"
+
+[mcp_servers.canvas-api]
+command = "/home/simon/dev/canvas-mcp/.venv/bin/canvas-mcp-server"
+cwd = "/home/simon/dev/canvas-mcp"
