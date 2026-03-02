@@ -75,7 +75,7 @@ table.insert(
   )
 )
 
--- @b BRACKETS
+-- @bu BRACKETS
 table.insert(
   snippets,
   s(
@@ -91,6 +91,26 @@ table.insert(
   s(
     { trig = "@a", snippetType = "autosnippet", wordTrig = false },
     fmt("\\left\\langle <> \\right\\rangle", { i(1) }, { delimiters = "<>" }),
+    { condition = cond.in_mathzone }
+  )
+)
+
+-- @l Left
+table.insert(
+  snippets,
+  s(
+    { trig = "@l", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\left<>", { i(1) }, { delimiters = "<>" }),
+    { condition = cond.in_mathzone }
+  )
+)
+
+-- @r Right
+table.insert(
+  snippets,
+  s(
+    { trig = "@r", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\right<>", { i(1) }, { delimiters = "<>" }),
     { condition = cond.in_mathzone }
   )
 )
