@@ -14,7 +14,7 @@ function M.smart_space(replacement)
     local line = vim.api.nvim_get_current_line()
     local next_char = line:sub(col + 1, col + 1)
 
-    if next_char:match("[%w\\]") then
+    if next_char == "" or next_char:match("[%w\\]") then
       return replacement .. " "
     else
       return replacement
