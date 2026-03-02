@@ -3,7 +3,7 @@ if type(C) ~= "table" or not C.snippets then
   return {}
 end
 
-local helpers = require("helpers")
+local helpers = C.helpers
 local s, i, fmt, f = C.P.s, C.P.i, C.P.fmt, C.P.f
 
 local cond = C.cond

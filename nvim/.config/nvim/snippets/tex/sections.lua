@@ -3,7 +3,7 @@ if type(C) ~= "table" or not C.snippets then
   return {}
 end
 
-local s, t, i, c, f, fmt = C.P.s, C.P.t, C.P.i, C.P.c, C.P.f, C.P.fmt
+local s, i, c, f, fmt = C.P.s, C.P.i, C.P.c, C.P.f, C.P.fmt
 local cond = C.cond
 local helpers = C.helpers
 local snippets = C.snippets
