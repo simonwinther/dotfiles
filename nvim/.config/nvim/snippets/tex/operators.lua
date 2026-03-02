@@ -19,7 +19,7 @@ local math_auto = {
   { "supset", "\\supset" },
   { "subseteq", "\\subseteq" },
   { "supseteq", "\\supseteq" },
-  { "mu", "\\mu " },
+  { "mu", "\\mu" },
   { "pi", "\\pi" },
   { "in", "\\in" },
   { "Pi", "\\Pi" },
@@ -33,12 +33,12 @@ local math_auto = {
   { "pp", "\\prim" },
   { "iff", "\\iff" },
   { "imp", "\\implies" },
-  { "ll", "\\ell " },
+  { "ll", "\\ell" },
   { "tf", "\\therefor" },
   { "bc", "\\because" },
   { "approx", "\\approx" },
   { ":=", "\\coloneqq" },
-  { "~", "\\sim " },
+  { "~", "\\sim" },
   { "sim", "\\sim" },
   { "...", "\\dots" },
   { "c.", "\\cdot" },
@@ -65,7 +65,7 @@ for _, pair in ipairs(math_auto) do
     snippets,
     s(
       { trig = pair[1], snippetType = "autosnippet" },
-      { f(helpers.smart_space(pair[2])) }, -- This calls the logic from your helper file
+      { f(helpers.smart_space(pair[2])) },
       { condition = cond.in_mathzone }
     )
   )
