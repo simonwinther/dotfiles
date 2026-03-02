@@ -3,7 +3,7 @@ if type(C) ~= "table" or not C.snippets then
   return {}
 end
 
-local s, t, i, c, d, sn, fmt = C.P.s, C.P.t, C.P.i, C.P.c, C.P.d, C.P.sn, C.P.fmt
+local s, t, i, c, d, sn, f, fmt = C.P.s, C.P.t, C.P.i, C.P.c, C.P.d, C.P.sn, C.P.f, C.P.fmt
 local cond = C.cond
 local snippets = C.snippets
 
@@ -171,6 +171,25 @@ table.insert(
 
       return sn(nil, nodes)
     end),
+    { condition = cond.in_mathzone }
+  )
+)
+
+-- INDEXED SEQUENCE (x_{1}, \dots, x_{m})
+table.insert(
+  snippets,
+  s(
+    { trig = "xdots", snippetType = "autosnippet" },
+    {
+      i(1, "x"),
+      t("_{"),
+      i(2, "1"),
+      t("}, \\dots, "),
+      f(function(args) return args[1][1] end, { 1 }),
+      t("_{"),
+      i(3, "m"),
+      t("}"),
+    },
     { condition = cond.in_mathzone }
   )
 )
