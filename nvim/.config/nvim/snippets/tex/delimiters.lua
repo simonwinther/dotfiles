@@ -133,3 +133,22 @@ table.insert(
     { condition = cond.in_mathzone }
   )
 )
+
+table.insert(
+  snippets,
+  s(
+    { trig = "bigl", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\bigl<>", { i(1) }, { delimiters = "<>" }),
+    { condition = cond.in_mathzone }
+  )
+)
+
+-- @bri Generic Big Right
+table.insert(
+  snippets,
+  s(
+    { trig = "bigr", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\bigr<>", { i(1) }, { delimiters = "<>" }),
+    { condition = cond.in_mathzone }
+  )
+)
