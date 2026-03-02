@@ -13,6 +13,37 @@ end
 
 -- <leader>. is free , and a very fast bind for something i use often, <leader>S is also free
 
+vim.api.nvim_create_user_command("ListGreek", function()
+  local path = vim.fn.stdpath("config") .. "/snippets/tex/letters.lua"
+  local lines = vim.fn.readfile(path)
+  local in_map, items = false, {}
+
+  for _, l in ipairs(lines) do
+    if l:match("greek_map%s*=%s*{") then
+      in_map = true
+    end
+    if in_map then
+      local k, v = l:match('^%s*([%w_]+)%s*=%s*"([^"]+)"')
+      if k and v then
+        table.insert(items, { text = v .. "    ;" .. k .. "    \\" .. v })
+      end
+      if l:match("^%s*}%s*$") then
+        break
+      end
+    end
+  end
+
+  Snacks.picker.pick({
+    title = "Greek",
+    items = items,
+    format = "text",
+    layout = { preview = false },
+    confirm = function(picker)
+      picker:close()
+    end,
+  })
+end, {})
+
 ----------------------------------------
 --- Oil
 ----------------------------------------
