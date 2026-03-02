@@ -25,6 +25,8 @@ if surround_available then
     surrounds = {
       e = { add = { "\\emph{", "}" } },
       b = { add = { "\\textbf{", "}" } },
+      ["}"] = { add = { "\\underbrace{", "}_{}" } },
+      ["{"] = { add = { "\\overbrace{", "}^{}" } },
       i = { add = { "\\textit{", "}" } },
       u = { add = { "\\underline{", "}" } },
       c = { add = { "\\cite{", "}" } },
