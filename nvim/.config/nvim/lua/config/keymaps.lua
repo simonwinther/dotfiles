@@ -12,7 +12,16 @@ local function is_mapped(mode, lhs)
 end
 
 -- <leader>. is free , and a very fast bind for something i use often, <leader>S is also free
+vim.keymap.set("n", "<leader>.", function()
+  Snacks.picker.resume()
+end, { desc = "Find Files (Root Dir)" })
 
+--------------------------------------------
+--- Custom command lists below
+--------------------------------------------
+
+--- List Greek letters from the letters.lua snippet file in a picker
+--- Because I always forget the exact name of the Greek letter
 vim.api.nvim_create_user_command("ListGreek", function()
   local path = vim.fn.stdpath("config") .. "/snippets/tex/letters.lua"
   local lines = vim.fn.readfile(path)
