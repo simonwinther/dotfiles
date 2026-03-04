@@ -193,3 +193,23 @@ table.insert(
     { condition = cond.in_mathzone }
   )
 )
+
+-- INDEXED VECTOR SEQUENCE (\boldsymbol{x}_{1}, \dots, \boldsymbol{x}_{m})
+table.insert(
+  snippets,
+  s(
+    { trig = "vdots", snippetType = "autosnippet" },
+    {
+      t("\\boldsymbol{"),
+      i(1, "x"),
+      t("}_{"),
+      i(2, "1"),
+      t("}, \\dots, \\boldsymbol{"),
+      f(function(args) return args[1][1] end, { 1 }),
+      t("}_{"),
+      i(3, "m"),
+      t("}"),
+    },
+    { condition = cond.in_mathzone }
+  )
+)

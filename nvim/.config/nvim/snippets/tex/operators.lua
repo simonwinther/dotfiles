@@ -21,7 +21,7 @@ local math_auto = {
   { "supseteq", "\\supseteq" },
   { "mu", "\\mu" },
   { "pi", "\\pi" },
-  { "in", "\\in" },
+  { "inn", "\\in" },
   { "Pi", "\\Pi" },
   { "qq", "\\quad" },
   { "geq", "\\geq" },

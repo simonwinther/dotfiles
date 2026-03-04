@@ -1,5 +1,7 @@
 local C = ...
-if type(C) ~= "table" or not C.snippets then return {} end
+if type(C) ~= "table" or not C.snippets then
+  return {}
+end
 
 local s, i, f, fmt = C.P.s, C.P.i, C.P.f, C.P.fmt
 local cond = C.cond
