@@ -60,3 +60,6 @@ window-decoration = none
 # # Remove the default Ctrl+Shift+C/V bindings
 # keybind = ctrl+shift+c=unbind
 # keybind = ctrl+shift+v=unbind
+
+# Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
+async-backend = epoll
