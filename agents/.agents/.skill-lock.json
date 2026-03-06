@@ -1,0 +1,119 @@
+{
+  "version": 3,
+  "skills": {
+    "canvas-accessibility-auditor": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-accessibility-auditor/SKILL.md",
+      "skillFolderHash": "3d0b5b182b588f832f0c69853dfc0bb47718477c",
+      "installedAt": "2026-03-06T13:08:15.628Z",
+      "updatedAt": "2026-03-06T13:08:15.628Z"
+    },
+    "canvas-bulk-grading": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-bulk-grading/SKILL.md",
+      "skillFolderHash": "3afa2968736b82df68018ce02eacae54ed82f3b6",
+      "installedAt": "2026-03-06T13:08:15.935Z",
+      "updatedAt": "2026-03-06T13:08:15.935Z"
+    },
+    "canvas-course-builder": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-course-builder/SKILL.md",
+      "skillFolderHash": "14efd0f00d6017cff5bda4f557e9e7449809bbb0",
+      "installedAt": "2026-03-06T13:08:16.245Z",
+      "updatedAt": "2026-03-06T13:08:16.245Z"
+    },
+    "canvas-course-qc": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-course-qc/SKILL.md",
+      "skillFolderHash": "986eec300565fbeee02c1127f1a36c1447f38a53",
+      "installedAt": "2026-03-06T13:08:16.537Z",
+      "updatedAt": "2026-03-06T13:08:16.537Z"
+    },
+    "canvas-discussion-facilitator": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-discussion-facilitator/SKILL.md",
+      "skillFolderHash": "08e043118b4ce5173530066828098893105271ac",
+      "installedAt": "2026-03-06T13:08:16.857Z",
+      "updatedAt": "2026-03-06T13:08:16.857Z"
+    },
+    "canvas-morning-check": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-morning-check/SKILL.md",
+      "skillFolderHash": "1c44f81062d4a18b19849519d6940f4c35721641",
+      "installedAt": "2026-03-06T13:08:17.163Z",
+      "updatedAt": "2026-03-06T13:08:17.163Z"
+    },
+    "canvas-peer-review-manager": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-peer-review-manager/SKILL.md",
+      "skillFolderHash": "6d272d8dd9fbe80725900dd03307424b008de9dc",
+      "installedAt": "2026-03-06T13:08:17.416Z",
+      "updatedAt": "2026-03-06T13:08:17.416Z"
+    },
+    "canvas-week-plan": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": "skills/canvas-week-plan/SKILL.md",
+      "skillFolderHash": "6603e495c2a46c1b42ca0822fb49377fff80563b",
+      "installedAt": "2026-03-06T13:08:17.778Z",
+      "updatedAt": "2026-03-06T13:08:17.778Z"
+    },
+    "morning-check": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": ".claude/skills/morning-check/SKILL.md",
+      "skillFolderHash": "0e9c6ced5a86fe4417f45d84b2e51a28ca898ab5",
+      "installedAt": "2026-03-06T13:08:18.090Z",
+      "updatedAt": "2026-03-06T13:08:18.090Z"
+    },
+    "week-plan": {
+      "source": "vishalsachdev/canvas-mcp",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vishalsachdev/canvas-mcp.git",
+      "skillPath": ".claude/skills/week-plan/SKILL.md",
+      "skillFolderHash": "44698d9ac4a71313e74cc848d08b784c1994a7ef",
+      "installedAt": "2026-03-06T13:08:18.392Z",
+      "updatedAt": "2026-03-06T13:08:18.392Z"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/vercel-labs/skills.git",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "skillFolderHash": "c2f31172b6f256272305a5e6e7228b258446899f",
+      "installedAt": "2026-03-06T13:08:21.528Z",
+      "updatedAt": "2026-03-06T13:08:21.528Z"
+    }
+  },
+  "dismissed": {
+    "findSkillsPrompt": true
+  },
+  "lastSelectedAgents": [
+    "amp",
+    "cline",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "github-copilot",
+    "kimi-cli",
+    "opencode",
+    "claude-code",
+    "openclaw"
+  ]
+}

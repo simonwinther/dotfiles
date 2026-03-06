@@ -1,0 +1,4 @@
+interface:
+  display_name: "Canvas Active Courses + Due"
+  short_description: "List active Canvas courses and upcoming assignments."
+  default_prompt: "List my active Canvas courses and upcoming due assignments with local times and submission status."

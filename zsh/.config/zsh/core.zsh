@@ -69,6 +69,9 @@ done
 source ~/.config/zsh/keybinds/init.zsh
 source ~/.config/zsh/aliases.zsh
 
+# Load local secrets if present
+[[ -f ~/.config/zsh/secrets.zsh ]] && source ~/.config/zsh/secrets.zsh
+
 # ──────────────────────────── ZSH PLUGINS ────────────────────────────
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "mcp__canvas-api__get_my_upcoming_assignments"
+      "mcp__canvas-api__get_my_upcoming_assignments",
+      "mcp__canvas__list_assignments",
+      "mcp__canvas__get_my_submission_status",
+      "mcp__canvas__get_my_upcoming_assignments"
     ]
   }
 }

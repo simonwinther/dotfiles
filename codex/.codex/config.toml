@@ -20,6 +20,7 @@ trust_level = "trusted"
 [notice.model_migrations]
 "gpt-5.2-codex" = "gpt-5.3-codex"
 
-[mcp_servers.canvas-api]
-command = "/home/simon/dev/canvas-mcp/.venv/bin/canvas-mcp-server"
-cwd = "/home/simon/dev/canvas-mcp"
+[mcp_servers.canvas]
+url = "https://mcp.illinihunt.org/mcp"
+env_http_headers = { "X-Canvas-Token" = "CANVAS_TOKEN", "X-Canvas-URL" = "CANVAS_API_URL" }
+
