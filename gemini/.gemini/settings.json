@@ -14,9 +14,14 @@
     }
   },
   "mcpServers": {
-    "canvas-api": {
-      "command": "/home/simon/dev/canvas-mcp/.venv/bin/canvas-mcp-server",
-      "cwd": "/home/simon/dev/canvas-mcp"
+    "canvas": {
+      "httpUrl": "https://mcp.illinihunt.org/mcp",
+      "headers": {
+        "X-Canvas-Token": "$CANVAS_TOKEN",
+        "X-Canvas-URL": "$CANVAS_API_URL"
+      },
+      "trust": true,
+      "timeout": 60000
     }
   }
 }
