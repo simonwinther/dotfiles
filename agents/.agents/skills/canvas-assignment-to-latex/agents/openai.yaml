@@ -1,0 +1,4 @@
+interface:
+  display_name: "Canvas Assignment to LaTeX"
+  short_description: "Export assignments to LaTeX and verbatim task files."
+  default_prompt: "Extract assignment \"<assignment title>\" from course \"<course code or id>\" into LaTeX, and split tasks/subtasks into structured verbatim text files from the assignment PDF."
