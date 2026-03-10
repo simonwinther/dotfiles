@@ -13,6 +13,8 @@ local math_auto = {
   { "xx", "\\times" },
   { "neq", "\\neq" },
   { "nbla", "\\nabla" },
+  { "nabla", "\\nabla" },
+  { "inf", "\\infty" },
   { "cup", "\\cup" },
   { "cap", "\\cap" },
   { "subset", "\\subset" },
