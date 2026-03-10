@@ -1,6 +1,3 @@
-# ───────────── PATH ───────────── 
-alias lg='lazygit'
-
 # ───────────── Eza (better ls) ─────────────
 alias ls="eza --icons=always"
 alias ll="eza -la --icons=always"
@@ -23,6 +20,10 @@ alias ff="fastfetch"
 # ─────────── Git Shortcuts ─────────────
 alias g='git'
 
-# 
+# ─────────── OpenCode Shortcuts ─────────────
+alias oc='opencode'
+
+# ─────────── Lazygit and Lazydocker Shortcuts ─────────────
+alias lg='lazygit'
 alias lzg='lazygit'
 alias lzd='lazydocker'
