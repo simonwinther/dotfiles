@@ -1,5 +1,10 @@
 [[ -o interactive ]] || return
 
+# Export
+export PATH="$HOME/sdk/flutter/bin:$PATH"
+export PATH=/home/simon/.opencode/bin:$PATH
+export CHROME_EXECUTABLE=/usr/bin/chromium
+
 # ──────────────────────────── GHCUP ────────────────────────────
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
 

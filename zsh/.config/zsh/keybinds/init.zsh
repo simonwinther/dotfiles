@@ -31,3 +31,6 @@ bindkey '^[l' forward-word
 # Ctrl + Left/Right to move by word
 bindkey "^[[1;5C" forward-word 
 bindkey "^[[1;5D" backward-word
+
+# Alt + o opens opencode 
+bindkey -s '^[o' 'opencode\n'
