@@ -208,6 +208,23 @@ return {
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
+        sources = (function()
+          local function with_grepignore(opts)
+            local cwd = (opts.cwd or vim.uv.cwd()):gsub("/+$", "")
+            local ignore = cwd .. "/.grepignore"
+            if vim.fn.filereadable(ignore) == 1 then
+              opts.args = opts.args or {}
+              table.insert(opts.args, "--ignore-file")
+              table.insert(opts.args, ignore)
+            end
+            return opts
+          end
+          return {
+            grep = { config = with_grepignore },
+            grep_word = { config = with_grepignore },
+            files = { config = with_grepignore },
+          }
+        end)(),
         actions = {
           inspect_picker = function(picker)
             vim.print(picker)
