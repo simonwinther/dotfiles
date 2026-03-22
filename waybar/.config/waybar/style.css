@@ -42,6 +42,7 @@ tooltip {
 #disk,
 #pulseaudio,
 #pulseaudio.microphone,
+#custom-hyprwhspr,
 #battery,
 #clock,
 #tray,
@@ -99,6 +100,7 @@ tooltip {
 
 /* 2. Group 1 Middle (Square) */
 #pulseaudio.microphone,
+#custom-hyprwhspr,
 #battery {
     border-radius: 0px;
     margin-left: 0px;
@@ -178,10 +180,24 @@ tooltip {
 #disk:hover,
 #pulseaudio:hover,
 #pulseaudio.microphone:hover,
+#custom-hyprwhspr:hover,
 #battery:hover,
 #clock:hover,
 #tray:hover {
     background: @surface0;
+}
+
+#custom-hyprwhspr {
+    min-width: 18px;
+}
+
+#custom-hyprwhspr.recording {
+    color: @red;
+}
+
+#custom-hyprwhspr.active,
+#custom-hyprwhspr.transcribing {
+    color: @blue;
 }
 
 /* -----------------------------------------------------
