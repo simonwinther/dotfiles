@@ -36,7 +36,7 @@ local math_auto = {
   { "iff", "\\iff" },
   { "imp", "\\implies" },
   { "ll", "\\ell" },
-  { "tf", "\\therefor" },
+  { "tf", "\\therefore" },
   { "bc", "\\because" },
   { "approx", "\\approx" },
   { ":=", "\\coloneqq" },
@@ -53,6 +53,7 @@ local math_auto = {
   { "<=>", "\\Leftrightarrow" },
   { "|", "\\mid" },
   { "ln", "\\ln" },
+  { "nin", "\\notin" },
   { "log", "\\log" },
 }
 
