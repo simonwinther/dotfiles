@@ -51,6 +51,7 @@ local math_auto = {
   { "<-", "\\leftarrow" },
   { "=>", "\\Rightarrow" },
   { "<=>", "\\Leftrightarrow" },
+  { "|", "\\mid" },
   { "ln", "\\ln" },
   { "log", "\\log" },
 }
