@@ -33,10 +33,12 @@ gai() (
   staged_stat="$(command git diff --cached --stat --no-color)"
 
   # Include actual diff content (truncated to ~4000 chars to avoid token limits)
-  staged_diff="$(command git diff --cached --no-color | head -c 4000)"
-  if [ "$(command git diff --cached --no-color | wc -c)" -gt 4000 ]; then
-    staged_diff="${staged_diff}
+  full_diff="$(command git diff --cached --no-color)"
+  if [ "${#full_diff}" -gt 4000 ]; then
+    staged_diff="${full_diff:0:4000}
 ... (diff truncated)"
+  else
+    staged_diff="$full_diff"
   fi
 
   # Build type hint if a type was specified
