@@ -1,6 +1,9 @@
 gai() (
   set -euo pipefail
 
+  # Valid conventional commit types
+  valid_types="feat fix refactor docs test chore perf ci build style revert"
+
   # Must be in a repo
   if ! command git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Not inside a git repository."
@@ -13,75 +16,146 @@ gai() (
     exit 1
   fi
 
-  # Show staged diff
-  # Uncomment to show diff in pager before prompt
-  # command git -c pager.diff=true diff --cached
-  # echo
+  # Optional: conventional commit type hint (e.g. gai feat)
+  commit_type="${1:-}"
 
-  # Build prompt
+  # Validate the type argument if provided
+  if [ -n "$commit_type" ]; then
+    if ! printf "%s" " $valid_types " | grep -q " $commit_type "; then
+      echo "Invalid commit type: $commit_type"
+      echo "Valid types: $valid_types"
+      exit 1
+    fi
+  fi
+
+  # Gather staged change info
   staged_names="$(command git diff --cached --name-status --no-color)"
   staged_stat="$(command git diff --cached --stat --no-color)"
 
-  prompt="$(
-    cat <<'PROMPT'
+  # Include actual diff content (truncated to ~4000 chars to avoid token limits)
+  staged_diff="$(command git diff --cached --no-color | head -c 4000)"
+  if [ "$(command git diff --cached --no-color | wc -c)" -gt 4000 ]; then
+    staged_diff="${staged_diff}
+... (diff truncated)"
+  fi
+
+  # Build type hint if a type was specified
+  type_hint=""
+  if [ -n "$commit_type" ]; then
+    type_hint="
+IMPORTANT: The commit type MUST be \"${commit_type}\". Use exactly: ${commit_type}(scope?): subject"
+  fi
+
+  # --- generate function (used for initial + retry) ---
+  generate_msg() {
+    prompt="$(
+      cat <<PROMPT
 Output MUST be exactly ONE line and NOTHING ELSE.
 
 Write a Conventional Commits SUBJECT line for the staged changes.
 
 Hard rules:
 - Format: type(scope?): subject
-- type must be one of: feat fix refactor docs test chore perf ci build style revert
+- type must be one of: $valid_types
 - subject length <= 72 characters
 - No preamble, no questions, no quotes, no markdown, no bullets, no stats/cost/model info.
+${type_hint}
 
 Staged files:
-PROMPT
-  )"
-
-  prompt="${prompt}
 ${staged_names}
 
 Diffstat:
 ${staged_stat}
-"
 
-  echo "Generating commit message..."
+Diff:
+${staged_diff}
+PROMPT
+    )"
 
-  msg="$(gh copilot -- -s -p "$prompt" 2>/dev/null || true)"
+    echo "Generating commit message..." >&2
 
-  msg="$(
-    printf "%s\n" "$msg" |
+    raw="$(gh copilot -- -s -p "$prompt" 2>/dev/null || true)"
+
+    # Clean up: take first non-empty line, strip whitespace and quotes
+    printf "%s\n" "$raw" |
       awk 'NF {print; exit}' |
       sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^["'\''`]+//; s/["'\''`]+$//'
-  )"
+  }
 
-  if ! printf "%s\n" "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .+$'; then
-    echo "Copilot output does not look like a conventional commit subject:"
-    printf "%s\n" "$msg" >&2
+  # --- initial generation ---
+  msg="$(generate_msg)"
+
+  # Loop: validate, prompt, and handle edit/retry/manual
+  while true; do
+    # Handle empty response
+    if [ -z "$msg" ]; then
+      echo "Copilot returned an empty response."
+      echo
+      printf "  [r]etry  [m]anual  [q]uit: "
+      read choice
+      case "${choice:-q}" in
+        r|R|retry)   msg="$(generate_msg)"; continue ;;
+        m|M|manual)
+          printf "Enter commit subject: "
+          read msg
+          msg="$(printf "%s\n" "$msg" | awk 'NF {print; exit}')"
+          [ -z "$msg" ] && echo "Cancelled." && exit 0
+          continue
+          ;;
+        *)  echo "Cancelled."; exit 0 ;;
+      esac
+    fi
+
+    # Validate conventional commit format
+    if ! printf "%s\n" "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?: .+$'; then
+      echo "Copilot output does not look like a conventional commit subject:"
+      printf "  %s\n" "$msg" >&2
+      echo
+      printf "  [r]etry  [e]dit  [m]anual  [q]uit: "
+      read choice
+      case "${choice:-q}" in
+        r|R|retry)   msg="$(generate_msg)"; continue ;;
+        e|E|edit)
+          printf "Edit message: "
+          read -ei "$msg" msg 2>/dev/null || { printf "Edit message [$msg]: "; read new_msg; msg="${new_msg:-$msg}"; }
+          continue
+          ;;
+        m|M|manual)
+          printf "Enter commit subject: "
+          read msg
+          msg="$(printf "%s\n" "$msg" | awk 'NF {print; exit}')"
+          [ -z "$msg" ] && echo "Cancelled." && exit 0
+          continue
+          ;;
+        *)  echo "Cancelled."; exit 0 ;;
+      esac
+    fi
+
+    # Show proposed message
     echo
-    printf "Enter commit subject manually (blank cancels): "
-    read msg
-    msg="$(printf "%s\n" "$msg" | awk 'NF {print; exit}')"
-    [ -z "$msg" ] && echo "Cancelled." && exit 0
-  fi
+    echo "Proposed commit subject:"
+    echo "  $msg"
+    echo
 
-  echo
-  echo "Proposed commit subject:"
-  echo "  $msg"
-  echo
-
-  read ans\?"Commit with this message? [Y/n] "
-  case "${ans:-Y}" in
-    Y|y|yes|YES)
-      command git commit -m "$msg"
-      ;;
-    N|n|no|NO)
-      echo "Cancelled."
-      exit 0
-      ;;
-    *)
-      echo "Cancelled."
-      exit 1
-      ;;
-  esac
+    read ans\?"[Y]es  [n]o  [e]dit  [r]etry? "
+    case "${ans:-Y}" in
+      Y|y|yes|YES)
+        command git commit -m "$msg"
+        break
+        ;;
+      e|E|edit)
+        printf "Edit message: "
+        read -ei "$msg" msg 2>/dev/null || { printf "Edit message [$msg]: "; read new_msg; msg="${new_msg:-$msg}"; }
+        continue
+        ;;
+      r|R|retry)
+        msg="$(generate_msg)"
+        continue
+        ;;
+      *)
+        echo "Cancelled."
+        exit 0
+        ;;
+    esac
+  done
 )
