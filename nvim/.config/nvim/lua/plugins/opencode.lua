@@ -66,7 +66,7 @@ return {
       port = 4096,
       split = "h",
       size = 40,
-      compact_context = true,
+      compact_context = false,
     })
   end,
 }
