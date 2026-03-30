@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-#Install swww
-yay -S --noconfirm swww
+#Install awww
+yay -S --noconfirm awww #works with waypaper-git rn, not waypaper.
 
 # Remove sway from omarchy
 yay -Rns --noconfirm sway
