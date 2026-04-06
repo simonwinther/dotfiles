@@ -1,0 +1,21 @@
+# gp - git push function
+# gp no args ~ > git push origin current_branch
+# gp origin main ~ > git push origin main
+# gp origin ~ > git push origin current_branch
+# gp <remote> <branch> ~ > git push <remote> <branch>
+
+gp() {
+  local remote branch
+  if [ "$#" -eq 0 ]; then
+    remote="origin"
+    branch="$(git branch --show-current)"
+  elif [ "$#" -eq 1 ]; then
+    remote="$1"
+    branch="$(git branch --show-current)"
+  else
+    remote="$1"
+    branch="$2"
+  fi
+  git push "$remote" "$branch"
+}
+
