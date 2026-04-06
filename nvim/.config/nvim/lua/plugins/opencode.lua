@@ -67,6 +67,7 @@ return {
       split = "h",
       size = 40,
       compact_context = false,
+      code_fence = { open = '<code language="%s">', close = "</code>" },
     })
   end,
 }
