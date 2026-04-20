@@ -1,0 +1,7 @@
+screenrecord() {
+  if pgrep -x wf-recorder >/dev/null; then
+    pkill -INT -x wf-recorder
+  else
+    wf-recorder -g "$(slurp)" -f "$HOME/Videos/screenrecording-$(date +%Y-%m-%d_%H-%M-%S).mp4"
+  fi
+}
