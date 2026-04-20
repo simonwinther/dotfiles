@@ -1,0 +1,20 @@
+# gpl - git pull function
+# gpl no args        ~ > git pull origin current_branch
+# gpl origin main    ~ > git pull origin main
+# gpl origin         ~ > git pull origin current_branch
+# gpl <remote> <branch> ~ > git pull <remote> <branch>
+
+gpl() {
+  local remote branch
+  if [ "$#" -eq 0 ]; then
+    remote="origin"
+    branch="$(git branch --show-current)"
+  elif [ "$#" -eq 1 ]; then
+    remote="$1"
+    branch="$(git branch --show-current)"
+  else
+    remote="$1"
+    branch="$2"
+  fi
+  git pull "$remote" "$branch"
+}
