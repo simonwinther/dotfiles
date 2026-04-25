@@ -1,0 +1,12 @@
+# ga - git add function
+# ga no args        ~ > git add .
+# ga .              ~ > git add .
+# ga <path>         ~ > git add <path>
+
+ga() {
+  if [ "$#" -eq 0 ]; then
+    git add .
+  else
+    git add "$@"
+  fi
+}
