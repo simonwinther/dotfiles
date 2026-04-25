@@ -34,3 +34,6 @@ bindkey "^[[1;5D" backward-word
 
 # Alt + o opens opencode 
 bindkey -s '^[o' 'opencode\n'
+
+# Open PDFs with zathura using fzf
+bindkey '^[z' open_pdf_fzf
