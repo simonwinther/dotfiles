@@ -212,3 +212,32 @@ vim.keymap.set("n", "<leader>s~", function()
 end, { desc = "Grep (Home)" })
 
 ---------- End of File ----------
+
+local function switch_header_source()
+  local filename = vim.fn.expand("%:t:r")
+  local ext = vim.fn.expand("%:e")
+
+  local target_exts
+  if ext == "h" or ext == "hpp" or ext == "hh" then
+    target_exts = { "cpp", "cc", "cxx", "c" }
+  elseif ext == "cpp" or ext == "cc" or ext == "cxx" or ext == "c" then
+    target_exts = { "h", "hpp", "hh" }
+  else
+    vim.notify("Not a C/C++ source or header file", vim.log.levels.WARN)
+    return
+  end
+
+  for _, target_ext in ipairs(target_exts) do
+    local found = vim.fn.findfile(filename .. "." .. target_ext, "**")
+    if found ~= "" then
+      vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.fnamemodify(found, ":p")))
+      return
+    end
+  end
+
+  vim.notify("No matching header/source file found under cwd", vim.log.levels.WARN)
+end
+
+vim.keymap.set("n", "gm", switch_header_source, {
+  desc = "Open matching header/source from cwd",
+})
