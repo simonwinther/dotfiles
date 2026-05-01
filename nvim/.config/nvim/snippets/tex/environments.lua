@@ -79,4 +79,22 @@ table.insert(
   )
 )
 
+-- PROOF
+table.insert(
+  snippets,
+  s(
+    "pf",
+    fmt(
+      [[
+        \begin{proof}
+            <>
+        \end{proof}
+        ]],
+      { i(1) },
+      { delimiters = "<>" }
+    ),
+    { condition = cond.not_in_mathzone }
+  )
+)
+
 table.insert(snippets, s({ trig = "nn" }, { t("\\nonumber") }, { condition = cond.in_mathzone }))
