@@ -99,12 +99,15 @@ return {
         W({ "uint8_t", "uint16_t", "uint32_t", "uint64_t", "__uint128_t" }),
         W({ "__int128", "__int256", "__int512", "__int1024" }),
         W({ "__uint128_t", "__uint256", "__uint512", "__uint1024" }),
+
         {
           ["\\<char\\>"] = "short",
           ["\\<short\\>"] = "int",
           ["\\<int\\>"] = "long",
-          ["\\<long\\>\\%( \\+long\\)\\@!"] = "long long",
-          ["\\<long\\>\\s\\+\\<long\\>"] = "char",
+          ["\\<long\\>\\s\\+\\<long\\>"] = "float",
+          ["\\<long\\>"] = "long long",
+          ["\\<float\\>"] = "double",
+          ["\\<double\\>"] = "char",
         },
       }
 
