@@ -2,7 +2,7 @@
 -- Loads opencode-tmux from ~/dev/opencode-tmux
 
 return {
-  dir = "~/dev/opencode-tmux",
+  dir = "~/dev/nvim/opencode-tmux.nvim",
   name = "opencode-tmux",
 
   keys = {
