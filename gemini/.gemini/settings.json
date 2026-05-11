@@ -2,11 +2,12 @@
   "security": {
     "auth": {
       "selectedType": "oauth-personal"
-    }
+    },
+    "disableYoloMode": false
   },
   "general": {
     "previewFeatures": true,
-    "vimMode": false,
+    "vimMode": true,
     "sessionRetention": {
       "enabled": true,
       "maxAge": "30d",
@@ -23,5 +24,24 @@
       "trust": true,
       "timeout": 60000
     }
+  },
+  "ui": {
+    "footer": {
+      "items": [
+        "workspace",
+        "git-branch",
+        "sandbox",
+        "model-name",
+        "quota",
+        "context-used",
+        "memory-usage",
+        "session-id",
+        "code-changes",
+        "token-count"
+      ]
+    }
+  },
+  "model": {
+    "name": "gemini-3.1-pro-preview"
   }
 }
