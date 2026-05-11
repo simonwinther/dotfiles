@@ -59,7 +59,7 @@ background-opacity = 1
 window-decoration = none
 
 # Custom cursor shader (keep if you want it)
-custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
+#custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 #custom-shader-animation = true
 
 # Don't do this!! super enter to open terminal then uses the same tmuxes....
