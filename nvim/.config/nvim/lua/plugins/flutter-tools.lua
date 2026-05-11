@@ -1,17 +1,11 @@
 return {
   "akinsho/flutter-tools.nvim",
-  lazy = false,
+  ft = { "dart" },
   dependencies = {
     "nvim-lua/plenary.nvim",
     "stevearc/dressing.nvim",
   },
   config = function()
-    require("flutter-tools").setup({
-      lsp = {
-        color = {
-          enabled = true,
-        },
-      },
-    })
+    require("flutter-tools").setup({})
   end,
 }
