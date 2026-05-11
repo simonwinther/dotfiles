@@ -23,8 +23,8 @@
   "modules-right": [
     "pulseaudio",
     "pulseaudio#microphone",
-    "custom/hyprwhspr",
     "battery",
+    "custom/worktimer",
     "clock",
     "custom/separator",
     "tray"
@@ -66,16 +66,6 @@
     "on-click-right": "omarchy-voxtype-config",
     "on-click": "omarchy-voxtype-model"
   },
-  "custom/hyprwhspr": {
-    "format": "{}",
-    "exec": "/usr/lib/hyprwhspr/config/hyprland/hyprwhspr-tray.sh status",
-    "interval": 1,
-    "return-type": "json",
-    "exec-on-event": true,
-    "on-click": "/usr/lib/hyprwhspr/config/hyprland/hyprwhspr-tray.sh record",
-    "on-click-right": "/usr/lib/hyprwhspr/config/hyprland/hyprwhspr-tray.sh restart",
-    "tooltip": true
-  },
   "tray": {
     "icon-size": 16,
     "icon-theme": "Papirus",
@@ -110,6 +100,14 @@
     "return-type": "json",
     "interval": 600,
     "format": "{text}"
+  },
+  "custom/worktimer": {
+    "exec": "~/.config/waybar/scripts/worktimer",
+    "return-type": "json",
+    "interval": 1,
+    "format": "{text}",
+    "on-click": "~/.config/waybar/scripts/worktimer menu",
+    "tooltip": true
   },
   "pulseaudio": {
     "format": "<span color='#a6e3a1'>{icon}  </span><span color='#cdd6f4'>{volume}%</span>",
