@@ -1,4 +1,5 @@
-model = "gpt-5.4"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
 [projects."/home/simon"]
 trust_level = "trusted"
 
@@ -17,6 +18,33 @@ trust_level = "trusted"
 [projects."/home/simon/dotfiles"]
 trust_level = "trusted"
 
+[projects."/home/simon/dev/meeting-planner"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/easyleads"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/nvim/cppman.nvim"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/ap/submission1/upload"]
+trust_level = "trusted"
+
+[projects."/home/simon/Downloads"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/kundio"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/ndak14007u-applied-programming"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/portfoliooo"]
+trust_level = "trusted"
+
+[notice]
+hide_rate_limit_model_nudge = true
+
 [notice.model_migrations]
 "gpt-5.2-codex" = "gpt-5.3-codex"
 "gpt-5.3-codex" = "gpt-5.4"
@@ -24,4 +52,13 @@ trust_level = "trusted"
 [mcp_servers.canvas]
 url = "https://mcp.illinihunt.org/mcp"
 env_http_headers = { "X-Canvas-Token" = "CANVAS_TOKEN", "X-Canvas-URL" = "CANVAS_API_URL" }
+
+[plugins."github@openai-curated"]
+enabled = true
+
+[tui]
+status_line = ["model-with-reasoning", "current-dir", "git-branch", "run-state", "context-remaining", "context-used", "five-hour-limit", "weekly-limit", "codex-version", "context-window-size", "used-tokens", "total-input-tokens", "total-output-tokens"]
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4
 
