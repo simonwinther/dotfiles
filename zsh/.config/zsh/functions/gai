@@ -4,6 +4,9 @@ gai() (
   # Valid conventional commit types
   valid_types="feat fix refactor docs test chore perf ci build style revert"
 
+  # Model used by the fast (direct Copilot API) path. Override with GAI_MODEL.
+  : "${GAI_MODEL:=gpt-4o-mini}"
+
   # Must be in a repo
   if ! command git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Not inside a git repository."
@@ -48,6 +51,72 @@ gai() (
 IMPORTANT: The commit type MUST be \"${commit_type}\". Use exactly: ${commit_type}(scope?): subject"
   fi
 
+  # --- fast path: talk to the Copilot chat API directly ----------------------
+  # Reuses the OAuth token written by Copilot.nvim; falls back to `gh copilot`
+  # in generate_msg() if any of this is unavailable.
+
+  copilot_token_cache="${TMPDIR:-/tmp}/gai-copilot-token-$(id -u).json"
+
+  # Echoes "<bearer_token>\t<api_endpoint>" or returns non-zero.
+  _gai_copilot_token() {
+    command -v jq >/dev/null 2>&1 || return 1
+    command -v curl >/dev/null 2>&1 || return 1
+
+    now="$(date +%s)"
+
+    # Reuse cached token while it is still comfortably valid.
+    if [ -f "$copilot_token_cache" ]; then
+      exp="$(jq -r '.expires_at // 0' "$copilot_token_cache" 2>/dev/null || echo 0)"
+      if [ "${exp:-0}" -gt "$((now + 60))" ] 2>/dev/null; then
+        tok="$(jq -r '.token // empty' "$copilot_token_cache" 2>/dev/null || true)"
+        api="$(jq -r '.endpoints.api // empty' "$copilot_token_cache" 2>/dev/null || true)"
+        if [ -n "$tok" ] && [ -n "$api" ]; then
+          printf '%s\t%s\n' "$tok" "$api"
+          return 0
+        fi
+      fi
+    fi
+
+    apps="$HOME/.config/github-copilot/apps.json"
+    [ -f "$apps" ] || return 1
+    oauth="$(jq -r '[..|.oauth_token? // empty] | .[0] // empty' "$apps" 2>/dev/null || true)"
+    [ -n "$oauth" ] || return 1
+
+    resp="$(curl -sS --max-time 10 \
+      -H "Authorization: token $oauth" \
+      https://api.github.com/copilot_internal/v2/token 2>/dev/null || true)"
+    tok="$(printf '%s' "$resp" | jq -r '.token // empty' 2>/dev/null || true)"
+    api="$(printf '%s' "$resp" | jq -r '.endpoints.api // empty' 2>/dev/null || true)"
+    [ -n "$tok" ] && [ -n "$api" ] || return 1
+
+    printf '%s' "$resp" >"$copilot_token_cache" 2>/dev/null || true
+    chmod 600 "$copilot_token_cache" 2>/dev/null || true
+    printf '%s\t%s\n' "$tok" "$api"
+  }
+
+  # Echoes the model's raw text, or returns non-zero on any failure.
+  _gai_via_api() {
+    _prompt="$1"
+    creds="$(_gai_copilot_token)" || return 1
+    tok="${creds%%	*}"
+    api="${creds#*	}"
+    [ -n "$tok" ] && [ -n "$api" ] || return 1
+
+    body="$(jq -n --arg m "$GAI_MODEL" --arg c "$_prompt" \
+      '{model:$m,temperature:0,max_tokens:40,messages:[{role:"user",content:$c}]}')"
+
+    out="$(curl -sS --max-time 30 "$api/chat/completions" \
+      -H "Authorization: Bearer $tok" \
+      -H "Content-Type: application/json" \
+      -H "Copilot-Integration-Id: vscode-chat" \
+      -H "Editor-Version: vscode/1.0.0" \
+      -d "$body" 2>/dev/null || true)"
+
+    content="$(printf '%s' "$out" | jq -r '.choices[0].message.content // empty' 2>/dev/null || true)"
+    [ -n "$content" ] || return 1
+    printf '%s\n' "$content"
+  }
+
   # --- generate function (used for initial + retry) ---
   generate_msg() {
     prompt="$(
@@ -76,7 +145,11 @@ PROMPT
 
     echo "Generating commit message..." >&2
 
-    raw="$(gh copilot -- -s -p "$prompt" 2>/dev/null || true)"
+    # Fast path first; fall back to the Copilot CLI if it is unavailable.
+    raw="$(_gai_via_api "$prompt" 2>/dev/null || true)"
+    if [ -z "$raw" ]; then
+      raw="$(gh copilot -- -s -p "$prompt" 2>/dev/null || true)"
+    fi
 
     # Clean up: take first non-empty line, strip whitespace and quotes
     printf "%s\n" "$raw" |
