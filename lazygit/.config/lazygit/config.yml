@@ -1,61 +1,7 @@
 customCommands:
   - key: "<c-g>"
     context: "global"
-    description: "Conventional commit (type/scope/summary/description)"
-    prompts:
-      - type: "menu"
-        title: "Commit type"
-        key: "Type"
-        options:
-          - name: "build"
-            description: "Changes that affect the build system or external dependencies"
-            value: "build"
-          - name: "feat"
-            description: "A new feature"
-            value: "feat"
-          - name: "fix"
-            description: "A bug fix"
-            value: "fix"
-          - name: "chore"
-            description: "Other changes that don't modify src or test files"
-            value: "chore"
-          - name: "ci"
-            description: "Changes to CI configuration files and scripts"
-            value: "ci"
-          - name: "docs"
-            description: "Documentation only changes"
-            value: "docs"
-          - name: "perf"
-            description: "A code change that improves performance"
-            value: "perf"
-          - name: "refactor"
-            description: "A code change that neither fixes a bug nor adds a feature"
-            value: "refactor"
-          - name: "revert"
-            description: "Reverts a previous commit"
-            value: "revert"
-          - name: "style"
-            description: "Changes that do not affect the meaning of the code"
-            value: "style"
-          - name: "test"
-            description: "Adding missing tests or correcting existing tests"
-            value: "test"
-
-      - type: "input"
-        title: "Scope (e.g. api, ui, db)"
-        key: "Scope"
-
-      - type: "input"
-        title: "Summary"
-        key: "Summary"
-
-      - type: "input"
-        title: "Description (optional)"
-        key: "Description"
-
-    command: >
-      git commit -m "{{.Form.Type}}{{if .Form.Scope}}({{.Form.Scope}}){{end}}: {{.Form.Summary}}" {{if .Form.Description}}-m "{{.Form.Description}}"{{end}}
-
-    loadingText: "Creating conventional commit..."
-    output: log
-
+    description: "Generate AI commit message"
+    command: "zsh -ic 'gai'"
+    loadingText: "Generating AI commit message..."
+    output: terminal
