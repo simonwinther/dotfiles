@@ -270,8 +270,8 @@ return {
               reverse = true,
               box = "horizontal",
               backdrop = false,
-              width = 0.9,
-              height = 0.9,
+              width = 0.85,
+              height = 0.80,
               border = "none",
               {
                 box = "vertical",
