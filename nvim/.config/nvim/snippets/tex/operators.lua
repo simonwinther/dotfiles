@@ -27,6 +27,8 @@ local math_auto = {
   { "Pi", "\\Pi" },
   { "qq", "\\quad" },
   { "dqq", "\\qquad" },
+  { "ge", "\\ge" },
+  { "le", "\\le" },
   { "geq", "\\geq" },
   { "leq", "\\leq" },
   { "Delta", "\\Delta" },
