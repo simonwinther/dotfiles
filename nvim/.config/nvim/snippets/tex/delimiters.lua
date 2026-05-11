@@ -7,6 +7,16 @@ local s, t, i, fmt = C.P.s, C.P.t, C.P.i, C.P.fmt
 local cond = C.cond
 local snippets = C.snippets
 
+-- Inline math
+table.insert(
+  snippets,
+  s(
+    { trig = ",m", snippetType = "autosnippet", wordTrig = false },
+    fmt("\\(<>\\)", { i(1) }, { delimiters = "<>" }),
+    { condition = cond.not_in_mathzone }
+  )
+)
+
 -- ==========================================
 -- Auto Pairs: Left and Right Together
 -- ==========================================
