@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/waybar-worktimer-end"
+UNIT="waybar-worktimer"
+
+json() {
+  printf '{"text":"%s", "tooltip":"%s", "class":"%s"}\n' "$1" "$2" "$3"
+}
+
+trim() {
+  local value="$1"
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+parse_duration() {
+  local spec="${1,,}"
+  local total=0
+  local number unit
+
+  if [[ "$spec" =~ ^([0-9]+)(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$ ]]; then
+    number="${BASH_REMATCH[1]}"
+    unit="${BASH_REMATCH[2]}"
+
+    case "$unit" in
+      s|sec|secs|second|seconds) total=$number ;;
+      m|min|mins|minute|minutes) total=$((number * 60)) ;;
+      h|hr|hrs|hour|hours) total=$((number * 3600)) ;;
+    esac
+
+    printf '%s\n' "$total"
+    return 0
+  fi
+
+  return 1
+}
+
+next_clock_time() {
+  local spec="$1"
+  local hour minute target_ts now_ts today
+
+  if [[ ! "$spec" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
+    return 1
+  fi
+
+  hour=$((10#${BASH_REMATCH[1]}))
+  minute=$((10#${BASH_REMATCH[2]}))
+
+  if ((hour > 23 || minute > 59)); then
+    return 1
+  fi
+
+  today="$(date +%F)"
+  target_ts="$(date -d "$(printf '%s %02d:%02d' "$today" "$hour" "$minute")" +%s)"
+  now_ts="$(date +%s)"
+
+  if ((target_ts <= now_ts)); then
+    target_ts=$((target_ts + 86400))
+  fi
+
+  printf '%s\n' "$target_ts"
+}
+
+stop_timer() {
+  rm -f "$STATE_FILE"
+  systemctl --user stop "${UNIT}.timer" "${UNIT}.service" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "${UNIT}.timer" "${UNIT}.service" >/dev/null 2>&1 || true
+}
+
+start_until_timestamp() {
+  local end_ts="$1"
+  local now_ts seconds end_time
+
+  now_ts="$(date +%s)"
+  seconds=$((end_ts - now_ts))
+  end_time="$(date -d "@$end_ts" +%H:%M)"
+
+  if ((seconds <= 0)); then
+    printf 'Timer target must be in the future\n' >&2
+    exit 2
+  fi
+
+  mkdir -p "$(dirname "$STATE_FILE")"
+
+  stop_timer
+  printf '%s\n' "$end_ts" >"$STATE_FILE"
+
+  if ! systemd-run --user \
+    --collect \
+    --unit="$UNIT" \
+    --description="Waybar worktimer notification" \
+    --on-active="${seconds}s" \
+    /usr/bin/notify-send "Work timer done" "Timer finished" >/dev/null 2>&1; then
+    printf 'Started timer, but failed to schedule notification\n' >&2
+  fi
+
+  printf 'Started work timer until %s\n' "$end_time"
+}
+
+start_timer() {
+  local duration="${1:-}"
+  local seconds end_ts
+
+  seconds="$(parse_duration "$duration")" || {
+    printf 'Invalid duration: %s\n' "$duration" >&2
+    printf 'Use examples like: 25m, 50m, 90m, 1h\n' >&2
+    exit 2
+  }
+
+  end_ts=$(($(date +%s) + seconds))
+  start_until_timestamp "$end_ts"
+}
+
+start_until_clock() {
+  local clock="${1:-}"
+  local end_ts
+
+  end_ts="$(next_clock_time "$clock")" || {
+    printf 'Invalid time: %s\n' "$clock" >&2
+    printf 'Use HH:MM, like 19:00 or 05:00\n' >&2
+    exit 2
+  }
+
+  start_until_timestamp "$end_ts"
+}
+
+start_input() {
+  local value
+
+  value="$(trim "$1")"
+
+  if [[ -z "$value" ]]; then
+    exit 0
+  fi
+
+  if parse_duration "$value" >/dev/null 2>&1; then
+    start_timer "$value"
+  else
+    start_until_clock "$value"
+  fi
+}
+
+show_menu() {
+  local choice
+
+  choice="$(
+    printf '%s\n' \
+      '25 min' \
+      '50 min' \
+      '90 min' \
+      'Stop' |
+      walker --dmenu --placeholder 'Work timer: 50m or 19:00' --width 360 --height 220
+  )" || exit 0
+  choice="$(trim "$choice")"
+
+  case "$choice" in
+    '25 min') start_timer 25m ;;
+    '50 min') start_timer 50m ;;
+    '90 min') start_timer 90m ;;
+    'Stop') stop_timer ;;
+    '') exit 0 ;;
+    *) start_input "$choice" ;;
+  esac
+}
+
+show_status() {
+  local end_ts now_ts left hours minutes seconds
+
+  if [[ ! -s "$STATE_FILE" ]]; then
+    json '󰔟 Start' 'Click to start work timer' 'idle'
+    return
+  fi
+
+  end_ts="$(<"$STATE_FILE")"
+  if [[ ! "$end_ts" =~ ^[0-9]+$ ]]; then
+    json '󰔟 Start' 'Click to start work timer' 'idle'
+    return
+  fi
+
+  now_ts=$(date +%s)
+  left=$((end_ts - now_ts))
+
+  if ((left <= 0)); then
+    json 'Work done' 'Timer finished' 'done'
+    return
+  fi
+
+  hours=$((left / 3600))
+  minutes=$(((left % 3600) / 60))
+  seconds=$((left % 60))
+
+  printf '{"text":"󰔟 %02d:%02d:%02d", "tooltip":"Work until %s", "class":"running"}\n' \
+    "$hours" "$minutes" "$seconds" "$(date -d "@$end_ts" +%H:%M)"
+}
+
+case "${1:-status}" in
+  status) show_status ;;
+  start) start_timer "${2:-}" ;;
+  until) start_until_clock "${2:-}" ;;
+  stop) stop_timer ;;
+  menu) show_menu ;;
+  *)
+    printf 'Usage: %s [status|start DURATION|until HH:MM|stop|menu]\n' "$0" >&2
+    exit 2
+    ;;
+esac
