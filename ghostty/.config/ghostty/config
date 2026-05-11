@@ -2,8 +2,20 @@
 # Ctrl + shift + , 
 
 # --- Theme & colors ---
-font-family = "JetBrainsMono Nerd Font Mono"
-font-size = 12
+
+# font-family = "JetBrainsMono Nerd Font Mono"
+# font-size = 10
+# font-feature = "calt"
+# font-feature = "liga"
+
+# --- Theme & colors ---
+font-family            = "JetBrainsMono NFM"
+font-style             = "SemiBold"
+font-style-bold        = "ExtraBold"
+font-style-italic      = "SemiBold Italic"
+font-style-bold-italic = "ExtraBold Italic"
+
+font-size = 10
 font-feature = "calt"
 font-feature = "liga"
 
@@ -47,7 +59,7 @@ background-opacity = 1
 window-decoration = none
 
 # Custom cursor shader (keep if you want it)
-#custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
+custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 #custom-shader-animation = true
 
 # Don't do this!! super enter to open terminal then uses the same tmuxes....
