@@ -1,7 +1,13 @@
 return {
   "sindrets/diffview.nvim",
+  cmd = {
+    "DiffviewOpen",
+    "DiffviewClose",
+    "DiffviewToggleFiles",
+    "DiffviewFocusFiles",
+    "DiffviewRefresh",
+    "DiffviewFileHistory",
+  },
   dependencies = { "nvim-tree/nvim-web-devicons" },
-  config = function()
-    require("diffview").setup({})
-  end,
+  opts = {},
 }
