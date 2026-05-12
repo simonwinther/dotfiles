@@ -190,6 +190,9 @@ return {
       },
     },
     opts = {
+      scroll = { -- just trying out without it, my PC is poop, so it feels laggy with scroll animation
+        enabled = false,
+      },
       dashboard = {
         preset = {
           header = selected_header,
@@ -220,9 +223,9 @@ return {
             return opts
           end
           return {
-            grep = { config = with_grepignore },
-            grep_word = { config = with_grepignore },
-            files = { config = with_grepignore },
+            grep = { config = with_grepignore, regex = false },
+            grep_word = { config = with_grepignore, regex = false },
+            files = { config = with_grepignore, regex = false },
           }
         end)(),
         actions = {
