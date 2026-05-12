@@ -8,9 +8,38 @@ return {
     "MeanderingProgrammer/treesitter-modules.nvim",
     dependencies = { "nvim-treesitter/nvim-treesitter" },
     keys = {
-      { "<A-o>", mode = { "n", "x" } },
-      { "<A-i>", mode = { "n", "x" } },
-      { "<A-O>", mode = { "n", "x" } },
+      {
+        "<A-o>",
+        function()
+          require("treesitter-modules").init_selection()
+        end,
+        mode = "n",
+        desc = "Start Treesitter selection",
+      },
+      {
+        "<A-o>",
+        function()
+          require("treesitter-modules").node_incremental()
+        end,
+        mode = "x",
+        desc = "Expand Treesitter selection",
+      },
+      {
+        "<A-i>",
+        function()
+          require("treesitter-modules").node_decremental()
+        end,
+        mode = "x",
+        desc = "Shrink Treesitter selection",
+      },
+      {
+        "<A-O>",
+        function()
+          require("treesitter-modules").scope_incremental()
+        end,
+        mode = "x",
+        desc = "Expand Treesitter selection scope",
+      },
     },
     opts = {
       incremental_selection = {
