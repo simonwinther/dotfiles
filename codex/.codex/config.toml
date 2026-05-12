@@ -42,6 +42,9 @@ trust_level = "trusted"
 [projects."/home/simon/dev/portfoliooo"]
 trust_level = "trusted"
 
+[projects."/home/simon/dev/mlb"]
+trust_level = "trusted"
+
 [notice]
 hide_rate_limit_model_nudge = true
 
