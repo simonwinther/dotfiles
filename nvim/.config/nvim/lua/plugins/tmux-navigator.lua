@@ -2,7 +2,14 @@ return {
   -- use vim-tmux-navigator
   {
     "christoomey/vim-tmux-navigator",
-    lazy = false,
+    cmd = {
+      "TmuxNavigateLeft",
+      "TmuxNavigateDown",
+      "TmuxNavigateUp",
+      "TmuxNavigateRight",
+      "TmuxNavigatePrevious",
+      "TmuxNavigatorProcessList",
+    },
     init = function()
       vim.g.tmux_navigator_no_mappings = 1
     end,
