@@ -1,37 +1,29 @@
--- Lua
 return {
-  {
-    "abecodes/tabout.nvim",
-    lazy = false,
-    config = function()
-      require("tabout").setup({
-        tabkey = "<A-l>", -- key to trigger tabout, set to an empty string to disable
-        backwards_tabkey = "<A-h>", -- key to trigger backwards tabout, set to an empty string to disable
-        act_as_tab = false, -- shift content if tab out is not possible
-        act_as_shift_tab = false, -- reverse shift content if tab out is not possible (if your keyboard/terminal supports <S-Tab>)
-        default_tab = "<C-t>", -- shift default action (only at the beginning of a line, otherwise <TAB> is used)
-        default_shift_tab = "<C-d>", -- reverse shift default action,
-        enable_backwards = true, -- well ...
-        completion = false, -- if the tabkey is used in a completion pum
-        tabouts = {
-          { open = "'", close = "'" },
-          { open = '"', close = '"' },
-          { open = "`", close = "`" },
-          { open = "(", close = ")" },
-          { open = "[", close = "]" },
-          { open = "{", close = "}" },
-        },
-        ignore_beginning = true, --[[ if the cursor is at the beginning of a filled element it will rather tab out than shift the content ]]
-        exclude = {}, -- tabout will ignore these filetypes
-      })
-    end,
-    dependencies = { -- These are optional
-      "nvim-treesitter/nvim-treesitter",
-      "L3MON4D3/LuaSnip",
-      "hrsh7th/nvim-cmp",
+  "abecodes/tabout.nvim",
+  event = "InsertCharPre", -- Load right before inserting a character, so it does not load during startup/navigation
+  dependencies = {
+    "nvim-treesitter/nvim-treesitter",
+    "L3MON4D3/LuaSnip",
+    -- nvim-cmp removed because this config uses blink.cmp instead
+  },
+  opts = {
+    tabkey = "<A-l>", -- Key to jump out of pairs/brackets/quotes
+    backwards_tabkey = "<A-h>", -- Key to jump backwards out of pairs/brackets/quotes
+    act_as_tab = false, -- Do not shift content if tabout is not possible
+    act_as_shift_tab = false, -- Do not reverse-shift content if backwards tabout is not possible
+    default_tab = "<C-t>", -- Fallback action for normal tab behavior at the beginning of a line
+    default_shift_tab = "<C-d>", -- Fallback action for reverse tab behavior
+    enable_backwards = true, -- Enable backwards tabout
+    completion = false, -- Do not integrate with completion popup handling
+    tabouts = {
+      { open = "'", close = "'" },
+      { open = '"', close = '"' },
+      { open = "`", close = "`" },
+      { open = "(", close = ")" },
+      { open = "[", close = "]" },
+      { open = "{", close = "}" },
     },
-    opt = true, -- Set this to true if the plugin is optional
-    event = "InsertCharPre", -- Set the event to 'InsertCharPre' for better compatibility
-    priority = 1000,
+    ignore_beginning = true, -- If cursor is at the beginning of a filled element, prefer tabout instead of shifting
+    exclude = {}, -- Filetypes where tabout should be disabled
   },
 }
