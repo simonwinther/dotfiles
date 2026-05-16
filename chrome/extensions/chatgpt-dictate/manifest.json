@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT Dictate Shortcuts",
+  "description": "Adds keyboard shortcuts for ChatGPT dictation, cancel, finish, and submit.",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "toggle-dictation-submit": {
+      "suggested_key": {
+        "default": "Alt+D"
+      },
+      "description": "Start dictation, or stop dictation and submit"
+    },
+    "cancel-dictation": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Cancel active dictation"
+    },
+    "finish-dictation": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Finish dictation without submitting, or submit if not dictating"
+    }
+  }
+}
