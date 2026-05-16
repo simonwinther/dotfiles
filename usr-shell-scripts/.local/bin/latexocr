@@ -1,23 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REGION="$(slurp)" || exit 1
+API_URL="https://ocr.wintherne.dk/ocr?mode=hybrid"
 
-notify-send -t 1000 "LaTeX OCR" "Processing..."
+TMP_IMG="$(mktemp --suffix=.png)"
+trap 'rm -f "$TMP_IMG"' EXIT
 
-TMP_IMG="$(mktemp --suffix=.png /tmp/latex_snip.XXXXXX)"
-trap 'rm -f "$TMP_IMG"' EXIT # in case of early exit, ensure temp file is removed
+notify-send "OCR" "Select a region..."
+
+REGION="$(slurp || true)"
+
+if [[ -z "$REGION" ]]; then
+  notify-send "OCR" "Cancelled"
+  exit 0
+fi
 
 grim -g "$REGION" "$TMP_IMG"
 
-source "$HOME/.local/share/latex-ocr/bin/activate"
+RESPONSE="$(
+  curl -sS \
+    --connect-timeout 10 \
+    --max-time 300 \
+    -X POST "$API_URL" \
+    -F "file=@${TMP_IMG}"
+)"
 
-LATEX_OUT=$(pix2tex "$TMP_IMG" | sed 's/^.*: //' | tr -d '\n')
-
-if [[ -n "${LATEX_OUT}" ]]; then
-  printf '%s' "$LATEX_OUT" | wl-copy --trim-newline
-  notify-send -t 1500 "Done" "Copied to clipboard"
-else
-  notify-send "Error" "OCR Failed"
-  exit 2
+if ! printf '%s' "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+  printf '%s' "$RESPONSE" | wl-copy --trim-newline
+  notify-send "OCR failed" "Invalid JSON. Copied raw response."
+  exit 1
 fi
+
+SUCCESS="$(printf '%s' "$RESPONSE" | jq -r '.success // false')"
+
+if [[ "$SUCCESS" != "true" ]]; then
+  ERROR="$(printf '%s' "$RESPONSE" | jq -r '.error // .detail // "Unknown OCR error"')"
+  printf '%s' "$RESPONSE" | wl-copy --trim-newline
+  notify-send "OCR failed" "$ERROR"
+  exit 1
+fi
+
+TEXT="$(
+  printf '%s' "$RESPONSE" |
+    jq -r '
+      .markdown
+      // .text
+      // .result
+      // .raw
+      // .latex
+      // .content
+      // empty
+    '
+)"
+
+if [[ -z "$TEXT" ]]; then
+  printf '%s' "$RESPONSE" | wl-copy --trim-newline
+  notify-send "OCR" "No clean text field found. Copied raw JSON."
+  exit 0
+fi
+
+printf '%s' "$TEXT" | wl-copy --trim-newline
+notify-send "OCR" "Copied result to clipboard"
