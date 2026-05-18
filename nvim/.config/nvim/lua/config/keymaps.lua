@@ -155,6 +155,27 @@ vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipbo
 vim.keymap.set({ "n", "x" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
 vim.keymap.set({ "n", "x" }, "<leader>P", '"+P', { desc = "Paste from system clipboard" })
 
+-- A few from yanky.nvim
+vim.keymap.set("n", "<leader>]p", '"+]p', {
+  remap = true,
+  desc = "Clipboard paste indent after linewise",
+})
+
+vim.keymap.set("n", "<leader>[p", '"+[p', {
+  remap = true,
+  desc = "Clipboard paste indent before linewise",
+})
+
+vim.keymap.set("n", "<leader>>p", '"+>p', {
+  remap = true,
+  desc = "Clipboard paste shift right",
+})
+
+vim.keymap.set("n", "<leader><p", '"+<p', {
+  remap = true,
+  desc = "Clipboard paste shift left",
+})
+
 -- Paste the entire buffer to system clipboard
 vim.keymap.set("n", "<leader>ay", function()
   local view = vim.fn.winsaveview()
