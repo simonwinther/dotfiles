@@ -64,3 +64,38 @@ end, { buffer = true, desc = "Run File" })
 vim.keymap.set("v", "<localleader>r", function()
   run_python(true)
 end, { buffer = true, desc = "Run Selection" })
+
+-- PyDocs
+vim.keymap.set("n", "<localleader>d", function()
+  vim.ui.input({ prompt = "pydoc: " }, function(query)
+    if not query or query == "" then
+      return
+    end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+
+    local width = math.floor(vim.o.columns * 0.85)
+    local height = math.floor(vim.o.lines * 0.80)
+    local row = math.floor(vim.o.lines * 0.10)
+    local col = math.floor(vim.o.columns * 0.075)
+
+    vim.api.nvim_open_win(buf, true, {
+      relative = "editor",
+      width = width,
+      height = height,
+      row = row,
+      col = col,
+      style = "minimal",
+      border = "rounded",
+    })
+
+    vim.cmd("silent read !python -m pydoc " .. vim.fn.shellescape(query))
+    vim.cmd("1delete _")
+    vim.bo[buf].modifiable = false
+
+    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, silent = true })
+  end)
+end, {
+  buffer = true,
+  desc = "Search pydoc",
+})
