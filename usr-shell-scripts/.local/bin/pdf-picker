@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'missing: %s\n' "$1" >&2
+    exit 127
+  }
+}
+
+for cmd in fd fzf zathura; do
+  need "$cmd"
+done
+
+file="$(
+  fd --color=never -e pdf -t f . "$HOME" | fzf \
+    --reverse \
+    --padding=1,2 \
+    --prompt="PDF > " \
+    --scheme=path \
+    --color=fg:white,fg+:white,bg+:-1 \
+    --color=hl:green,hl+:bright-green \
+    --color=border:green,prompt:green,pointer:green,marker:green,spinner:green,info:gray \
+    --no-hscroll
+)" || exit 0
+
+[[ -n "$file" && -f "$file" ]] || exit 0
+
+exec zathura --fork "$file"
