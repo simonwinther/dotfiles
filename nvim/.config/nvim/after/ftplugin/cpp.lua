@@ -69,4 +69,5 @@ end
 
 vim.keymap.set("n", "gm", switch_header_source, {
   desc = "Open or create matching header/source from cwd",
+  cpp,
 })
