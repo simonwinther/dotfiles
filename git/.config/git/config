@@ -9,6 +9,7 @@
     st = status
     df = diff
     dc = diff --cached
+    mffo = merge --ff-only
     
     # logging & visualization
     lg = log --graph --oneline --decorate --all
