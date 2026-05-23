@@ -1,0 +1,90 @@
+# Create a tmux swarm where each pane gets its own git worktree.
+# Usage: tsw <pane_count> <command...>
+tsw() {
+  [[ $# -lt 2 ]] && { echo "Usage: tsw <pane_count> <command...>"; return 1; }
+  [[ -z $TMUX ]] && { echo "You must start tmux to use tsw."; return 1; }
+
+  local count="$1"
+  shift
+
+  if [[ ! "$count" == <-> ]] || (( count < 1 )); then
+    echo "tsw: pane_count must be a positive integer."
+    return 1
+  fi
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "tsw: not inside a git repository."
+    return 1
+  fi
+
+  local cmd="$*"
+  local repo_root common_git_dir main_root base_branch repo_name safe_repo parent session_name worktree_root
+  local -a worktree_dirs branches panes
+
+  repo_root="$(git rev-parse --show-toplevel)" || return 1
+  common_git_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  main_root="${common_git_dir%/.git}"
+  base_branch="$(git -C "$repo_root" branch --show-current)" || return 1
+  if [[ -z $base_branch ]]; then
+    echo "tsw: current checkout is detached; checkout a base branch first."
+    return 1
+  fi
+
+  repo_name="$(basename "$main_root")"
+  safe_repo="${repo_name//[^A-Za-z0-9._-]/-}"
+  parent="$(dirname "$main_root")"
+  session_name="${safe_repo}-$(date +%Y%m%d-%H%M%S)-$$"
+  worktree_root="${parent}/${repo_name}.worktrees/${session_name}"
+
+  mkdir -p "$worktree_root" || return 1
+
+  local i label branch dir new_pane split_target next_index quoted_dir
+  for (( i = 1; i <= count; i++ )); do
+    label="$(printf "%02d" "$i")"
+    branch="swarm/${session_name}/${label}"
+    dir="${worktree_root}/${label}"
+
+    if git -C "$main_root" show-ref --verify --quiet "refs/heads/$branch"; then
+      echo "tsw: branch already exists: $branch"
+      return 1
+    fi
+
+    if ! git -C "$main_root" worktree add -b "$branch" "$dir" "$base_branch"; then
+      echo "tsw: failed to create worktree: $dir"
+      for dir in "${worktree_dirs[@]}"; do
+        git -C "$main_root" worktree remove "$dir" >/dev/null 2>&1
+      done
+      for branch in "${branches[@]}"; do
+        git -C "$main_root" branch -d "$branch" >/dev/null 2>&1
+      done
+      return 1
+    fi
+
+    worktree_dirs+=("$dir")
+    branches+=("$branch")
+  done
+
+  tmux rename-window -t "$TMUX_PANE" "${repo_name}-swarm"
+
+  panes+=("$TMUX_PANE")
+  while (( ${#panes[@]} < count )); do
+    next_index=$(( ${#panes[@]} + 1 ))
+    split_target="${panes[-1]}"
+    new_pane=$(tmux split-window -h -t "$split_target" -c "${worktree_dirs[$next_index]}" -P -F '#{pane_id}') || {
+      echo "tsw: failed to create tmux pane; worktrees remain at $worktree_root"
+      return 1
+    }
+    panes+=("$new_pane")
+    tmux select-layout -t "${panes[1]}" tiled
+  done
+
+  for (( i = 1; i <= count; i++ )); do
+    quoted_dir="${(q)worktree_dirs[$i]}"
+    tmux send-keys -t "${panes[$i]}" "cd $quoted_dir && $cmd" C-m
+  done
+
+  tmux select-pane -t "${panes[1]}"
+
+  echo "Created swarm worktrees under $worktree_root"
+  echo "Base branch: $base_branch"
+}

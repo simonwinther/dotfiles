@@ -1,0 +1,224 @@
+# Clean up merged git worktrees created under the repo worktrees folder.
+# Usage: tswc [--dry-run|-n] [base_ref]
+tswc() {
+  local dry_run=0
+  local base_ref=""
+
+  while (( $# )); do
+    case "$1" in
+      --dry-run|-n)
+        dry_run=1
+        ;;
+      --help|-h)
+        echo "Usage: tswc [--dry-run|-n] [base_ref]"
+        return 0
+        ;;
+      --*)
+        echo "tswc: unknown option: $1"
+        return 1
+        ;;
+      *)
+        if [[ -n $base_ref ]]; then
+          echo "Usage: tswc [--dry-run|-n] [base_ref]"
+          return 1
+        fi
+        base_ref="$1"
+        ;;
+    esac
+    shift
+  done
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "tswc: not inside a git repository."
+    return 1
+  fi
+
+  local repo_root common_git_dir main_root current_branch repo_name swarm_root
+  repo_root="$(git rev-parse --show-toplevel)" || return 1
+  common_git_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  main_root="${common_git_dir%/.git}"
+  repo_name="$(basename "$main_root")"
+  swarm_root="$(dirname "$main_root")/${repo_name}.worktrees"
+
+  current_branch="$(git -C "$repo_root" branch --show-current)" || return 1
+  if [[ -z $base_ref && -n $current_branch && "$current_branch" != swarm/* ]]; then
+    base_ref="$current_branch"
+  fi
+
+  local line worktree_path branch worktrees_output main_branch
+  local -a paths branches
+  worktrees_output="$(git -C "$main_root" worktree list --porcelain)" || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      worktree\ *)
+        if [[ -n $worktree_path ]]; then
+          paths+=("$worktree_path")
+          branches+=("$branch")
+        fi
+        worktree_path="${line#worktree }"
+        branch=""
+        ;;
+      branch\ refs/heads/*)
+        branch="${line#branch refs/heads/}"
+        if [[ "$worktree_path" == "$main_root" ]]; then
+          main_branch="$branch"
+        fi
+        ;;
+      "")
+        if [[ -n $worktree_path ]]; then
+          paths+=("$worktree_path")
+          branches+=("$branch")
+          worktree_path=""
+          branch=""
+        fi
+        ;;
+    esac
+  done <<< "$worktrees_output"
+
+  if [[ -n $worktree_path ]]; then
+    paths+=("$worktree_path")
+    branches+=("$branch")
+  fi
+
+  if [[ -z $base_ref ]]; then
+    base_ref="$main_branch"
+  fi
+  if [[ -z $base_ref ]]; then
+    echo "tswc: could not determine a base ref; pass one explicitly."
+    return 1
+  fi
+  if ! git -C "$main_root" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+    echo "tswc: base ref does not exist: $base_ref"
+    return 1
+  fi
+
+  local i worktree_status removed=0 candidates=0
+  local -a worktree_branches
+  for (( i = 1; i <= ${#paths[@]}; i++ )); do
+    worktree_path="${paths[$i]}"
+    branch="${branches[$i]}"
+
+    [[ -n $worktree_path && -n $branch ]] || continue
+    worktree_branches+=("$branch")
+    [[ "$worktree_path" == "$swarm_root"/* ]] || continue
+
+    candidates=$(( candidates + 1 ))
+
+    if [[ "$worktree_path" == "$repo_root" ]]; then
+      echo "Skipping current worktree: $worktree_path ($branch)"
+      continue
+    fi
+
+    worktree_status="$(git -C "$worktree_path" status --porcelain)"
+    if [[ -n $worktree_status ]]; then
+      echo "Skipping dirty worktree: $worktree_path ($branch)"
+      continue
+    fi
+
+    if ! git -C "$main_root" merge-base --is-ancestor "$branch" "$base_ref"; then
+      echo "Skipping unmerged branch: $branch"
+      continue
+    fi
+
+    if (( dry_run )); then
+      echo "Would remove: $worktree_path ($branch)"
+      removed=$(( removed + 1 ))
+      continue
+    fi
+
+    if git -C "$main_root" worktree remove "$worktree_path"; then
+      if git -C "$main_root" branch -d "$branch"; then
+        removed=$(( removed + 1 ))
+        echo "Removed: $worktree_path ($branch)"
+      else
+        echo "Removed worktree, but branch remains: $branch"
+      fi
+    else
+      echo "Failed to remove worktree: $worktree_path"
+    fi
+  done
+
+  local stale_branch has_worktree stale_count=0
+  local -a stale_branches
+  stale_branches=("${(@f)$(git -C "$main_root" for-each-ref --format='%(refname:short)' refs/heads/swarm)}")
+
+  for stale_branch in "${stale_branches[@]}"; do
+    [[ -n $stale_branch ]] || continue
+    has_worktree=0
+    for branch in "${worktree_branches[@]}"; do
+      if [[ "$branch" == "$stale_branch" ]]; then
+        has_worktree=1
+        break
+      fi
+    done
+    (( has_worktree )) && continue
+
+    if ! git -C "$main_root" merge-base --is-ancestor "$stale_branch" "$base_ref"; then
+      continue
+    fi
+
+    stale_count=$(( stale_count + 1 ))
+    if (( dry_run )); then
+      echo "Would delete stale branch: $stale_branch"
+    elif git -C "$main_root" branch -d "$stale_branch"; then
+      removed=$(( removed + 1 ))
+      echo "Deleted stale branch: $stale_branch"
+    fi
+  done
+
+  if (( ! dry_run )); then
+    git -C "$main_root" worktree prune
+  fi
+
+  local empty_dir root_entry empty_dir_count=0 remove_swarm_root=0 would_remove_entry
+  local -a empty_dirs swarm_root_entries
+  if [[ -d "$swarm_root" ]]; then
+    for empty_dir in "$swarm_root"/*(/N) "$swarm_root"/.*(/N); do
+      if [[ -z "$(command ls -A "$empty_dir" 2>/dev/null)" ]]; then
+        empty_dir_count=$(( empty_dir_count + 1 ))
+        empty_dirs+=("$empty_dir")
+        if (( dry_run )); then
+          echo "Would remove empty directory: $empty_dir"
+          removed=$(( removed + 1 ))
+        elif rmdir "$empty_dir"; then
+          removed=$(( removed + 1 ))
+          echo "Removed empty directory: $empty_dir"
+        fi
+      fi
+    done
+
+    swarm_root_entries=("$swarm_root"/*(N) "$swarm_root"/.*(N))
+    remove_swarm_root=1
+    for root_entry in "${swarm_root_entries[@]}"; do
+      would_remove_entry=0
+      for empty_dir in "${empty_dirs[@]}"; do
+        if [[ "$root_entry" == "$empty_dir" ]]; then
+          would_remove_entry=1
+          break
+        fi
+      done
+      if (( ! would_remove_entry )); then
+        remove_swarm_root=0
+        break
+      fi
+    done
+    if (( ${#swarm_root_entries[@]} == 0 )); then
+      remove_swarm_root=1
+    fi
+
+    if (( dry_run && remove_swarm_root )); then
+      echo "Would remove empty directory: $swarm_root"
+      removed=$(( removed + 1 ))
+    elif (( ! dry_run )) && [[ -z "$(command ls -A "$swarm_root" 2>/dev/null)" ]] && rmdir "$swarm_root"; then
+      removed=$(( removed + 1 ))
+      echo "Removed empty directory: $swarm_root"
+    fi
+  fi
+
+  if (( candidates == 0 && stale_count == 0 && empty_dir_count == 0 )); then
+    echo "tswc: no managed worktrees found under $swarm_root"
+  elif (( removed == 0 )); then
+    echo "tswc: no merged clean managed worktrees to remove."
+  fi
+}

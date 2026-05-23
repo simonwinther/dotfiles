@@ -1,0 +1,71 @@
+# gwa - git worktree add with the repo-local swarm folder layout.
+# Usage:
+#   gwa                    -> create swarm/<session>/01 from current branch
+#   gwa <branch>           -> add existing branch, or create it from current branch
+#   gwa <branch> <base_ref> -> create a new branch from base_ref
+gwa() {
+  if (( $# > 2 )); then
+    echo "Usage: gwa [branch] [base_ref]"
+    return 1
+  fi
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "gwa: not inside a git repository."
+    return 1
+  fi
+
+  local repo_root common_git_dir main_root current_branch repo_name safe_repo parent
+  local session_name worktree_root worktree_dir branch base_ref
+
+  repo_root="$(git rev-parse --show-toplevel)" || return 1
+  common_git_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  main_root="${common_git_dir%/.git}"
+  current_branch="$(git -C "$repo_root" branch --show-current)" || return 1
+
+  repo_name="$(basename "$main_root")"
+  safe_repo="${repo_name//[^A-Za-z0-9._-]/-}"
+  parent="$(dirname "$main_root")"
+  session_name="${safe_repo}-$(date +%Y%m%d-%H%M%S)-$$"
+  worktree_root="${parent}/${repo_name}.worktrees/${session_name}"
+  worktree_dir="${worktree_root}/01"
+
+  branch="${1:-swarm/${session_name}/01}"
+  base_ref="${2:-$current_branch}"
+
+  if [[ -z $branch ]]; then
+    echo "gwa: branch cannot be empty."
+    return 1
+  fi
+
+  if [[ -z $base_ref ]] && ! git -C "$main_root" show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "gwa: current checkout is detached; pass a base_ref."
+    return 1
+  fi
+
+  mkdir -p "$worktree_root" || return 1
+
+  if git -C "$main_root" show-ref --verify --quiet "refs/heads/$branch"; then
+    if [[ $# -eq 2 ]]; then
+      echo "gwa: branch already exists, so base_ref is not used: $branch"
+      return 1
+    fi
+
+    git -C "$main_root" worktree add "$worktree_dir" "$branch" || return 1
+  else
+    if [[ -z $base_ref ]]; then
+      echo "gwa: base_ref is required when creating a new branch."
+      return 1
+    fi
+
+    if ! git -C "$main_root" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+      echo "gwa: base ref does not exist: $base_ref"
+      return 1
+    fi
+
+    git -C "$main_root" worktree add -b "$branch" "$worktree_dir" "$base_ref" || return 1
+  fi
+
+  echo "Created worktree: $worktree_dir"
+  echo "Branch: $branch"
+}
+
