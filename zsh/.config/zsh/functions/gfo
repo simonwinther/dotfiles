@@ -1,0 +1,6 @@
+# gfo - git fetch origin
+# Usage: gfo [fetch_args...]
+gfo() {
+  git fetch origin "$@"
+}
+
