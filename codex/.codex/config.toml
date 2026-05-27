@@ -2,6 +2,7 @@ model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 approvals_reviewer = "user"
+service_tier = "fast"
 [projects."/home/simon"]
 trust_level = "trusted"
 
@@ -53,10 +54,6 @@ hide_rate_limit_model_nudge = true
 [notice.model_migrations]
 "gpt-5.2-codex" = "gpt-5.3-codex"
 "gpt-5.3-codex" = "gpt-5.4"
-
-[mcp_servers.canvas]
-url = "https://mcp.illinihunt.org/mcp"
-env_http_headers = { "X-Canvas-Token" = "CANVAS_TOKEN", "X-Canvas-URL" = "CANVAS_API_URL" }
 
 [plugins."github@openai-curated"]
 enabled = true
