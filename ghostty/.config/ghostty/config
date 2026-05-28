@@ -2,23 +2,32 @@
 # Ctrl + shift + , 
 
 # --- Theme & colors ---
+# Font
+font-family = "JetBrainsMono Nerd Font Mono"
+font-style = "Regular"
+font-style-bold = "Bold"
+font-style-italic = "Italic"
+font-style-bold-italic = "Bold Italic"
+font-size = 16
 
-# font-family = "JetBrainsMono Nerd Font Mono"
-# font-size = 10
-# font-feature = "calt"
-# font-feature = "liga"
-
-# --- Theme & colors ---
-font-family            = "JetBrainsMono NFM"
-font-style             = "SemiBold"
-font-style-bold        = "ExtraBold"
-font-style-italic      = "SemiBold Italic"
-font-style-bold-italic = "ExtraBold Italic"
-
-font-size = 10
 font-feature = "calt"
 font-feature = "liga"
 
+# Window
+window-theme = ghostty
+window-padding-balance = true   
+window-padding-color = extend
+window-padding-y = 0
+window-padding-x = 0
+confirm-close-surface=false
+resize-overlay = never
+gtk-toolbar-style = flat
+
+# Cursor styling
+cursor-style = "block"
+cursor-style-blink = false
+
+# Theme
 background = #1e1e2e
 foreground = #cdd6f4
 
@@ -45,12 +54,6 @@ selection-foreground = #1e1e2e
 cursor-color         = #cdd6f4
 cursor-text          = #1e1e2e
 cursor-style = bar
-
-
-window-padding-balance = true   
-window-padding-color = extend
-window-padding-y = 0
-window-padding-x = 0
 
 # background-opacity = 0.7
 background-opacity = 1
