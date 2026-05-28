@@ -2,7 +2,7 @@ model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 approvals_reviewer = "user"
-service_tier = "fast"
+service_tier = "default"
 [projects."/home/simon"]
 trust_level = "trusted"
 
@@ -48,6 +48,12 @@ trust_level = "trusted"
 [projects."/home/simon/dev/mlb"]
 trust_level = "trusted"
 
+[projects."/home/simon/Downloads/Kundio"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/codeforces-cp"]
+trust_level = "trusted"
+
 [notice]
 hide_rate_limit_model_nudge = true
 
@@ -60,6 +66,7 @@ enabled = true
 
 [tui]
 status_line = ["model-with-reasoning", "current-dir", "git-branch", "run-state", "context-remaining", "context-used", "five-hour-limit", "weekly-limit", "codex-version", "context-window-size", "used-tokens", "total-input-tokens", "total-output-tokens"]
+pet = "null-signal"
 
 [tui.model_availability_nux]
 "gpt-5.5" = 4
