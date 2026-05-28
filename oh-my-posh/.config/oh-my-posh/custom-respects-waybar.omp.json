@@ -40,7 +40,7 @@
           "options": {
             "fetch_status": true
           },
-          "template": "{{ if .HEAD }} <p:overlay>│</>  {{ .HEAD }}{{ if .Staging.Changed }} <p:green>+{{ .Staging.String }}</>{{ end }}{{ if .Working.Changed }} <p:peach>~{{ .Working.String }}</>{{ end }}{{ end }}"
+          "template": "{{ if .HEAD }} <p:overlay>│</>  {{ .HEAD }}{{ if .Staging.Changed }} <p:green>{{ .Staging.String }}</>{{ end }}{{ if .Working.Changed }} <p:peach>{{ .Working.String }}</>{{ end }}{{ end }}"
         },
         {
           "type": "status",
