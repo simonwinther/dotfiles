@@ -4,14 +4,14 @@ return {
   cmd = "CPPMan",
   keys = {
     {
-      "<leader>cu",
+      "<localleader>w",
       function()
         require("cppman").open_for(vim.fn.expand("<cword>"))
       end,
       desc = "[C++] open under cursor",
     },
     {
-      "<leader>ck",
+      "<localleader>s",
       function()
         require("cppman").search()
       end,
