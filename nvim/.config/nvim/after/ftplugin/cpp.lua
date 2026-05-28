@@ -71,3 +71,25 @@ vim.keymap.set("n", "gm", switch_header_source, {
   desc = "Open or create matching header/source from cwd",
   cpp,
 })
+-- === End of header/source switch logic ===
+
+-- Compile and run current C++ file
+vim.keymap.set("n", "<localleader>r", function()
+  local file = vim.fn.expand("%:p")
+  local exe = vim.fn.expand("%:p:r")
+
+  vim.cmd("write")
+
+  local cmd = string.format(
+    "g++ -std=c++20 -Wall -Wextra -O2 %s -o %s && %s",
+    vim.fn.shellescape(file),
+    vim.fn.shellescape(exe),
+    vim.fn.shellescape(exe)
+  )
+
+  vim.cmd("split | terminal " .. cmd)
+  vim.cmd("startinsert")
+end, {
+  buffer = true,
+  desc = "Compile and run C++ file",
+})
