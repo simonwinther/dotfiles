@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+import math
+import os
+import struct
+import sys
+import time
+
+
+WIDTH = 430
+HEIGHT = 76
+BARS = 42
+WAV_HEADER_BYTES = 44
+TRANSCRIBE_SWEEP_SPEED = 44.0
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def format_elapsed(start_ms):
+    elapsed = max(0, int(time.time() * 1000) - start_ms) // 1000
+    return f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+
+
+def read_levels(audio_file):
+    try:
+        size = os.path.getsize(audio_file)
+    except OSError:
+        return [0.05] * BARS
+
+    if size <= WAV_HEADER_BYTES + 256:
+        return [0.04] * BARS
+
+    bytes_per_sample = 2
+    wanted = min(size - WAV_HEADER_BYTES, 16000 * bytes_per_sample)
+    wanted -= wanted % bytes_per_sample
+    start = max(WAV_HEADER_BYTES, size - wanted)
+
+    try:
+        with open(audio_file, "rb") as handle:
+            handle.seek(start)
+            data = handle.read(wanted)
+    except OSError:
+        return [0.05] * BARS
+
+    sample_count = len(data) // bytes_per_sample
+    if sample_count < BARS:
+        return [0.05] * BARS
+
+    samples = struct.unpack("<" + "h" * sample_count, data[: sample_count * bytes_per_sample])
+    chunk = max(1, sample_count // BARS)
+    levels = []
+
+    for i in range(BARS):
+        part = samples[i * chunk : (i + 1) * chunk]
+        if not part:
+            levels.append(0.04)
+            continue
+        peak = max(abs(sample) for sample in part) / 32768.0
+        levels.append(clamp(peak * 4.5, 0.04, 1.0))
+
+    return levels
+
+
+def run_pyside(mode, audio_file, start_ms):
+    from PySide6.QtCore import Qt, QTimer, QRectF
+    from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    class DictationWidget(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.mode = mode
+            self.audio_file = audio_file
+            self.start_ms = start_ms
+            self.phase = 0.0
+            self.started_at = time.monotonic()
+            self.elapsed = 0.0
+            self.levels = [0.06] * BARS
+            self.setWindowTitle("OpenAI Dictation")
+            self.setFixedSize(WIDTH, HEIGHT)
+            self.setWindowFlags(
+                Qt.FramelessWindowHint
+                | Qt.WindowStaysOnTopHint
+                | Qt.Tool
+                | Qt.WindowDoesNotAcceptFocus
+            )
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self.setAttribute(Qt.WA_TranslucentBackground, True)
+
+            timer = QTimer(self)
+            timer.timeout.connect(self.tick)
+            timer.start(16)
+
+        def showEvent(self, event):
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = screen.x() + (screen.width() - self.width()) // 2
+            y = screen.y() + screen.height() - self.height() - 86
+            self.move(x, y)
+            super().showEvent(event)
+
+        def tick(self):
+            now = time.monotonic()
+            self.phase = now
+            self.elapsed = now - self.started_at
+            if self.mode == "record":
+                latest = read_levels(self.audio_file)
+                self.levels = [
+                    self.levels[i] * 0.58 + latest[i] * 0.42
+                    for i in range(BARS)
+                ]
+            self.update()
+
+        def draw_panel(self, painter):
+            outer = QRectF(1.5, 1.5, self.width() - 3, self.height() - 3)
+            content = QRectF(3.0, 3.0, self.width() - 6, self.height() - 6)
+            radius = 8.5
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(1, 1, 4, 255))
+            painter.drawRoundedRect(outer, radius, radius)
+
+            painter.setPen(QPen(QColor(24, 213, 255, 240), 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(outer, radius, radius)
+
+            clip = QPainterPath()
+            clip.addRoundedRect(content, radius - 1.5, radius - 1.5)
+            painter.setClipPath(clip)
+
+        def draw_dot(self, painter):
+            if self.mode == "record":
+                core = QColor(244, 48, 78)
+                glow = QColor(244, 48, 78, 60)
+            else:
+                core = QColor(23, 178, 90)
+                glow = QColor(23, 178, 90, 60)
+
+            pulse = 1.0 + math.sin(self.phase * 5.0) * 0.12
+            cx, cy = 26, self.height() / 2
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(glow)
+            painter.drawEllipse(QRectF(cx - 10 * pulse, cy - 10 * pulse, 20 * pulse, 20 * pulse))
+            painter.setBrush(core)
+            painter.drawEllipse(QRectF(cx - 6, cy - 6, 12, 12))
+
+        def draw_record_bars(self, painter):
+            left = 48
+            right = self.width() - 58
+            top = 21
+            bottom = self.height() - 21
+            mid = (top + bottom) / 2
+            slot = (right - left) / BARS
+            bar_w = max(4.0, slot * 0.72)
+
+            painter.setPen(Qt.NoPen)
+            for i, level in enumerate(self.levels):
+                height = 5 + level * (bottom - top)
+                x = left + i * slot + (slot - bar_w) / 2
+                y = mid - height / 2
+                hue = (0.62 + i * 0.005) % 1.0
+                base = QColor.fromHsvF(hue, 0.22, 0.72, 0.92)
+                peak = QColor.fromHsvF(hue, 0.28, 0.92, 0.98)
+                painter.setBrush(peak if level > 0.42 else base)
+                painter.drawRoundedRect(QRectF(x, y, bar_w, height), 1.6, 1.6)
+
+        def draw_transcribe_bars(self, painter):
+            left = 48
+            right = self.width() - 18
+            top = 15
+            bottom = self.height() - 15
+            mid = (top + bottom) / 2
+            slot = (right - left) / BARS
+            bar_w = max(4.0, slot * 0.72)
+            sweep = (BARS - 1) - ((self.elapsed * TRANSCRIBE_SWEEP_SPEED) % (BARS + 12))
+
+            painter.setPen(Qt.NoPen)
+            for i in range(BARS):
+                distance = i - sweep
+                peak = math.exp(-(distance * distance) / 54)
+                envelope = 0.18 + 0.82 * peak
+                wave = 0.55 + 0.45 * math.sin(i * 0.38 + self.elapsed * 10.0)
+                height = 6 + (bottom - top) * envelope * (0.5 + 0.5 * wave)
+                x = left + i * slot + (slot - bar_w) / 2
+                y = mid - height / 2
+                hue = (0.58 + i * 0.006 + self.elapsed * 0.16) % 1.0
+                color = QColor.fromHsvF(hue, 0.18 + peak * 0.16, 0.58 + peak * 0.32, 0.76 + peak * 0.22)
+                painter.setBrush(color)
+                painter.drawRoundedRect(QRectF(x, y, bar_w, height), 1.6, 1.6)
+
+        def draw_timer(self, painter):
+            if self.mode != "record":
+                return
+            painter.setPen(QColor(183, 190, 222, 245))
+            painter.setFont(QFont("monospace", 10, QFont.Medium))
+            painter.drawText(QRectF(self.width() - 48, self.height() - 25, 40, 18), Qt.AlignRight | Qt.AlignVCenter, format_elapsed(self.start_ms))
+
+        def paintEvent(self, event):
+            del event
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            self.draw_panel(painter)
+            self.draw_dot(painter)
+            if self.mode == "record":
+                self.draw_record_bars(painter)
+            else:
+                self.draw_transcribe_bars(painter)
+            self.draw_timer(painter)
+
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(True)
+    widget = DictationWidget()
+    widget.show()
+    sys.exit(app.exec())
+
+
+def run_tkinter(mode, audio_file, start_ms):
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title("OpenAI Dictation")
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+    root.configure(bg="black")
+    x = (root.winfo_screenwidth() - WIDTH) // 2
+    y = root.winfo_screenheight() - HEIGHT - 86
+    root.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
+    canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0)
+    canvas.pack()
+    levels = [0.06] * BARS
+    started_at = time.monotonic()
+
+    def draw():
+        nonlocal levels
+        phase = time.monotonic()
+        elapsed = phase - started_at
+        if mode == "record":
+            latest = read_levels(audio_file)
+            levels = [levels[i] * 0.58 + latest[i] * 0.42 for i in range(BARS)]
+
+        canvas.delete("all")
+        canvas.create_rectangle(1, 1, WIDTH - 2, HEIGHT - 2, outline="", fill="#010104")
+        canvas.create_rectangle(1, 1, WIDTH - 2, HEIGHT - 2, outline="#18d5ff", width=2)
+        dot = "#f4304e" if mode == "record" else "#17b25a"
+        canvas.create_oval(17, HEIGHT / 2 - 9, 35, HEIGHT / 2 + 9, fill="#3a1020" if mode == "record" else "#0b3522", outline="")
+        canvas.create_oval(20, HEIGHT / 2 - 6, 32, HEIGHT / 2 + 6, fill=dot, outline="")
+
+        left = 48
+        right = WIDTH - (58 if mode == "record" else 18)
+        top = 18
+        bottom = HEIGHT - 18
+        mid = (top + bottom) / 2
+        slot = (right - left) / BARS
+        bar_w = max(4.0, slot * 0.72)
+
+        for i in range(BARS):
+            if mode == "record":
+                height = 5 + levels[i] * (bottom - top)
+                color = "#9da6c8" if levels[i] <= 0.42 else "#c3c9e8"
+            else:
+                sweep = (BARS - 1) - ((elapsed * TRANSCRIBE_SWEEP_SPEED) % (BARS + 12))
+                distance = i - sweep
+                envelope = 0.18 + 0.82 * math.exp(-(distance * distance) / 54)
+                wave = 0.55 + 0.45 * math.sin(i * 0.38 + elapsed * 10.0)
+                height = 6 + (bottom - top) * envelope * (0.5 + 0.5 * wave)
+                color = "#a5aecf"
+            x = left + i * slot + (slot - bar_w) / 2
+            canvas.create_rectangle(x, mid - height / 2, x + bar_w, mid + height / 2, fill=color, outline="")
+
+        if mode == "record":
+            canvas.create_text(WIDTH - 14, HEIGHT - 17, text=format_elapsed(start_ms), fill="#b7bede", anchor="e", font=("monospace", 10))
+        root.after(16, draw)
+
+    draw()
+    root.mainloop()
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "transcribe"
+    if mode not in {"record", "transcribe"}:
+        mode = "transcribe"
+    audio_file = sys.argv[2] if len(sys.argv) > 2 else ""
+    try:
+        start_ms = int(sys.argv[3]) if len(sys.argv) > 3 else int(time.time() * 1000)
+    except ValueError:
+        start_ms = int(time.time() * 1000)
+
+    try:
+        run_pyside(mode, audio_file, start_ms)
+    except Exception:
+        run_tkinter(mode, audio_file, start_ms)
+
+
+if __name__ == "__main__":
+    main()
