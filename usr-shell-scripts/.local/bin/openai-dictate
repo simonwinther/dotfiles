@@ -25,6 +25,9 @@ RECORD_FORMAT="${RECORD_FORMAT:-s16}"
 RECORD_LATENCY="${RECORD_LATENCY:-20ms}"
 MIN_AUDIO_BYTES="${MIN_AUDIO_BYTES:-4096}"
 MIN_RECORDING_MS="${MIN_RECORDING_MS:-1000}"
+MAX_RECORDING_MS="${MAX_RECORDING_MS:-300000}"
+SKIP_SILENCE="${SKIP_SILENCE:-1}"
+SILENCE_MAX_DB="${SILENCE_MAX_DB:--50}"
 KEEP_AUDIO="${KEEP_AUDIO:-0}"
 
 AUTO_PASTE="${AUTO_PASTE:-0}"
@@ -71,6 +74,14 @@ notify_msg() {
   [ "${NOTIFY:-1}" = "1" ] || return 0
   command -v notify-send >/dev/null 2>&1 || return 0
   notify-send -a "OpenAI Dictation" "$title" "$body" >/dev/null 2>&1 || true
+}
+
+notify_important() {
+  local title="$1"
+  local body="${2:-}"
+
+  command -v notify-send >/dev/null 2>&1 || return 0
+  notify-send -a "OpenAI Dictation" -u normal "$title" "$body" >/dev/null 2>&1 || true
 }
 
 is_true() {
@@ -126,27 +137,6 @@ recording_pid() {
   printf '%s\n' "$pid"
 }
 
-active_window_address() {
-  command -v hyprctl >/dev/null 2>&1 || return 0
-  command -v jq >/dev/null 2>&1 || return 0
-
-  hyprctl activewindow -j 2>/dev/null |
-    jq -r 'select(.address != null and .address != "0x0") | .address' 2>/dev/null
-}
-
-focus_saved_window() {
-  local address="${FOCUS_ADDRESS:-}"
-  [ -n "$address" ] || return 0
-  command -v hyprctl >/dev/null 2>&1 || return 0
-
-  if hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1; then
-    log "event=focus_restore address=$address"
-    sleep 0.06
-  else
-    log "event=focus_restore_failed address=$address"
-  fi
-}
-
 cleanup_state() {
   rm -f "$PID_FILE" "$STATE_FILE"
 }
@@ -176,11 +166,6 @@ start_overlay() {
   local pid="$!"
   printf '%s\n' "$pid" > "$OVERLAY_PID_FILE"
   log "event=overlay_start mode=$mode pid=$pid"
-
-  if [ -n "${FOCUS_ADDRESS:-}" ]; then
-    sleep 0.05
-    focus_saved_window
-  fi
 }
 
 stop_overlay() {
@@ -228,13 +213,11 @@ write_state() {
   local pid="$1"
   local audio_file="$2"
   local start_ms="$3"
-  local focus_address="${4:-}"
 
   {
     printf 'PID=%q\n' "$pid"
     printf 'AUDIO_FILE=%q\n' "$audio_file"
     printf 'START_MS=%q\n' "$start_ms"
-    printf 'FOCUS_ADDRESS=%q\n' "$focus_address"
   } > "$STATE_FILE"
   printf '%s\n' "$pid" > "$PID_FILE"
 }
@@ -266,10 +249,9 @@ start_recording() {
   rm -f "$LAST_TXT"
   cleanup_state
 
-  local start_ms audio_file pid focus_address
+  local start_ms audio_file pid
   start_ms="$(now_ms)"
   audio_file="$RUNTIME_DIR/recording-$start_ms.wav"
-  focus_address="$(active_window_address)"
 
   pw-record \
     --rate "$RECORD_RATE" \
@@ -287,9 +269,8 @@ start_recording() {
     return 1
   fi
 
-  write_state "$pid" "$audio_file" "$start_ms" "$focus_address"
-  log "event=start pid=$pid audio_file=$audio_file model=$OPENAI_MODEL rate_hz=$RECORD_RATE channels=$RECORD_CHANNELS latency=$RECORD_LATENCY focus_address=${focus_address:-none}"
-  FOCUS_ADDRESS="$focus_address"
+  write_state "$pid" "$audio_file" "$start_ms"
+  log "event=start pid=$pid audio_file=$audio_file model=$OPENAI_MODEL rate_hz=$RECORD_RATE channels=$RECORD_CHANNELS latency=$RECORD_LATENCY"
   start_overlay record "$audio_file" "$start_ms"
   notify_msg "OpenAI dictation recording" "Release the key or run openai-dictate-stop to transcribe."
 }
@@ -391,6 +372,43 @@ paste_clipboard() {
   esac
 }
 
+silence_max_volume() {
+  local audio_file="$1"
+
+  command -v ffmpeg >/dev/null 2>&1 || return 2
+
+  ffmpeg -hide_banner -nostats -i "$audio_file" -af volumedetect -f null - 2>&1 |
+    awk '/max_volume:/ { print $(NF - 1); found = 1 } END { if (!found) exit 1 }'
+}
+
+volume_lte() {
+  local volume="$1"
+  local threshold="$2"
+
+  awk -v volume="$volume" -v threshold="$threshold" '
+    BEGIN {
+      if (volume == "-inf") exit 0
+      if (volume + 0 <= threshold + 0) exit 0
+      exit 1
+    }
+  '
+}
+
+discard_silent_recording() {
+  local audio_file="$1"
+  local release_ms="$2"
+  local recording_ms="$3"
+  local stop_done_ms="$4"
+  local audio_bytes="$5"
+  local max_volume="$6"
+
+  log "event=audio_silent audio_file=$audio_file bytes=$audio_bytes max_volume_db=$max_volume threshold_db=${SILENCE_MAX_DB:--50}"
+  log "timing recording_duration_ms=$recording_ms stop_finalize_ms=$((stop_done_ms - release_ms)) transcription_ms=0 total_after_release_ms=$(( $(now_ms) - release_ms ))"
+  cleanup_audio "$audio_file"
+  notify_important "OpenAI dictation skipped" "No speech detected. Nothing was sent."
+  printf 'No speech detected; discarded without sending to OpenAI.\n'
+}
+
 transcribe_audio() {
   local audio_file="$1"
   local release_ms="$2"
@@ -408,6 +426,19 @@ transcribe_audio() {
     cleanup_audio "$audio_file"
     notify_msg "OpenAI dictation skipped" "Recording was too short."
     return 1
+  fi
+
+  if is_true "${SKIP_SILENCE:-1}"; then
+    local max_volume
+    if max_volume="$(silence_max_volume "$audio_file")"; then
+      if volume_lte "$max_volume" "${SILENCE_MAX_DB:--50}"; then
+        discard_silent_recording "$audio_file" "$release_ms" "$recording_ms" "$stop_done_ms" "$audio_bytes" "$max_volume"
+        return 0
+      fi
+      log "event=silence_check_ok audio_file=$audio_file max_volume_db=$max_volume threshold_db=${SILENCE_MAX_DB:--50}"
+    else
+      log "event=silence_check_unavailable audio_file=$audio_file"
+    fi
   fi
 
   local response_file curl_err upload_start_ms upload_end_ms transcribe_overlay_start_ms status text done_ms
@@ -481,6 +512,17 @@ transcribe_audio() {
     return 1
   fi
 
+  if [ -z "$text" ]; then
+    finish_transcribe_overlay "$transcribe_overlay_start_ms"
+    log "event=transcript_empty transcription_ms=$((upload_end_ms - upload_start_ms))"
+    log "timing recording_duration_ms=$recording_ms stop_finalize_ms=$((stop_done_ms - release_ms)) transcription_ms=$((upload_end_ms - upload_start_ms)) total_after_release_ms=$(( $(now_ms) - release_ms ))"
+    notify_important "OpenAI dictation skipped" "Transcript was empty. Nothing was pasted."
+    cleanup_audio "$audio_file"
+    rm -f "$response_file" "$curl_err"
+    printf 'Transcript was empty; clipboard and focused app were left unchanged.\n'
+    return 0
+  fi
+
   printf '%s' "$text" > "$LAST_TXT"
   chmod 600 "$LAST_TXT"
   printf '%s' "$text" | wl-copy --trim-newline
@@ -488,7 +530,6 @@ transcribe_audio() {
 
   if is_true "$AUTO_PASTE" && [ -n "$text" ]; then
     sleep "$PASTE_DELAY"
-    focus_saved_window
     if paste_clipboard; then
       log "event=auto_paste method=$PASTE_METHOD"
     else
@@ -528,6 +569,31 @@ discard_short_recording() {
   printf 'Recording was under %ss; discarded without sending to OpenAI.\n' "$min_seconds"
 }
 
+format_mmss() {
+  local ms="$1"
+  local seconds
+
+  seconds=$((ms / 1000))
+  printf '%d:%02d' "$((seconds / 60))" "$((seconds % 60))"
+}
+
+discard_long_recording() {
+  local audio_file="$1"
+  local release_ms="$2"
+  local recording_ms="$3"
+  local stop_done_ms="$4"
+  local recording_label max_label
+
+  recording_label="$(format_mmss "$recording_ms")"
+  max_label="$(format_mmss "${MAX_RECORDING_MS:-300000}")"
+
+  log "event=recording_too_long audio_file=$audio_file recording_ms=$recording_ms max_recording_ms=${MAX_RECORDING_MS:-300000}"
+  log "timing recording_duration_ms=$recording_ms stop_finalize_ms=$((stop_done_ms - release_ms)) transcription_ms=0 total_after_release_ms=$(( $(now_ms) - release_ms ))"
+  cleanup_audio "$audio_file"
+  notify_important "OpenAI dictation too long" "Recording was $recording_label; limit is $max_label. Not sent."
+  printf 'Recording was %s; limit is %s. Discarded without sending to OpenAI.\n' "$recording_label" "$max_label"
+}
+
 stop_recording() {
   init_runtime
 
@@ -559,6 +625,11 @@ stop_recording() {
   cleanup_state
   if [ "${MIN_RECORDING_MS:-0}" -gt 0 ] && [ "$recording_ms" -lt "${MIN_RECORDING_MS:-1000}" ]; then
     discard_short_recording "$AUDIO_FILE" "$release_ms" "$recording_ms" "$stop_done_ms"
+    return 0
+  fi
+
+  if [ "${MAX_RECORDING_MS:-0}" -gt 0 ] && [ "$recording_ms" -ge "${MAX_RECORDING_MS:-300000}" ]; then
+    discard_long_recording "$AUDIO_FILE" "$release_ms" "$recording_ms" "$stop_done_ms"
     return 0
   fi
 
