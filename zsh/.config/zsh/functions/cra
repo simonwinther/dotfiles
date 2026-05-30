@@ -1,0 +1,4 @@
+cra() {
+  codex resume --all "$@"
+}
+
