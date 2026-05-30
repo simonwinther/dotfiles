@@ -54,6 +54,15 @@ trust_level = "trusted"
 [projects."/home/simon/dev/codeforces-cp"]
 trust_level = "trusted"
 
+[projects."/home/simon/dev/vibe-kanban"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev"]
+trust_level = "trusted"
+
+[projects."/home/simon/.local/share/openai-dictation"]
+trust_level = "trusted"
+
 [notice]
 hide_rate_limit_model_nudge = true
 
@@ -65,8 +74,9 @@ hide_rate_limit_model_nudge = true
 enabled = true
 
 [tui]
-status_line = ["model-with-reasoning", "current-dir", "git-branch", "run-state", "context-remaining", "context-used", "five-hour-limit", "weekly-limit", "codex-version", "context-window-size", "used-tokens", "total-input-tokens", "total-output-tokens"]
+status_line = ["model-with-reasoning", "current-dir", "git-branch", "context-remaining", "five-hour-limit", "weekly-limit", "total-input-tokens", "total-output-tokens"]
 pet = "null-signal"
+status_line_use_colors = true
 
 [tui.model_availability_nux]
 "gpt-5.5" = 4
