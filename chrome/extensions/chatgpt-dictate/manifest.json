@@ -3,7 +3,8 @@
   "name": "ChatGPT Dictate Shortcuts",
   "description": "Adds keyboard shortcuts for ChatGPT dictation, cancel, finish, and submit.",
   "version": "0.1.0",
-  "permissions": ["activeTab", "scripting"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Ypkr2SKLGMQiNyNuFJk5YZz1uRGjpzF3wA1MyP77HFZsWeU8uNWoezdUVz86bM4yc5c4SBrwC2cKutl5DTcAa6IqtAKZ+RUwJ4ag9sWRlwpzwZeXn05n+g/1BgPgHbX8MB5xNzXrPDWCRGxpB9p+NHl1DMd/XC72MuFfv/51iBQs2cR2POvg7Sda9JyTEfm72boxDEgQLu4FUug6j6ZloVxafTN0Q8noixvs6uLTkDFDNgbWtKLQ0iH+cSNTC3BtE7fBPWuG6quK/PWS3PBMf0WBKdlISX97RvR1NBd9EjGZcdPJ8usbaXUPzUOKPSzLh8hmk/zzhSulaFLRu5SZQIDAQAB",
+  "permissions": ["activeTab", "scripting", "nativeMessaging"],
   "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
   "background": {
     "service_worker": "background.js"

@@ -1,9 +1,13 @@
 (() => {
-  if (window.__chatgptDictateShortcutsLoaded) {
-    return;
+  const STATE_KEY = "__chatgptDictateShortcutsState";
+  const previousState = window[STATE_KEY];
+
+  if (previousState && typeof previousState.cleanup === "function") {
+    previousState.cleanup();
   }
 
-  window.__chatgptDictateShortcutsLoaded = true;
+  const state = { cleanedUp: false };
+  window[STATE_KEY] = state;
 
   const COMMANDS = {
     TOGGLE_SUBMIT: "toggle-dictation-submit",
@@ -11,10 +15,60 @@
     FINISH: "finish-dictation"
   };
 
+  const VOLUME_DUCK_MESSAGE = "chatgpt-dictate-volume-duck";
+  const VOLUME_DUCK_HEARTBEAT_MS = 5000;
+
   const KEYBOARD_COMMANDS = {
     d: COMMANDS.TOGGLE_SUBMIT,
     c: COMMANDS.CANCEL,
     s: COMMANDS.FINISH
+  };
+
+  let lastDictating = false;
+  let volumeDuckSyncTimer = null;
+  let volumeDuckHeartbeatTimer = null;
+  let volumeDuckObserver = null;
+  let handleKeydown = null;
+  let handleRuntimeMessage = null;
+
+  const isCurrentScript = () => window[STATE_KEY] === state && !state.cleanedUp;
+
+  state.cleanup = () => {
+    if (state.cleanedUp) {
+      return;
+    }
+
+    state.cleanedUp = true;
+
+    if (volumeDuckSyncTimer) {
+      window.clearTimeout(volumeDuckSyncTimer);
+      volumeDuckSyncTimer = null;
+    }
+
+    if (volumeDuckHeartbeatTimer) {
+      window.clearInterval(volumeDuckHeartbeatTimer);
+      volumeDuckHeartbeatTimer = null;
+    }
+
+    if (volumeDuckObserver) {
+      volumeDuckObserver.disconnect();
+      volumeDuckObserver = null;
+    }
+
+    if (handleKeydown) {
+      document.removeEventListener("keydown", handleKeydown, true);
+      handleKeydown = null;
+    }
+
+    try {
+      const runtime = globalThis.chrome?.runtime;
+      if (handleRuntimeMessage && runtime?.onMessage) {
+        runtime.onMessage.removeListener(handleRuntimeMessage);
+      }
+    } catch {
+      // The extension context can be gone during reload.
+    }
+    handleRuntimeMessage = null;
   };
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -147,13 +201,54 @@
 
   const isDictating = () => Boolean(findDictateStopButton() || findDictateCancelButton());
 
+  const sendVolumeDuckState = (active) => {
+    try {
+      const runtime = globalThis.chrome?.runtime;
+      if (!runtime?.id || typeof runtime.sendMessage !== "function") {
+        return;
+      }
+
+      runtime.sendMessage({ type: VOLUME_DUCK_MESSAGE, active });
+    } catch {
+      // The old content script can outlive the extension context after reload.
+    }
+  };
+
+  const setVolumeDuckState = (active, { force = false } = {}) => {
+    if (!force && active === lastDictating) {
+      return;
+    }
+
+    lastDictating = active;
+    sendVolumeDuckState(active);
+  };
+
+  const syncVolumeDuckState = ({ force = false } = {}) => {
+    setVolumeDuckState(isDictating(), { force });
+  };
+
+  const scheduleVolumeDuckSync = () => {
+    if (volumeDuckSyncTimer) {
+      return;
+    }
+
+    volumeDuckSyncTimer = window.setTimeout(() => {
+      volumeDuckSyncTimer = null;
+      syncVolumeDuckState();
+    }, 100);
+  };
+
   const startDictation = async () => {
     const editor = findPromptEditor();
     if (editor) {
       editor.focus();
     }
 
-    return clickButton(findDictateStartButton());
+    const started = clickButton(findDictateStartButton());
+    if (started) {
+      scheduleVolumeDuckSync();
+    }
+    return started;
   };
 
   const stopDictation = async ({ submit }) => {
@@ -161,13 +256,16 @@
     if (!clickButton(stopButton)) {
       return false;
     }
+    scheduleVolumeDuckSync();
 
     if (!submit) {
       await waitFor(() => !isDictating(), { timeout: 12000 });
+      syncVolumeDuckState();
       return true;
     }
 
     const sendButton = await waitForSendButtonReady();
+    syncVolumeDuckState();
     return clickButton(sendButton);
   };
 
@@ -179,11 +277,16 @@
   const cancelDictation = async () => {
     const cancelButton = findDictateCancelButton();
     if (clickButton(cancelButton)) {
+      scheduleVolumeDuckSync();
       return true;
     }
 
     const stopButton = findDictateStopButton();
-    return clickButton(stopButton);
+    const stopped = clickButton(stopButton);
+    if (stopped) {
+      scheduleVolumeDuckSync();
+    }
+    return stopped;
   };
 
   const runCommand = async (command) => {
@@ -212,7 +315,39 @@
     }
   };
 
-  document.addEventListener("keydown", (event) => {
+  volumeDuckObserver = new MutationObserver(scheduleVolumeDuckSync);
+
+  volumeDuckObserver.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["aria-label", "disabled", "aria-disabled", "data-testid", "title", "class", "style"]
+  });
+
+  volumeDuckHeartbeatTimer = window.setInterval(() => {
+    if (!isCurrentScript()) {
+      return;
+    }
+
+    syncVolumeDuckState();
+    if (lastDictating) {
+      syncVolumeDuckState({ force: true });
+    }
+  }, VOLUME_DUCK_HEARTBEAT_MS);
+
+  window.addEventListener("pagehide", () => {
+    if (lastDictating) {
+      sendVolumeDuckState(false);
+    }
+  });
+
+  syncVolumeDuckState();
+
+  handleKeydown = (event) => {
+    if (!isCurrentScript()) {
+      return;
+    }
+
     if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) {
       return;
     }
@@ -225,13 +360,25 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     runCommand(command);
-  }, true);
+  };
 
-  chrome.runtime.onMessage.addListener((message) => {
+  document.addEventListener("keydown", handleKeydown, true);
+
+  handleRuntimeMessage = (message) => {
+    if (!isCurrentScript()) {
+      return;
+    }
+
     if (message?.type !== "chatgpt-dictate-command") {
       return;
     }
 
     runCommand(message.command);
-  });
+  };
+
+  try {
+    globalThis.chrome?.runtime?.onMessage?.addListener(handleRuntimeMessage);
+  } catch {
+    // The extension context can be gone during reload.
+  }
 })();

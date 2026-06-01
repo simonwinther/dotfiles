@@ -1,0 +1,7 @@
+{
+  "name": "com.simon.chatgptdictate.audioduck",
+  "description": "Duck system volume while ChatGPT dictation is active.",
+  "path": "/home/simon/.local/bin/chatgpt-dictate-audio-duck-host",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://kmlmdofpbgffgimglklacbkmlildcakk/"]
+}
