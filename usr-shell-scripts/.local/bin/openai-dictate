@@ -37,7 +37,7 @@ SHOW_LOADING="${SHOW_LOADING:-1}"
 LOADING_OVERLAY_CMD="${LOADING_OVERLAY_CMD:-$HOME/.local/bin/openai-dictation-overlay}"
 TRANSCRIBE_OVERLAY_MIN_MS="${TRANSCRIBE_OVERLAY_MIN_MS:-360}"
 DUCK_VOLUME="${DUCK_VOLUME:-1}"
-VOLUME_DUCK_FACTOR="${VOLUME_DUCK_FACTOR:-0.5}"
+VOLUME_DUCK_FACTOR="${VOLUME_DUCK_FACTOR:-0.3}"
 VOLUME_DUCK_CMD="${VOLUME_DUCK_CMD:-$HOME/.local/bin/dictation-volume-duck}"
 SHOW_COST_ESTIMATE="${SHOW_COST_ESTIMATE:-1}"
 OPENAI_COST_USD_PER_MINUTE="${OPENAI_COST_USD_PER_MINUTE:-auto}"
@@ -105,8 +105,8 @@ start_volume_duck() {
     return 0
   }
 
-  if "$VOLUME_DUCK_CMD" start openai-dictation "${VOLUME_DUCK_FACTOR:-0.5}" >/dev/null 2>&1; then
-    log "event=volume_duck_start factor=${VOLUME_DUCK_FACTOR:-0.5}"
+  if "$VOLUME_DUCK_CMD" start openai-dictation "${VOLUME_DUCK_FACTOR:-0.3}" >/dev/null 2>&1; then
+    log "event=volume_duck_start factor=${VOLUME_DUCK_FACTOR:-0.3}"
   else
     log "event=volume_duck_start_failed"
   fi

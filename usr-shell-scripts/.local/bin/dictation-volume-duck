@@ -6,7 +6,7 @@ umask 077
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/dictation-volume-duck"
 STATE_FILE="$RUNTIME_DIR/state.env"
 LOCK_FILE="$RUNTIME_DIR/lock"
-DEFAULT_FACTOR="${VOLUME_DUCK_FACTOR:-0.5}"
+DEFAULT_FACTOR="${VOLUME_DUCK_FACTOR:-0.3}"
 FADE_IN_MS="${VOLUME_DUCK_FADE_IN_MS:-700}"
 FADE_OUT_MS="${VOLUME_DUCK_FADE_OUT_MS:-900}"
 FADE_STEPS="${VOLUME_DUCK_FADE_STEPS:-12}"
@@ -106,7 +106,7 @@ scaled_volume() {
 
   awk -v volume="$volume" -v factor="$factor" '
     BEGIN {
-      if (factor <= 0) factor = 0.5
+      if (factor <= 0) factor = 0.3
       ducked = volume * factor
       if (ducked < 0) ducked = 0
       printf "%.4f\n", ducked
