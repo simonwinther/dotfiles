@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/dictation-volume-duck"
+STATE_FILE="$RUNTIME_DIR/state.env"
+LOCK_FILE="$RUNTIME_DIR/lock"
+DEFAULT_FACTOR="${VOLUME_DUCK_FACTOR:-0.5}"
+FADE_IN_MS="${VOLUME_DUCK_FADE_IN_MS:-700}"
+FADE_OUT_MS="${VOLUME_DUCK_FADE_OUT_MS:-900}"
+FADE_STEPS="${VOLUME_DUCK_FADE_STEPS:-12}"
+
+init_runtime() {
+  mkdir -p "$RUNTIME_DIR"
+  chmod 700 "$RUNTIME_DIR"
+}
+
+sanitize_client() {
+  local client="${1:-default}"
+  printf '%s' "$client" | tr -c 'A-Za-z0-9_.:-' '_'
+}
+
+load_state() {
+  ORIGINAL_BACKEND=""
+  ORIGINAL_VOLUME=""
+  ORIGINAL_MUTED=""
+  CLIENTS=""
+
+  [ -f "$STATE_FILE" ] || return 0
+
+  # shellcheck disable=SC1090
+  . "$STATE_FILE"
+}
+
+write_state() {
+  {
+    printf 'ORIGINAL_BACKEND=%q\n' "$ORIGINAL_BACKEND"
+    printf 'ORIGINAL_VOLUME=%q\n' "$ORIGINAL_VOLUME"
+    printf 'ORIGINAL_MUTED=%q\n' "$ORIGINAL_MUTED"
+    printf 'CLIENTS=%q\n' "$CLIENTS"
+  } > "$STATE_FILE"
+}
+
+client_active() {
+  local client="$1"
+  case " $CLIENTS " in
+    *" $client "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+add_client() {
+  local client="$1"
+  client_active "$client" && return 0
+  CLIENTS="${CLIENTS:+$CLIENTS }$client"
+}
+
+remove_client() {
+  local client="$1"
+  local kept=()
+  local existing
+
+  for existing in $CLIENTS; do
+    [ "$existing" = "$client" ] || kept+=("$existing")
+  done
+
+  CLIENTS="${kept[*]}"
+}
+
+current_audio_state() {
+  if command -v wpctl >/dev/null 2>&1; then
+    local output volume muted
+    output="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)" || return 1
+    volume="$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+([.][0-9]+)?$/) { print $i; exit } }' <<< "$output")"
+    [ -n "$volume" ] || return 1
+    case "$output" in
+      *"[MUTED]"*) muted=1 ;;
+      *) muted=0 ;;
+    esac
+    printf 'wpctl %s %s\n' "$volume" "$muted"
+    return 0
+  fi
+
+  if command -v pactl >/dev/null 2>&1; then
+    local volume muted
+    volume="$(
+      pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null |
+        awk 'match($0, /[0-9]+%/) { value = substr($0, RSTART, RLENGTH - 1); print value / 100; exit }'
+    )"
+    [ -n "$volume" ] || return 1
+    muted="$(
+      pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null |
+        awk '/yes/ { print 1; found = 1 } /no/ { print 0; found = 1 } END { if (!found) print 0 }'
+    )"
+    printf 'pactl %s %s\n' "$volume" "$muted"
+    return 0
+  fi
+
+  return 1
+}
+
+scaled_volume() {
+  local volume="$1"
+  local factor="${2:-$DEFAULT_FACTOR}"
+
+  awk -v volume="$volume" -v factor="$factor" '
+    BEGIN {
+      if (factor <= 0) factor = 0.5
+      ducked = volume * factor
+      if (ducked < 0) ducked = 0
+      printf "%.4f\n", ducked
+    }
+  '
+}
+
+set_audio_volume() {
+  local backend="$1"
+  local volume="$2"
+
+  case "$backend" in
+    wpctl)
+      wpctl set-volume -l 2.0 @DEFAULT_AUDIO_SINK@ "$volume" >/dev/null 2>&1
+      ;;
+    pactl)
+      local percent
+      percent="$(awk -v volume="$volume" 'BEGIN { printf "%d%%\n", volume * 100 + 0.5 }')"
+      pactl set-sink-volume @DEFAULT_SINK@ "$percent" >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sleep_ms() {
+  local ms="$1"
+  local seconds
+
+  seconds="$(awk -v ms="$ms" 'BEGIN { if (ms < 0) ms = 0; printf "%.3f\n", ms / 1000 }')"
+  sleep "$seconds"
+}
+
+fade_audio_volume() {
+  local backend="$1"
+  local from_volume="$2"
+  local to_volume="$3"
+  local duration_ms="$4"
+  local steps="${5:-$FADE_STEPS}"
+  local step delay_ms volume
+
+  if [ "${duration_ms:-0}" -le 0 ] || [ "${steps:-0}" -le 1 ]; then
+    set_audio_volume "$backend" "$to_volume"
+    return
+  fi
+
+  delay_ms="$((duration_ms / steps))"
+
+  for step in $(seq 1 "$steps"); do
+    volume="$(
+      awk -v from="$from_volume" -v to="$to_volume" -v step="$step" -v steps="$steps" '
+        BEGIN {
+          printf "%.4f\n", from + ((to - from) * (step / steps))
+        }
+      '
+    )"
+    set_audio_volume "$backend" "$volume"
+    [ "$step" -eq "$steps" ] || sleep_ms "$delay_ms"
+  done
+}
+
+set_audio_mute() {
+  local backend="$1"
+  local muted="$2"
+
+  case "$backend" in
+    wpctl)
+      wpctl set-mute @DEFAULT_AUDIO_SINK@ "$muted" >/dev/null 2>&1
+      ;;
+    pactl)
+      if [ "$muted" = "1" ]; then
+        pactl set-sink-mute @DEFAULT_SINK@ 1 >/dev/null 2>&1
+      else
+        pactl set-sink-mute @DEFAULT_SINK@ 0 >/dev/null 2>&1
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+restore_audio_state() {
+  [ -n "$ORIGINAL_BACKEND" ] || return 0
+  [ -n "$ORIGINAL_VOLUME" ] || return 0
+
+  local backend volume
+  if read -r backend volume _ < <(current_audio_state); then
+    if [ "$backend" = "$ORIGINAL_BACKEND" ]; then
+      fade_audio_volume "$ORIGINAL_BACKEND" "$volume" "$ORIGINAL_VOLUME" "$FADE_OUT_MS" || return 1
+    else
+      set_audio_volume "$ORIGINAL_BACKEND" "$ORIGINAL_VOLUME" || return 1
+    fi
+  else
+    set_audio_volume "$ORIGINAL_BACKEND" "$ORIGINAL_VOLUME" || return 1
+  fi
+
+  [ -n "$ORIGINAL_MUTED" ] || return 0
+  set_audio_mute "$ORIGINAL_BACKEND" "$ORIGINAL_MUTED" || return 1
+}
+
+start_duck() {
+  local client factor backend volume muted ducked
+  client="$(sanitize_client "${1:-default}")"
+  factor="${2:-$DEFAULT_FACTOR}"
+
+  load_state
+  if [ -n "$CLIENTS" ]; then
+    add_client "$client"
+    write_state
+    return 0
+  fi
+
+  if ! read -r backend volume muted < <(current_audio_state); then
+    return 1
+  fi
+
+  ORIGINAL_BACKEND="$backend"
+  ORIGINAL_VOLUME="$volume"
+  ORIGINAL_MUTED="$muted"
+  CLIENTS="$client"
+  ducked="$(scaled_volume "$volume" "$factor")"
+
+  write_state
+  if ! fade_audio_volume "$backend" "$volume" "$ducked" "$FADE_IN_MS"; then
+    rm -f "$STATE_FILE"
+    return 1
+  fi
+}
+
+stop_duck() {
+  local client
+  client="$(sanitize_client "${1:-default}")"
+
+  load_state
+  [ -n "$CLIENTS" ] || return 0
+
+  remove_client "$client"
+  if [ -n "$CLIENTS" ]; then
+    write_state
+    return 0
+  fi
+
+  restore_audio_state
+  rm -f "$STATE_FILE"
+}
+
+reset_duck() {
+  load_state
+  restore_audio_state || true
+  rm -f "$STATE_FILE"
+}
+
+show_status() {
+  load_state
+  if [ -n "$CLIENTS" ]; then
+    printf 'ducked clients=%s original_backend=%s original_volume=%s original_muted=%s\n' \
+      "$CLIENTS" "$ORIGINAL_BACKEND" "$ORIGINAL_VOLUME" "$ORIGINAL_MUTED"
+  else
+    printf 'idle\n'
+  fi
+}
+
+with_lock() {
+  init_runtime
+
+  if command -v flock >/dev/null 2>&1; then
+    (
+      flock -x 200
+      "$@"
+    ) 200> "$LOCK_FILE"
+  else
+    "$@"
+  fi
+}
+
+show_help() {
+  cat <<EOF
+Usage: dictation-volume-duck [start|stop|reset|status] [client] [factor]
+
+Commands:
+  start   Lower the default output volume for a client.
+  stop    Restore volume when the last active client stops.
+  reset   Force restore the saved volume and clear state.
+  status  Show current ducking state.
+EOF
+}
+
+main() {
+  local cmd="${1:-status}"
+  shift || true
+
+  case "$cmd" in
+    start) with_lock start_duck "$@" ;;
+    stop) with_lock stop_duck "$@" ;;
+    reset) with_lock reset_duck ;;
+    status) with_lock show_status ;;
+    help|--help|-h) show_help ;;
+    *)
+      show_help >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

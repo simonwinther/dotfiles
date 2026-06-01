@@ -31,11 +31,18 @@ SILENCE_MAX_DB="${SILENCE_MAX_DB:--50}"
 KEEP_AUDIO="${KEEP_AUDIO:-0}"
 
 AUTO_PASTE="${AUTO_PASTE:-0}"
-PASTE_METHOD="${PASTE_METHOD:-hyprctl-ctrl-shift-v}"
+PASTE_METHOD="${PASTE_METHOD:-hyprctl-super-v}"
 PASTE_DELAY="${PASTE_DELAY:-0.08}"
 SHOW_LOADING="${SHOW_LOADING:-1}"
 LOADING_OVERLAY_CMD="${LOADING_OVERLAY_CMD:-$HOME/.local/bin/openai-dictation-overlay}"
 TRANSCRIBE_OVERLAY_MIN_MS="${TRANSCRIBE_OVERLAY_MIN_MS:-360}"
+DUCK_VOLUME="${DUCK_VOLUME:-1}"
+VOLUME_DUCK_FACTOR="${VOLUME_DUCK_FACTOR:-0.5}"
+VOLUME_DUCK_CMD="${VOLUME_DUCK_CMD:-$HOME/.local/bin/dictation-volume-duck}"
+SHOW_COST_ESTIMATE="${SHOW_COST_ESTIMATE:-1}"
+OPENAI_COST_USD_PER_MINUTE="${OPENAI_COST_USD_PER_MINUTE:-auto}"
+OPENAI_COST_CURRENCY="${OPENAI_COST_CURRENCY:-DKK}"
+OPENAI_COST_USD_TO_DKK="${OPENAI_COST_USD_TO_DKK:-6.4104}"
 NOTIFY="${NOTIFY:-0}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-10}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-120}"
@@ -88,6 +95,46 @@ is_true() {
   case "${1:-}" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+start_volume_duck() {
+  is_true "${DUCK_VOLUME:-1}" || return 0
+  [ -x "$VOLUME_DUCK_CMD" ] || {
+    log "event=volume_duck_unavailable command=$VOLUME_DUCK_CMD"
+    return 0
+  }
+
+  if "$VOLUME_DUCK_CMD" start openai-dictation "${VOLUME_DUCK_FACTOR:-0.5}" >/dev/null 2>&1; then
+    log "event=volume_duck_start factor=${VOLUME_DUCK_FACTOR:-0.5}"
+  else
+    log "event=volume_duck_start_failed"
+  fi
+}
+
+stop_volume_duck() {
+  is_true "${DUCK_VOLUME:-1}" || return 0
+  [ -x "$VOLUME_DUCK_CMD" ] || return 0
+
+  if "$VOLUME_DUCK_CMD" stop openai-dictation >/dev/null 2>&1; then
+    log "event=volume_duck_stop"
+  else
+    log "event=volume_duck_stop_failed"
+  fi
+}
+
+overlay_cost_usd_per_minute() {
+  is_true "${SHOW_COST_ESTIMATE:-1}" || return 0
+
+  case "${OPENAI_COST_USD_PER_MINUTE:-auto}" in
+    ''|0|false|FALSE|off|OFF) return 0 ;;
+    auto|AUTO)
+      case "$OPENAI_MODEL" in
+        gpt-4o-mini-transcribe*) printf '0.003\n' ;;
+        gpt-4o-transcribe*|whisper-1) printf '0.006\n' ;;
+      esac
+      ;;
+    *) printf '%s\n' "$OPENAI_COST_USD_PER_MINUTE" ;;
   esac
 }
 
@@ -156,13 +203,22 @@ start_overlay() {
   local mode="$1"
   local audio_file="${2:-}"
   local start_ms="${3:-}"
+  local cost_usd_per_minute
 
   is_true "${SHOW_LOADING:-1}" || return 0
   [ -x "$LOADING_OVERLAY_CMD" ] || return 0
 
   stop_overlay
 
-  "$LOADING_OVERLAY_CMD" "$mode" "$audio_file" "$start_ms" >/dev/null 2>&1 &
+  cost_usd_per_minute="$(overlay_cost_usd_per_minute)"
+  "$LOADING_OVERLAY_CMD" \
+    "$mode" \
+    "$audio_file" \
+    "$start_ms" \
+    "$cost_usd_per_minute" \
+    "${OPENAI_COST_CURRENCY:-DKK}" \
+    "${OPENAI_COST_USD_TO_DKK:-6.4104}" \
+    >/dev/null 2>&1 &
   local pid="$!"
   printf '%s\n' "$pid" > "$OVERLAY_PID_FILE"
   log "event=overlay_start mode=$mode pid=$pid"
@@ -270,6 +326,7 @@ start_recording() {
   fi
 
   write_state "$pid" "$audio_file" "$start_ms"
+  start_volume_duck
   log "event=start pid=$pid audio_file=$audio_file model=$OPENAI_MODEL rate_hz=$RECORD_RATE channels=$RECORD_CHANNELS latency=$RECORD_LATENCY"
   start_overlay record "$audio_file" "$start_ms"
   notify_msg "OpenAI dictation recording" "Release the key or run openai-dictate-stop to transcribe."
@@ -332,14 +389,57 @@ print(text.strip())
 PY
 }
 
+active_window_class() {
+  need_cmds hyprctl python3 || return 1
+
+  hyprctl activewindow -j 2>/dev/null | python3 -c '
+import json
+import sys
+
+try:
+    window = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+print(window.get("class") or window.get("initialClass") or "")
+'
+}
+
+active_window_is_ghostty() {
+  local class
+  class="$(active_window_class)" || return 1
+
+  case "$class" in
+    com.mitchellh.ghostty|ghostty|*Ghostty*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+paste_hyprctl_super_v() {
+  need_cmds hyprctl || return 1
+
+  if active_window_is_ghostty; then
+    hyprctl dispatch sendshortcut "CTRL SHIFT, V," >/dev/null 2>&1
+  else
+    hyprctl dispatch sendshortcut "SHIFT, Insert," >/dev/null 2>&1
+  fi
+}
+
 paste_clipboard() {
-  case "${PASTE_METHOD:-hyprctl-ctrl-shift-v}" in
+  case "${PASTE_METHOD:-hyprctl-super-v}" in
     none)
       return 0
       ;;
     hyprctl-shift-insert)
       need_cmds hyprctl || return 1
       hyprctl dispatch sendshortcut "SHIFT, Insert," >/dev/null 2>&1
+      ;;
+    hyprctl-super-v)
+      paste_hyprctl_super_v
       ;;
     hyprctl-ctrl-v)
       need_cmds hyprctl || return 1
@@ -599,12 +699,14 @@ stop_recording() {
 
   if ! load_state; then
     printf 'OpenAI dictation is not recording.\n' >&2
+    stop_volume_duck
     cleanup_state
     return 1
   fi
 
   if ! kill -0 "$PID" 2>/dev/null; then
     printf 'Recorder process is not running; cleaning stale state.\n' >&2
+    stop_volume_duck
     cleanup_state
     return 1
   fi
@@ -615,6 +717,7 @@ stop_recording() {
   stop_recorder_process "$PID"
   stop_done_ms="$(now_ms)"
   stop_overlay
+  stop_volume_duck
 
   if [ -z "${START_MS:-}" ]; then
     START_MS="$release_ms"
@@ -642,6 +745,7 @@ cancel_recording() {
   if ! load_state; then
     printf 'OpenAI dictation is not recording.\n' >&2
     stop_overlay
+    stop_volume_duck
     cleanup_state
     return 0
   fi
@@ -658,6 +762,7 @@ cancel_recording() {
 
   stop_done_ms="$(now_ms)"
   stop_overlay
+  stop_volume_duck
 
   if [ -z "${START_MS:-}" ]; then
     START_MS="$cancel_ms"

@@ -22,6 +22,34 @@ def format_elapsed(start_ms):
     return f"{elapsed // 60:02d}:{elapsed % 60:02d}"
 
 
+def parse_float(value, default=0.0):
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+
+
+def decimal_comma(value, decimals):
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+def format_cost(start_ms, usd_per_minute, currency, usd_to_dkk):
+    if usd_per_minute <= 0:
+        return ""
+
+    elapsed_seconds = max(0, int(time.time() * 1000) - start_ms) // 1000
+    usd = (elapsed_seconds / 60.0) * usd_per_minute
+    currency = (currency or "DKK").upper()
+
+    if currency == "DKK":
+        amount = usd * usd_to_dkk
+        decimals = 4 if amount < 0.01 else 3 if amount < 1 else 2
+        return f"ca. {decimal_comma(amount, decimals)} kr"
+
+    decimals = 4 if usd < 0.01 else 3 if usd < 1 else 2
+    return f"ca. ${decimal_comma(usd, decimals)}"
+
+
 def read_levels(audio_file):
     try:
         size = os.path.getsize(audio_file)
@@ -62,7 +90,7 @@ def read_levels(audio_file):
     return levels
 
 
-def run_pyside(mode, audio_file, start_ms):
+def run_pyside(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
     from PySide6.QtCore import Qt, QTimer, QRectF
     from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
     from PySide6.QtWidgets import QApplication, QWidget
@@ -73,6 +101,9 @@ def run_pyside(mode, audio_file, start_ms):
             self.mode = mode
             self.audio_file = audio_file
             self.start_ms = start_ms
+            self.cost_usd_per_minute = cost_usd_per_minute
+            self.cost_currency = cost_currency
+            self.cost_usd_to_dkk = cost_usd_to_dkk
             self.phase = 0.0
             self.started_at = time.monotonic()
             self.elapsed = 0.0
@@ -195,6 +226,21 @@ def run_pyside(mode, audio_file, start_ms):
             painter.setFont(QFont("monospace", 10, QFont.Medium))
             painter.drawText(QRectF(self.width() - 48, self.height() - 25, 40, 18), Qt.AlignRight | Qt.AlignVCenter, format_elapsed(self.start_ms))
 
+        def draw_cost(self, painter):
+            if self.mode != "record":
+                return
+            text = format_cost(
+                self.start_ms,
+                self.cost_usd_per_minute,
+                self.cost_currency,
+                self.cost_usd_to_dkk,
+            )
+            if not text:
+                return
+            painter.setPen(QColor(131, 227, 255, 235))
+            painter.setFont(QFont("monospace", 9, QFont.Medium))
+            painter.drawText(QRectF(self.width() - 150, 8, 134, 16), Qt.AlignRight | Qt.AlignVCenter, text)
+
         def paintEvent(self, event):
             del event
             painter = QPainter(self)
@@ -205,6 +251,7 @@ def run_pyside(mode, audio_file, start_ms):
                 self.draw_record_bars(painter)
             else:
                 self.draw_transcribe_bars(painter)
+            self.draw_cost(painter)
             self.draw_timer(painter)
 
     app = QApplication(sys.argv)
@@ -214,7 +261,7 @@ def run_pyside(mode, audio_file, start_ms):
     sys.exit(app.exec())
 
 
-def run_tkinter(mode, audio_file, start_ms):
+def run_tkinter(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
     import tkinter as tk
 
     root = tk.Tk()
@@ -268,6 +315,9 @@ def run_tkinter(mode, audio_file, start_ms):
             canvas.create_rectangle(x, mid - height / 2, x + bar_w, mid + height / 2, fill=color, outline="")
 
         if mode == "record":
+            cost = format_cost(start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+            if cost:
+                canvas.create_text(WIDTH - 14, 15, text=cost, fill="#83e3ff", anchor="e", font=("monospace", 9))
             canvas.create_text(WIDTH - 14, HEIGHT - 17, text=format_elapsed(start_ms), fill="#b7bede", anchor="e", font=("monospace", 10))
         root.after(16, draw)
 
@@ -284,11 +334,14 @@ def main():
         start_ms = int(sys.argv[3]) if len(sys.argv) > 3 else int(time.time() * 1000)
     except ValueError:
         start_ms = int(time.time() * 1000)
+    cost_usd_per_minute = parse_float(sys.argv[4], 0.0) if len(sys.argv) > 4 else 0.0
+    cost_currency = sys.argv[5] if len(sys.argv) > 5 else "DKK"
+    cost_usd_to_dkk = parse_float(sys.argv[6], 6.4104) if len(sys.argv) > 6 else 6.4104
 
     try:
-        run_pyside(mode, audio_file, start_ms)
+        run_pyside(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
     except Exception:
-        run_tkinter(mode, audio_file, start_ms)
+        run_tkinter(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
 
 
 if __name__ == "__main__":

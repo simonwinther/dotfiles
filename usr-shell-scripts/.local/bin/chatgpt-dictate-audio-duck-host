@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+import json
+import os
+import struct
+import subprocess
+import sys
+
+
+DUCK_CMD = os.path.expanduser("~/.local/bin/dictation-volume-duck")
+DEFAULT_CLIENT = "chatgpt-dictate"
+DEFAULT_FACTOR = "0.5"
+MAX_MESSAGE_BYTES = 65536
+DUCK_TIMEOUT_SECONDS = 5
+
+
+def read_message():
+    raw_length = sys.stdin.buffer.read(4)
+    if len(raw_length) != 4:
+        return {}
+
+    message_length = struct.unpack("<I", raw_length)[0]
+    if message_length > MAX_MESSAGE_BYTES:
+        raise ValueError("Native message is too large")
+
+    message = sys.stdin.buffer.read(message_length)
+    if len(message) != message_length:
+        raise ValueError("Native message ended early")
+
+    return json.loads(message.decode("utf-8"))
+
+
+def write_message(payload):
+    message = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    sys.stdout.buffer.write(struct.pack("<I", len(message)))
+    sys.stdout.buffer.write(message)
+    sys.stdout.buffer.flush()
+
+
+def run_duck_command(message):
+    action = str(message.get("action", "")).strip().lower()
+    client = str(message.get("client") or DEFAULT_CLIENT)
+    factor = str(message.get("factor") or DEFAULT_FACTOR)
+
+    if action not in {"start", "stop", "reset", "status"}:
+        return {"ok": False, "error": f"Unsupported action: {action}"}
+
+    command = [DUCK_CMD, action]
+    if action in {"start", "stop"}:
+        command.append(client)
+    if action == "start":
+        command.append(factor)
+
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=DUCK_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    response = {
+        "ok": result.returncode == 0,
+        "status": result.returncode,
+    }
+    if result.stdout:
+        response["stdout"] = result.stdout.strip()
+    if result.stderr:
+        response["stderr"] = result.stderr.strip()
+    return response
+
+
+def main():
+    try:
+        response = run_duck_command(read_message())
+    except Exception as exc:
+        response = {"ok": False, "error": str(exc)}
+
+    write_message(response)
+
+
+if __name__ == "__main__":
+    main()
