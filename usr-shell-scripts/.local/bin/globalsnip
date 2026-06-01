@@ -1,14 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DELAY_FOCUS=0.20
-DELAY_TYPE=0.05
+PICKER_CLASS="global.snip"
+FOCUS_TIMEOUT_MS=700
+FOCUS_POLL_DELAY=0.02
+PASTE_DELAY=0.15
 
-need() { command -v "$1" >/dev/null 2>&1 || {
-  printf 'missing: %s\n' "$1" >&2
-  exit 127
-}; }
-for cmd in fzf wtype hyprctl setsid; do need "$cmd"; done
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'missing: %s\n' "$1" >&2
+    exit 127
+  }
+}
+
+for cmd in fzf hyprctl python3 setsid wl-copy wtype; do
+  need "$cmd"
+done
+
+active_window_class() {
+  hyprctl activewindow -j 2>/dev/null | python3 -c '
+import json
+import sys
+
+try:
+    window = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+print(window.get("class") or window.get("initialClass") or "")
+'
+}
+
+active_window_is_ghostty() {
+  local class
+  class="$(active_window_class)" || return 1
+
+  case "$class" in
+    com.mitchellh.ghostty|ghostty|*Ghostty*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+wait_for_focus_to_leave_picker() {
+  local class elapsed_ms
+  elapsed_ms=0
+
+  while ((elapsed_ms < FOCUS_TIMEOUT_MS)); do
+    class="$(active_window_class 2>/dev/null || true)"
+    if [[ -n "$class" && "$class" != "$PICKER_CLASS" ]]; then
+      return 0
+    fi
+
+    sleep "$FOCUS_POLL_DELAY"
+    elapsed_ms=$((elapsed_ms + 20))
+  done
+
+  return 1
+}
+
+paste_clipboard() {
+  if active_window_is_ghostty; then
+    wtype -M ctrl -M shift -k v -m shift -m ctrl >/dev/null 2>&1
+  else
+    wtype -M ctrl -k v -m ctrl >/dev/null 2>&1
+  fi
+}
+
+copy_focus_and_paste() {
+  local text="$1"
+
+  printf '%s' "$text" | wl-copy --trim-newline
+  hyprctl dispatch exec "$0 --paste" >/dev/null 2>&1 ||
+    setsid -f "$0" --paste </dev/null >/dev/null 2>&1
+}
+
+paste_after_picker_closes() {
+  sleep "$PASTE_DELAY"
+
+  if [[ "$(active_window_class 2>/dev/null || true)" == "$PICKER_CLASS" ]]; then
+    hyprctl dispatch focuswindow previous >/dev/null 2>&1 || true
+  fi
+
+  wait_for_focus_to_leave_picker || true
+  paste_clipboard
+}
+
+if [[ "${1:-}" == "--paste" ]]; then
+  paste_after_picker_closes
+  exit
+fi
 
 choice="$(
   fzf \
@@ -43,11 +127,4 @@ EOF
 [[ "$choice" == *$'\t'* ]] || exit 0
 snippet="${choice#*$'\t'}"
 
-setsid -f bash -c '
-  sleep "$1"
-  hyprctl dispatch focuswindow previous >/dev/null 2>&1 || true
-  sleep "$2"
-  wtype -- "$3"
-' _ "$DELAY_FOCUS" "$DELAY_TYPE" "$snippet" >/dev/null 2>&1
-
-hyprctl dispatch closewindow "class:^(global\.snip)$" >/dev/null 2>&1 || true
+copy_focus_and_paste "$snippet"
