@@ -2,7 +2,7 @@
 
 A minimal Chrome extension for ChatGPT dictation shortcuts.
 
-While ChatGPT dictation is active, the extension asks the local native host to lower the default system output volume to 50%. The original volume is restored when dictation stops, is canceled, or the tab closes.
+While ChatGPT dictation is active, the extension asks the local native host to lower the default system output volume to 30%. The original volume is restored when dictation stops, is canceled, or the tab closes.
 
 ## Shortcuts
 

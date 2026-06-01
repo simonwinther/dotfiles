@@ -8,7 +8,7 @@ const tabVolumeDuckClient = (tabId) => `chatgpt-dictate-tab-${tabId}`;
 const sendNativeVolumeDuck = (action, tabId) => {
   chrome.runtime.sendNativeMessage(
     VOLUME_DUCK_HOST,
-    { action, client: tabVolumeDuckClient(tabId), factor: 0.5 },
+    { action, client: tabVolumeDuckClient(tabId), factor: 0.3 },
     () => {
       void chrome.runtime.lastError;
     }
