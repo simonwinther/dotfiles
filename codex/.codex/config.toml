@@ -66,6 +66,9 @@ trust_level = "trusted"
 [projects."/home/simon/.codex/sessions/2026"]
 trust_level = "trusted"
 
+[projects."/home/simon/dev/rework-openai-dictation"]
+trust_level = "trusted"
+
 [notice]
 hide_rate_limit_model_nudge = true
 
