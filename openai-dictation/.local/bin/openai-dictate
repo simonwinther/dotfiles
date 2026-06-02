@@ -1,0 +1,1782 @@
+#!/usr/bin/env python3
+import contextlib
+import fcntl
+import json
+import math
+import mimetypes
+import os
+import re
+import secrets
+import shlex
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+os.umask(0o077)
+
+HOME = Path.home()
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "openai-dictation"
+CONFIG_FILE = CONFIG_DIR / "config.env"
+SECRETS_FILE = CONFIG_DIR / "secrets.env"
+RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "openai-dictation"
+PID_FILE = RUNTIME_DIR / "record.pid"
+STATE_FILE = RUNTIME_DIR / "state.env"
+RECORDER_ERR_FILE = RUNTIME_DIR / "recorder.err"
+OVERLAY_PID_FILE = RUNTIME_DIR / "loading.pid"
+LAST_TXT = Path("/tmp/openai-dictation-last.txt")
+LAST_LOG = Path("/tmp/openai-dictation-last.log")
+
+DUCK_RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "dictation-volume-duck"
+DUCK_STATE_FILE = DUCK_RUNTIME_DIR / "state.env"
+DUCK_LOCK_FILE = DUCK_RUNTIME_DIR / "lock"
+DUCK_CLIENT = "openai-dictation"
+
+WIDTH = 430
+HEIGHT = 76
+BARS = 42
+WAV_HEADER_BYTES = 44
+TRANSCRIBE_SWEEP_SPEED = 44.0
+
+DEFAULTS = {
+    "OPENAI_API_URL": "https://api.openai.com/v1/audio/transcriptions",
+    "OPENAI_MODEL": "gpt-4o-transcribe",
+    "OPENAI_LANGUAGE": "en",
+    "OPENAI_PROMPT": "",
+    "RECORD_RATE": "16000",
+    "RECORD_CHANNELS": "1",
+    "RECORD_FORMAT": "s16",
+    "RECORD_LATENCY": "20ms",
+    "MIN_AUDIO_BYTES": "4096",
+    "MIN_RECORDING_MS": "1000",
+    "MAX_RECORDING_MS": "300000",
+    "SKIP_SILENCE": "1",
+    "SILENCE_MAX_DB": "-50",
+    "KEEP_AUDIO": "0",
+    "AUTO_PASTE": "0",
+    "PASTE_METHOD": "hyprctl-super-v",
+    "PASTE_DELAY": "0.08",
+    "SHOW_LOADING": "1",
+    "TRANSCRIBE_OVERLAY_MIN_MS": "360",
+    "DUCK_VOLUME": "1",
+    "VOLUME_DUCK_FACTOR": "0.3",
+    "VOLUME_DUCK_FADE_IN_MS": "700",
+    "VOLUME_DUCK_FADE_OUT_MS": "900",
+    "VOLUME_DUCK_FADE_STEPS": "12",
+    "SHOW_COST_ESTIMATE": "1",
+    "OPENAI_COST_USD_PER_MINUTE": "auto",
+    "OPENAI_COST_CURRENCY": "DKK",
+    "OPENAI_COST_USD_TO_DKK": "6.4104",
+    "POST_PROCESS_TRANSCRIPT": "1",
+    "POST_PROCESS_API_URL": "https://api.openai.com/v1/responses",
+    "POST_PROCESS_MODEL": "gpt-4.1-mini",
+    "POST_PROCESS_MAX_OUTPUT_TOKENS": "2000",
+    "POST_PROCESS_TIMEOUT": "45",
+    "POST_PROCESS_FALLBACK": "raw",
+    "NOTIFY": "0",
+    "CURL_CONNECT_TIMEOUT": "10",
+    "CURL_MAX_TIME": "120",
+}
+
+TRUE_VALUES = {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
+FALSE_VALUES = {"", "0", "false", "FALSE", "off", "OFF", "no", "NO"}
+
+LATEX_POST_PROCESS_INSTRUCTIONS = r"""
+You post-process speech-to-text into a LaTeX fragment for a technical report.
+Return only the final LaTeX source. Do not wrap it in Markdown fences, a document
+environment, or explanatory text.
+
+Preserve the user's meaning and language. Fix obvious punctuation and speech
+recognition mistakes, but do not invent facts. The user may dictate in English
+or Danish.
+
+Treat spoken control phrases as formatting commands, not prose:
+- "begin/start/enter enumerate mode" starts \begin{enumerate}.
+- "begin/start/enter itemize mode" starts \begin{itemize}.
+- "next item" or a standalone "item" starts \item.
+- "end/exit/leave enumerate mode" closes \end{enumerate}.
+- "end/exit/leave itemize mode" closes \end{itemize}.
+- "begin/start math block", "display math mode", or "equation mode" starts \[.
+- "end/exit math block" closes \].
+- "inline math ... end inline math" becomes $...$.
+- "new paragraph" inserts a blank line; "new line" inserts a line break.
+
+When inside math mode, write idiomatic LaTeX math syntax. Convert clear spoken
+math terms such as alpha, beta, fraction, squared, subscript, superscript, sum,
+integral, equals, less than, greater than, infinity, and Greek letters. If a
+spoken command is ambiguous, prefer readable LaTeX source and keep the original
+wording rather than over-correcting it.
+
+Keep normal report prose as normal LaTeX text. Escape literal LaTeX special
+characters only when needed for valid source. Do not add headings unless the
+speaker dictated them.
+""".strip()
+
+
+class OpenAIRequestError(Exception):
+    def __init__(self, message, status=None, body=""):
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+
+def parse_env_line(line):
+    try:
+        tokens = shlex.split(line, comments=True, posix=True)
+    except ValueError:
+        return None
+
+    if not tokens:
+        return None
+    if tokens[0] == "export":
+        tokens = tokens[1:]
+    if len(tokens) != 1 or "=" not in tokens[0]:
+        return None
+
+    key, value = tokens[0].split("=", 1)
+    key = key.strip()
+    if not key:
+        return None
+    return key, value
+
+
+def parse_env_file(path):
+    values = {}
+    if not path.exists():
+        return values
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        parsed = parse_env_line(raw_line)
+        if parsed:
+            key, value = parsed
+            values[key] = value
+    return values
+
+
+def load_config():
+    values = dict(DEFAULTS)
+    values.update(os.environ)
+    values.update(parse_env_file(CONFIG_FILE))
+    values.update(parse_env_file(SECRETS_FILE))
+    return values
+
+
+CONFIG = load_config()
+
+
+def cfg(name, default=""):
+    return str(CONFIG.get(name, default))
+
+
+def cfg_bool(name, default="0"):
+    return cfg(name, default) in TRUE_VALUES
+
+
+def cfg_int(name, default):
+    try:
+        return int(float(cfg(name, str(default))))
+    except ValueError:
+        return int(default)
+
+
+def cfg_float(name, default):
+    try:
+        return float(cfg(name, str(default)).replace(",", "."))
+    except ValueError:
+        return float(default)
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
+def init_runtime():
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    RUNTIME_DIR.chmod(0o700)
+
+
+def init_duck_runtime():
+    DUCK_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    DUCK_RUNTIME_DIR.chmod(0o700)
+
+
+def write_private(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+
+
+def append_private(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)
+
+
+def log(*parts):
+    init_runtime()
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {' '.join(str(part) for part in parts)}"
+    append_private(LAST_LOG, line + "\n")
+    print(line, file=sys.stderr)
+
+
+def notify_msg(title, body=""):
+    if not cfg_bool("NOTIFY", "1"):
+        return
+    if not shutil.which("notify-send"):
+        return
+    subprocess.run(
+        ["notify-send", "-a", "OpenAI Dictation", title, body],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def notify_important(title, body=""):
+    if not shutil.which("notify-send"):
+        return
+    subprocess.run(
+        ["notify-send", "-a", "OpenAI Dictation", "-u", "normal", title, body],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def need_cmds(*commands):
+    missing = [command for command in commands if not shutil.which(command)]
+    if not missing:
+        return True
+
+    print(f"Missing required command(s): {' '.join(missing)}", file=sys.stderr)
+    print(
+        "Install only what is missing. On Arch, likely packages are: "
+        "pipewire, wl-clipboard, python, libnotify.",
+        file=sys.stderr,
+    )
+    return False
+
+
+def check_api_key():
+    api_key = cfg("OPENAI_API_KEY")
+    if api_key and api_key != "replace_me":
+        return True
+
+    print(
+        f"""OPENAI_API_KEY is not set.
+
+Set it for the current shell:
+  export OPENAI_API_KEY='sk-...'
+
+Or store it in:
+  {SECRETS_FILE}
+
+Example line:
+  OPENAI_API_KEY='sk-...'
+
+The scripts never hardcode your API key.""",
+        file=sys.stderr,
+    )
+    return False
+
+
+def process_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
+def recording_pid():
+    try:
+        pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return pid if process_alive(pid) else None
+
+
+def cleanup_state():
+    for path in (PID_FILE, STATE_FILE):
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+
+
+def cleanup_audio(audio_file):
+    path = Path(audio_file)
+    if cfg_bool("KEEP_AUDIO", "0"):
+        log(f"event=audio_kept audio_file={path}")
+        return
+
+    with contextlib.suppress(FileNotFoundError):
+        path.unlink()
+    log(f"event=audio_removed audio_file={path}")
+
+
+def write_state(pid, audio_file, start_ms):
+    write_private(
+        STATE_FILE,
+        "\n".join(
+            [
+                f"PID={shlex.quote(str(pid))}",
+                f"AUDIO_FILE={shlex.quote(str(audio_file))}",
+                f"START_MS={shlex.quote(str(start_ms))}",
+                "",
+            ]
+        ),
+    )
+    write_private(PID_FILE, f"{pid}\n")
+
+
+def load_state():
+    values = parse_env_file(STATE_FILE)
+    required = ("PID", "AUDIO_FILE", "START_MS")
+    if not all(values.get(key) for key in required):
+        return None
+    return values
+
+
+def sanitize_client(client):
+    return re.sub(r"[^A-Za-z0-9_.:-]", "_", str(client or "default"))
+
+
+def load_duck_state():
+    values = {
+        "ORIGINAL_BACKEND": "",
+        "ORIGINAL_VOLUME": "",
+        "ORIGINAL_MUTED": "",
+        "CLIENTS": "",
+    }
+    values.update(parse_env_file(DUCK_STATE_FILE))
+    return values
+
+
+def write_duck_state(state):
+    write_private(
+        DUCK_STATE_FILE,
+        "\n".join(
+            [
+                f"ORIGINAL_BACKEND={shlex.quote(state.get('ORIGINAL_BACKEND', ''))}",
+                f"ORIGINAL_VOLUME={shlex.quote(state.get('ORIGINAL_VOLUME', ''))}",
+                f"ORIGINAL_MUTED={shlex.quote(state.get('ORIGINAL_MUTED', ''))}",
+                f"CLIENTS={shlex.quote(state.get('CLIENTS', ''))}",
+                "",
+            ]
+        ),
+    )
+
+
+@contextlib.contextmanager
+def duck_lock():
+    init_duck_runtime()
+    with DUCK_LOCK_FILE.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def run_capture(command, input_text=None, timeout=None):
+    return subprocess.run(
+        command,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def current_audio_state():
+    if shutil.which("wpctl"):
+        result = run_capture(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+        if result.returncode == 0:
+            match = re.search(r"\b([0-9]+(?:[.][0-9]+)?)\b", result.stdout)
+            if match:
+                muted = "1" if "[MUTED]" in result.stdout else "0"
+                return "wpctl", match.group(1), muted
+
+    if shutil.which("pactl"):
+        volume_result = run_capture(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
+        mute_result = run_capture(["pactl", "get-sink-mute", "@DEFAULT_SINK@"])
+        if volume_result.returncode == 0:
+            match = re.search(r"([0-9]+)%", volume_result.stdout)
+            if match:
+                volume = str(int(match.group(1)) / 100)
+                muted = "1" if "yes" in mute_result.stdout else "0"
+                return "pactl", volume, muted
+
+    return None
+
+
+def scaled_volume(volume, factor):
+    try:
+        result = float(volume) * float(factor)
+    except ValueError:
+        result = 0.3
+    return f"{max(0.0, result):.4f}"
+
+
+def set_audio_volume(backend, volume):
+    if backend == "wpctl":
+        command = ["wpctl", "set-volume", "-l", "2.0", "@DEFAULT_AUDIO_SINK@", str(volume)]
+    elif backend == "pactl":
+        percent = f"{round(float(volume) * 100)}%"
+        command = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", percent]
+    else:
+        return False
+
+    return subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def set_audio_mute(backend, muted):
+    if backend == "wpctl":
+        command = ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", str(muted)]
+    elif backend == "pactl":
+        command = ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if str(muted) == "1" else "0"]
+    else:
+        return False
+
+    return subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def fade_audio_volume(backend, from_volume, to_volume, duration_ms, steps):
+    duration_ms = max(0, int(duration_ms))
+    steps = max(1, int(steps))
+    if duration_ms <= 0 or steps <= 1:
+        return set_audio_volume(backend, to_volume)
+
+    delay = duration_ms / steps / 1000.0
+    start = float(from_volume)
+    end = float(to_volume)
+    ok = True
+    for step in range(1, steps + 1):
+        volume = start + ((end - start) * (step / steps))
+        ok = set_audio_volume(backend, f"{volume:.4f}") and ok
+        if step != steps:
+            time.sleep(delay)
+    return ok
+
+
+def client_active(clients, client):
+    return client in clients.split()
+
+
+def add_client(clients, client):
+    if client_active(clients, client):
+        return clients
+    return f"{clients} {client}".strip()
+
+
+def remove_client(clients, client):
+    return " ".join(existing for existing in clients.split() if existing != client)
+
+
+def restore_audio_state(state):
+    backend = state.get("ORIGINAL_BACKEND", "")
+    original_volume = state.get("ORIGINAL_VOLUME", "")
+    original_muted = state.get("ORIGINAL_MUTED", "")
+    if not backend or not original_volume:
+        return True
+
+    current = current_audio_state()
+    if current and current[0] == backend:
+        ok = fade_audio_volume(
+            backend,
+            current[1],
+            original_volume,
+            cfg_int("VOLUME_DUCK_FADE_OUT_MS", 900),
+            cfg_int("VOLUME_DUCK_FADE_STEPS", 12),
+        )
+    else:
+        ok = set_audio_volume(backend, original_volume)
+
+    if original_muted:
+        ok = set_audio_mute(backend, original_muted) and ok
+    return ok
+
+
+def duck_start(client=DUCK_CLIENT, factor=None):
+    client = sanitize_client(client)
+    factor = str(factor if factor is not None else cfg("VOLUME_DUCK_FACTOR", "0.3"))
+
+    with duck_lock():
+        state = load_duck_state()
+        clients = state.get("CLIENTS", "")
+        if clients:
+            state["CLIENTS"] = add_client(clients, client)
+            write_duck_state(state)
+            return True
+
+        current = current_audio_state()
+        if not current:
+            return False
+
+        backend, volume, muted = current
+        state.update(
+            {
+                "ORIGINAL_BACKEND": backend,
+                "ORIGINAL_VOLUME": volume,
+                "ORIGINAL_MUTED": muted,
+                "CLIENTS": client,
+            }
+        )
+        write_duck_state(state)
+        ducked = scaled_volume(volume, factor)
+        if fade_audio_volume(
+            backend,
+            volume,
+            ducked,
+            cfg_int("VOLUME_DUCK_FADE_IN_MS", 700),
+            cfg_int("VOLUME_DUCK_FADE_STEPS", 12),
+        ):
+            return True
+
+        with contextlib.suppress(FileNotFoundError):
+            DUCK_STATE_FILE.unlink()
+        return False
+
+
+def duck_stop(client=DUCK_CLIENT):
+    client = sanitize_client(client)
+
+    with duck_lock():
+        state = load_duck_state()
+        clients = state.get("CLIENTS", "")
+        if not clients:
+            return True
+
+        state["CLIENTS"] = remove_client(clients, client)
+        if state["CLIENTS"]:
+            write_duck_state(state)
+            return True
+
+        ok = restore_audio_state(state)
+        with contextlib.suppress(FileNotFoundError):
+            DUCK_STATE_FILE.unlink()
+        return ok
+
+
+def start_volume_duck():
+    if not cfg_bool("DUCK_VOLUME", "1"):
+        return
+
+    if duck_start(DUCK_CLIENT, cfg("VOLUME_DUCK_FACTOR", "0.3")):
+        log(f"event=volume_duck_start factor={cfg('VOLUME_DUCK_FACTOR', '0.3')}")
+    else:
+        log("event=volume_duck_start_failed")
+
+
+def stop_volume_duck():
+    if not cfg_bool("DUCK_VOLUME", "1"):
+        return
+
+    if duck_stop(DUCK_CLIENT):
+        log("event=volume_duck_stop")
+    else:
+        log("event=volume_duck_stop_failed")
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def parse_float(value, default=0.0):
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+
+
+def decimal_comma(value, decimals):
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+def format_elapsed(start_ms):
+    elapsed = max(0, now_ms() - int(start_ms)) // 1000
+    return f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+
+
+def format_cost(start_ms, usd_per_minute, currency, usd_to_dkk):
+    if usd_per_minute <= 0:
+        return ""
+
+    elapsed_seconds = max(0, now_ms() - int(start_ms)) // 1000
+    usd = (elapsed_seconds / 60.0) * usd_per_minute
+    currency = (currency or "DKK").upper()
+
+    if currency == "DKK":
+        amount = usd * usd_to_dkk
+        decimals = 4 if amount < 0.01 else 3 if amount < 1 else 2
+        return f"ca. {decimal_comma(amount, decimals)} kr"
+
+    decimals = 4 if usd < 0.01 else 3 if usd < 1 else 2
+    return f"ca. ${decimal_comma(usd, decimals)}"
+
+
+def read_levels(audio_file):
+    try:
+        size = os.path.getsize(audio_file)
+    except OSError:
+        return [0.05] * BARS
+
+    if size <= WAV_HEADER_BYTES + 256:
+        return [0.04] * BARS
+
+    bytes_per_sample = 2
+    wanted = min(size - WAV_HEADER_BYTES, 16000 * bytes_per_sample)
+    wanted -= wanted % bytes_per_sample
+    start = max(WAV_HEADER_BYTES, size - wanted)
+
+    try:
+        with open(audio_file, "rb") as handle:
+            handle.seek(start)
+            data = handle.read(wanted)
+    except OSError:
+        return [0.05] * BARS
+
+    sample_count = len(data) // bytes_per_sample
+    if sample_count < BARS:
+        return [0.05] * BARS
+
+    samples = struct.unpack("<" + "h" * sample_count, data[: sample_count * bytes_per_sample])
+    chunk = max(1, sample_count // BARS)
+    levels = []
+
+    for i in range(BARS):
+        part = samples[i * chunk : (i + 1) * chunk]
+        if not part:
+            levels.append(0.04)
+            continue
+        peak = max(abs(sample) for sample in part) / 32768.0
+        levels.append(clamp(peak * 4.5, 0.04, 1.0))
+
+    return levels
+
+
+def overlay_cost_usd_per_minute():
+    if not cfg_bool("SHOW_COST_ESTIMATE", "1"):
+        return 0.0
+
+    value = cfg("OPENAI_COST_USD_PER_MINUTE", "auto")
+    if value in FALSE_VALUES:
+        return 0.0
+    if value.lower() == "auto":
+        model = cfg("OPENAI_MODEL")
+        if model.startswith("gpt-4o-mini-transcribe"):
+            return 0.003
+        if model.startswith("gpt-4o-transcribe") or model == "whisper-1":
+            return 0.006
+        return 0.0
+    return parse_float(value, 0.0)
+
+
+def start_overlay(mode, audio_file="", start_ms=None):
+    if not cfg_bool("SHOW_LOADING", "1"):
+        return
+
+    stop_overlay()
+    start_ms = start_ms or now_ms()
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "_overlay",
+        mode,
+        str(audio_file or ""),
+        str(start_ms),
+        str(overlay_cost_usd_per_minute()),
+        cfg("OPENAI_COST_CURRENCY", "DKK"),
+        cfg("OPENAI_COST_USD_TO_DKK", "6.4104"),
+    ]
+
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        log(f"event=overlay_start_failed error={exc}")
+        return
+
+    write_private(OVERLAY_PID_FILE, f"{process.pid}\n")
+    log(f"event=overlay_start mode={mode} pid={process.pid}")
+
+
+def stop_overlay():
+    try:
+        pid = int(OVERLAY_PID_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+
+    with contextlib.suppress(FileNotFoundError):
+        OVERLAY_PID_FILE.unlink()
+
+    if process_alive(pid):
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGTERM)
+        log(f"event=overlay_stop pid={pid}")
+
+
+def sleep_ms(milliseconds):
+    if milliseconds > 0:
+        time.sleep(milliseconds / 1000)
+
+
+def finish_transcribe_overlay(overlay_start_ms):
+    if OVERLAY_PID_FILE.exists():
+        minimum = cfg_int("TRANSCRIBE_OVERLAY_MIN_MS", 0)
+        elapsed = now_ms() - int(overlay_start_ms or 0)
+        sleep_ms(max(0, minimum - elapsed))
+    stop_overlay()
+
+
+def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
+    from PySide6.QtCore import Qt, QTimer, QRectF
+    from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    class DictationWidget(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.mode = mode
+            self.audio_file = audio_file
+            self.start_ms = start_ms
+            self.cost_usd_per_minute = cost_usd_per_minute
+            self.cost_currency = cost_currency
+            self.cost_usd_to_dkk = cost_usd_to_dkk
+            self.phase = 0.0
+            self.started_at = time.monotonic()
+            self.elapsed = 0.0
+            self.levels = [0.06] * BARS
+            self.setWindowTitle("OpenAI Dictation")
+            self.setFixedSize(WIDTH, HEIGHT)
+            self.setWindowFlags(
+                Qt.FramelessWindowHint
+                | Qt.WindowStaysOnTopHint
+                | Qt.Tool
+                | Qt.WindowDoesNotAcceptFocus
+            )
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self.setAttribute(Qt.WA_TranslucentBackground, True)
+
+            timer = QTimer(self)
+            timer.timeout.connect(self.tick)
+            timer.start(16)
+
+        def showEvent(self, event):
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = screen.x() + (screen.width() - self.width()) // 2
+            y = screen.y() + screen.height() - self.height() - 86
+            self.move(x, y)
+            super().showEvent(event)
+
+        def tick(self):
+            current = time.monotonic()
+            self.phase = current
+            self.elapsed = current - self.started_at
+            if self.mode == "record":
+                latest = read_levels(self.audio_file)
+                self.levels = [self.levels[i] * 0.58 + latest[i] * 0.42 for i in range(BARS)]
+            self.update()
+
+        def draw_panel(self, painter):
+            outer = QRectF(1.5, 1.5, self.width() - 3, self.height() - 3)
+            content = QRectF(3.0, 3.0, self.width() - 6, self.height() - 6)
+            radius = 8.5
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(1, 1, 4, 255))
+            painter.drawRoundedRect(outer, radius, radius)
+
+            painter.setPen(QPen(QColor(24, 213, 255, 240), 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(outer, radius, radius)
+
+            clip = QPainterPath()
+            clip.addRoundedRect(content, radius - 1.5, radius - 1.5)
+            painter.setClipPath(clip)
+
+        def draw_dot(self, painter):
+            if self.mode == "record":
+                core = QColor(244, 48, 78)
+                glow = QColor(244, 48, 78, 60)
+            else:
+                core = QColor(23, 178, 90)
+                glow = QColor(23, 178, 90, 60)
+
+            pulse = 1.0 + math.sin(self.phase * 5.0) * 0.12
+            cx, cy = 26, self.height() / 2
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(glow)
+            painter.drawEllipse(QRectF(cx - 10 * pulse, cy - 10 * pulse, 20 * pulse, 20 * pulse))
+            painter.setBrush(core)
+            painter.drawEllipse(QRectF(cx - 6, cy - 6, 12, 12))
+
+        def draw_record_bars(self, painter):
+            left = 48
+            right = self.width() - 58
+            top = 21
+            bottom = self.height() - 21
+            mid = (top + bottom) / 2
+            slot = (right - left) / BARS
+            bar_w = max(4.0, slot * 0.72)
+
+            painter.setPen(Qt.NoPen)
+            for i, level in enumerate(self.levels):
+                height = 5 + level * (bottom - top)
+                x = left + i * slot + (slot - bar_w) / 2
+                y = mid - height / 2
+                hue = (0.62 + i * 0.005) % 1.0
+                base = QColor.fromHsvF(hue, 0.22, 0.72, 0.92)
+                peak = QColor.fromHsvF(hue, 0.28, 0.92, 0.98)
+                painter.setBrush(peak if level > 0.42 else base)
+                painter.drawRoundedRect(QRectF(x, y, bar_w, height), 1.6, 1.6)
+
+        def draw_transcribe_bars(self, painter):
+            left = 48
+            right = self.width() - 18
+            top = 15
+            bottom = self.height() - 15
+            mid = (top + bottom) / 2
+            slot = (right - left) / BARS
+            bar_w = max(4.0, slot * 0.72)
+            sweep = (BARS - 1) - ((self.elapsed * TRANSCRIBE_SWEEP_SPEED) % (BARS + 12))
+
+            painter.setPen(Qt.NoPen)
+            for i in range(BARS):
+                distance = i - sweep
+                peak = math.exp(-(distance * distance) / 54)
+                envelope = 0.18 + 0.82 * peak
+                wave = 0.55 + 0.45 * math.sin(i * 0.38 + self.elapsed * 10.0)
+                height = 6 + (bottom - top) * envelope * (0.5 + 0.5 * wave)
+                x = left + i * slot + (slot - bar_w) / 2
+                y = mid - height / 2
+                hue = (0.58 + i * 0.006 + self.elapsed * 0.16) % 1.0
+                color = QColor.fromHsvF(
+                    hue,
+                    0.18 + peak * 0.16,
+                    0.58 + peak * 0.32,
+                    0.76 + peak * 0.22,
+                )
+                painter.setBrush(color)
+                painter.drawRoundedRect(QRectF(x, y, bar_w, height), 1.6, 1.6)
+
+        def draw_timer(self, painter):
+            if self.mode != "record":
+                return
+            painter.setPen(QColor(183, 190, 222, 245))
+            painter.setFont(QFont("monospace", 10, QFont.Medium))
+            painter.drawText(
+                QRectF(self.width() - 48, self.height() - 25, 40, 18),
+                Qt.AlignRight | Qt.AlignVCenter,
+                format_elapsed(self.start_ms),
+            )
+
+        def draw_cost(self, painter):
+            if self.mode != "record":
+                return
+            text = format_cost(
+                self.start_ms,
+                self.cost_usd_per_minute,
+                self.cost_currency,
+                self.cost_usd_to_dkk,
+            )
+            if not text:
+                return
+            painter.setPen(QColor(131, 227, 255, 235))
+            painter.setFont(QFont("monospace", 9, QFont.Medium))
+            painter.drawText(QRectF(self.width() - 150, 8, 134, 16), Qt.AlignRight | Qt.AlignVCenter, text)
+
+        def paintEvent(self, event):
+            del event
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            self.draw_panel(painter)
+            self.draw_dot(painter)
+            if self.mode == "record":
+                self.draw_record_bars(painter)
+            else:
+                self.draw_transcribe_bars(painter)
+            self.draw_cost(painter)
+            self.draw_timer(painter)
+
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(True)
+    widget = DictationWidget()
+    widget.show()
+    sys.exit(app.exec())
+
+
+def run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title("OpenAI Dictation")
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+    root.configure(bg="black")
+    x = (root.winfo_screenwidth() - WIDTH) // 2
+    y = root.winfo_screenheight() - HEIGHT - 86
+    root.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
+    canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0)
+    canvas.pack()
+    levels = [0.06] * BARS
+    started_at = time.monotonic()
+
+    def draw():
+        nonlocal levels
+        phase = time.monotonic()
+        elapsed = phase - started_at
+        if mode == "record":
+            latest = read_levels(audio_file)
+            levels = [levels[i] * 0.58 + latest[i] * 0.42 for i in range(BARS)]
+
+        canvas.delete("all")
+        canvas.create_rectangle(1, 1, WIDTH - 2, HEIGHT - 2, outline="", fill="#010104")
+        canvas.create_rectangle(1, 1, WIDTH - 2, HEIGHT - 2, outline="#18d5ff", width=2)
+        dot = "#f4304e" if mode == "record" else "#17b25a"
+        canvas.create_oval(
+            17,
+            HEIGHT / 2 - 9,
+            35,
+            HEIGHT / 2 + 9,
+            fill="#3a1020" if mode == "record" else "#0b3522",
+            outline="",
+        )
+        canvas.create_oval(20, HEIGHT / 2 - 6, 32, HEIGHT / 2 + 6, fill=dot, outline="")
+
+        left = 48
+        right = WIDTH - (58 if mode == "record" else 18)
+        top = 18
+        bottom = HEIGHT - 18
+        mid = (top + bottom) / 2
+        slot = (right - left) / BARS
+        bar_w = max(4.0, slot * 0.72)
+
+        for i in range(BARS):
+            if mode == "record":
+                height = 5 + levels[i] * (bottom - top)
+                color = "#9da6c8" if levels[i] <= 0.42 else "#c3c9e8"
+            else:
+                sweep = (BARS - 1) - ((elapsed * TRANSCRIBE_SWEEP_SPEED) % (BARS + 12))
+                distance = i - sweep
+                envelope = 0.18 + 0.82 * math.exp(-(distance * distance) / 54)
+                wave = 0.55 + 0.45 * math.sin(i * 0.38 + elapsed * 10.0)
+                height = 6 + (bottom - top) * envelope * (0.5 + 0.5 * wave)
+                color = "#a5aecf"
+            x = left + i * slot + (slot - bar_w) / 2
+            canvas.create_rectangle(x, mid - height / 2, x + bar_w, mid + height / 2, fill=color, outline="")
+
+        if mode == "record":
+            cost = format_cost(start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+            if cost:
+                canvas.create_text(WIDTH - 14, 15, text=cost, fill="#83e3ff", anchor="e", font=("monospace", 9))
+            canvas.create_text(
+                WIDTH - 14,
+                HEIGHT - 17,
+                text=format_elapsed(start_ms),
+                fill="#b7bede",
+                anchor="e",
+                font=("monospace", 10),
+            )
+        root.after(16, draw)
+
+    draw()
+    root.mainloop()
+
+
+def run_overlay(argv):
+    mode = argv[0] if len(argv) > 0 else "transcribe"
+    if mode not in {"record", "transcribe"}:
+        mode = "transcribe"
+    audio_file = argv[1] if len(argv) > 1 else ""
+    try:
+        start_ms = int(argv[2]) if len(argv) > 2 else now_ms()
+    except ValueError:
+        start_ms = now_ms()
+    cost_usd_per_minute = parse_float(argv[3], 0.0) if len(argv) > 3 else 0.0
+    cost_currency = argv[4] if len(argv) > 4 else "DKK"
+    cost_usd_to_dkk = parse_float(argv[5], 6.4104) if len(argv) > 5 else 6.4104
+
+    try:
+        run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+    except Exception:
+        run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+
+
+def stop_recorder_process(pid):
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), sig)
+            break
+
+    for _ in range(100):
+        if not process_alive(pid):
+            return
+        time.sleep(0.02)
+
+    with contextlib.suppress(OSError):
+        os.kill(int(pid), signal.SIGTERM)
+    for _ in range(50):
+        if not process_alive(pid):
+            return
+        time.sleep(0.02)
+
+    with contextlib.suppress(OSError):
+        os.kill(int(pid), signal.SIGKILL)
+
+
+def start_recording():
+    init_runtime()
+    if not need_cmds("pw-record"):
+        return 1
+    if not check_api_key():
+        return 1
+
+    pid = recording_pid()
+    if pid:
+        print(f"OpenAI dictation is already recording with PID {pid}.", file=sys.stderr)
+        return 0
+
+    write_private(LAST_LOG, "")
+    write_private(RECORDER_ERR_FILE, "")
+    with contextlib.suppress(FileNotFoundError):
+        LAST_TXT.unlink()
+    cleanup_state()
+
+    start_ms = now_ms()
+    audio_file = RUNTIME_DIR / f"recording-{start_ms}.wav"
+    command = [
+        "pw-record",
+        "--rate",
+        cfg("RECORD_RATE", "16000"),
+        "--channels",
+        cfg("RECORD_CHANNELS", "1"),
+        "--format",
+        cfg("RECORD_FORMAT", "s16"),
+        "--latency",
+        cfg("RECORD_LATENCY", "20ms"),
+        str(audio_file),
+    ]
+
+    with RECORDER_ERR_FILE.open("wb") as err:
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=err)
+
+    time.sleep(0.08)
+    if process.poll() is not None:
+        log(f"event=start_failed pid={process.pid} audio_file={audio_file}")
+        with contextlib.suppress(OSError):
+            print("\n".join(RECORDER_ERR_FILE.read_text(encoding="utf-8").splitlines()[:20]), file=sys.stderr)
+        cleanup_state()
+        return 1
+
+    write_state(process.pid, audio_file, start_ms)
+    start_volume_duck()
+    log(
+        f"event=start pid={process.pid} audio_file={audio_file} "
+        f"model={cfg('OPENAI_MODEL')} rate_hz={cfg('RECORD_RATE')} "
+        f"channels={cfg('RECORD_CHANNELS')} latency={cfg('RECORD_LATENCY')}"
+    )
+    start_overlay("record", audio_file, start_ms)
+    notify_msg("OpenAI dictation recording", "Run openai-dictate stop to transcribe.")
+    return 0
+
+
+def active_window_class():
+    if not need_cmds("hyprctl"):
+        return ""
+    result = run_capture(["hyprctl", "activewindow", "-j"])
+    if result.returncode != 0:
+        return ""
+    try:
+        window = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return ""
+    return window.get("class") or window.get("initialClass") or ""
+
+
+def active_window_is_ghostty():
+    window_class = active_window_class()
+    return window_class in {"com.mitchellh.ghostty", "ghostty"} or "Ghostty" in window_class
+
+
+def dispatch_shortcut(shortcut):
+    if not need_cmds("hyprctl"):
+        return False
+    return subprocess.run(
+        ["hyprctl", "dispatch", "sendshortcut", shortcut],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def paste_hyprctl_super_v():
+    if active_window_is_ghostty():
+        return dispatch_shortcut("CTRL SHIFT, V,")
+    return dispatch_shortcut("SHIFT, Insert,")
+
+
+def paste_clipboard():
+    method = cfg("PASTE_METHOD", "hyprctl-super-v")
+    if method == "none":
+        return True
+    if method == "hyprctl-shift-insert":
+        return dispatch_shortcut("SHIFT, Insert,")
+    if method == "hyprctl-super-v":
+        return paste_hyprctl_super_v()
+    if method == "hyprctl-ctrl-v":
+        return dispatch_shortcut("CTRL, V,")
+    if method == "hyprctl-ctrl-shift-v":
+        return dispatch_shortcut("CTRL SHIFT, V,")
+    if method == "wtype-ctrl-v":
+        if not need_cmds("wtype"):
+            return False
+        return subprocess.run(
+            ["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    if method == "wtype-ctrl-shift-v":
+        if not need_cmds("wtype"):
+            return False
+        return subprocess.run(
+            ["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    if method == "ydotool-ctrl-v":
+        if not need_cmds("ydotool"):
+            return False
+        return subprocess.run(
+            ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    if method == "ydotool-ctrl-shift-v":
+        if not need_cmds("ydotool"):
+            return False
+        return subprocess.run(
+            ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+
+    print(f"Unknown PASTE_METHOD: {method}", file=sys.stderr)
+    return False
+
+
+def silence_max_volume(audio_file):
+    if not shutil.which("ffmpeg"):
+        return None
+    result = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(audio_file), "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    match = re.search(r"max_volume:\s+(-?inf|-?[0-9]+(?:[.][0-9]+)?)\s+dB", output)
+    return match.group(1) if match else None
+
+
+def volume_lte(volume, threshold):
+    if volume == "-inf":
+        return True
+    try:
+        return float(volume) <= float(threshold)
+    except ValueError:
+        return False
+
+
+def build_multipart_body(fields, audio_file):
+    boundary = f"openai-dictation-{secrets.token_hex(16)}"
+    body = bytearray()
+
+    for name, value in fields:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(str(value).encode("utf-8"))
+        body.extend(b"\r\n")
+
+    audio_path = Path(audio_file)
+    content_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        (
+            f'Content-Disposition: form-data; name="file"; filename="{audio_path.name}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    body.extend(audio_path.read_bytes())
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    return boundary, bytes(body)
+
+
+def transcribe_request(audio_file):
+    fields = [
+        ("model", cfg("OPENAI_MODEL")),
+        ("response_format", "json"),
+    ]
+    if cfg("OPENAI_LANGUAGE"):
+        fields.append(("language", cfg("OPENAI_LANGUAGE")))
+    if cfg("OPENAI_PROMPT"):
+        fields.append(("prompt", cfg("OPENAI_PROMPT")))
+
+    boundary, body = build_multipart_body(fields, audio_file)
+    request = urllib.request.Request(
+        cfg("OPENAI_API_URL"),
+        data=body,
+        headers={
+            "Authorization": f"Bearer {cfg('OPENAI_API_KEY')}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=cfg_float("CURL_MAX_TIME", 120)) as response:
+            return response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        raise OpenAIRequestError(f"OpenAI request failed with HTTP {exc.code}", exc.code, body_text) from exc
+    except urllib.error.URLError as exc:
+        raise OpenAIRequestError(f"OpenAI request failed: {exc}") from exc
+
+
+def parse_transcript(response_text):
+    try:
+        data = json.loads(response_text)
+    except json.JSONDecodeError as exc:
+        raise OpenAIRequestError(f"Could not parse OpenAI response as JSON: {exc}", body=response_text) from exc
+
+    error = data.get("error") if isinstance(data, dict) else None
+    if error:
+        if isinstance(error, dict):
+            message = error.get("message") or error
+        else:
+            message = error
+        raise OpenAIRequestError(f"OpenAI API error: {message}", body=response_text)
+
+    text = data.get("text") if isinstance(data, dict) else None
+    if not isinstance(text, str):
+        raise OpenAIRequestError("OpenAI response did not contain a text field.", body=response_text)
+    return text.strip()
+
+
+def post_process_request(text):
+    payload = {
+        "model": cfg("POST_PROCESS_MODEL", "gpt-4.1-mini"),
+        "instructions": cfg("POST_PROCESS_INSTRUCTIONS", LATEX_POST_PROCESS_INSTRUCTIONS)
+        or LATEX_POST_PROCESS_INSTRUCTIONS,
+        "input": f"Raw transcript:\n{text}",
+        "max_output_tokens": cfg_int("POST_PROCESS_MAX_OUTPUT_TOKENS", 2000),
+        "store": False,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        cfg("POST_PROCESS_API_URL", "https://api.openai.com/v1/responses"),
+        data=body,
+        headers={
+            "Authorization": f"Bearer {cfg('OPENAI_API_KEY')}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=cfg_float("POST_PROCESS_TIMEOUT", 45)) as response:
+            return response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        raise OpenAIRequestError(
+            f"OpenAI post-processing failed with HTTP {exc.code}",
+            exc.code,
+            body_text,
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise OpenAIRequestError(f"OpenAI post-processing failed: {exc}") from exc
+
+
+def extract_response_text(response_text):
+    try:
+        data = json.loads(response_text)
+    except json.JSONDecodeError as exc:
+        raise OpenAIRequestError(f"Could not parse post-processing response as JSON: {exc}", body=response_text) from exc
+
+    error = data.get("error") if isinstance(data, dict) else None
+    if error:
+        if isinstance(error, dict):
+            message = error.get("message") or error
+        else:
+            message = error
+        raise OpenAIRequestError(f"OpenAI post-processing error: {message}", body=response_text)
+
+    output_text = data.get("output_text") if isinstance(data, dict) else None
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    parts = []
+    for item in data.get("output", []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+
+    text = "".join(parts).strip()
+    if not text:
+        raise OpenAIRequestError("OpenAI post-processing response did not contain text.", body=response_text)
+    return text
+
+
+def post_process_transcript(text):
+    if not cfg_bool("POST_PROCESS_TRANSCRIPT", "0") or not text:
+        return text, 0, False
+
+    start_ms = now_ms()
+    try:
+        processed = extract_response_text(post_process_request(text))
+    except OpenAIRequestError as exc:
+        elapsed_ms = now_ms() - start_ms
+        log(f"event=post_process_failed elapsed_ms={elapsed_ms}")
+        print(str(exc), file=sys.stderr)
+        if exc.body:
+            print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
+        if cfg("POST_PROCESS_FALLBACK", "raw") == "raw":
+            return text, elapsed_ms, False
+        raise
+
+    elapsed_ms = now_ms() - start_ms
+    log(
+        f"event=post_process_done raw_chars={len(text)} "
+        f"processed_chars={len(processed)} model={cfg('POST_PROCESS_MODEL')}"
+    )
+    return processed, elapsed_ms, True
+
+
+def copy_to_clipboard(text):
+    if not need_cmds("wl-copy"):
+        return False
+    return subprocess.run(
+        ["wl-copy", "--trim-newline"],
+        input=text,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms, audio_bytes, max_volume):
+    log(
+        f"event=audio_silent audio_file={audio_file} bytes={audio_bytes} "
+        f"max_volume_db={max_volume} threshold_db={cfg('SILENCE_MAX_DB', '-50')}"
+    )
+    log(
+        f"timing recording_duration_ms={recording_ms} "
+        f"stop_finalize_ms={stop_done_ms - release_ms} transcription_ms=0 "
+        f"total_after_release_ms={now_ms() - release_ms}"
+    )
+    cleanup_audio(audio_file)
+    notify_important("OpenAI dictation skipped", "No speech detected. Nothing was sent.")
+    print("No speech detected; discarded without sending to OpenAI.")
+
+
+def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
+    if not need_cmds("wl-copy"):
+        return 1
+    if not check_api_key():
+        return 1
+
+    audio_path = Path(audio_file)
+    try:
+        audio_bytes = audio_path.stat().st_size
+    except OSError:
+        audio_bytes = 0
+
+    if audio_bytes < cfg_int("MIN_AUDIO_BYTES", 4096):
+        log(f"event=audio_too_short audio_file={audio_file} bytes={audio_bytes}")
+        log(
+            f"timing recording_duration_ms={recording_ms} "
+            f"stop_finalize_ms={stop_done_ms - release_ms} transcription_ms=0 "
+            f"total_after_release_ms={now_ms() - release_ms}"
+        )
+        cleanup_audio(audio_file)
+        notify_msg("OpenAI dictation skipped", "Recording was too short.")
+        return 1
+
+    if cfg_bool("SKIP_SILENCE", "1"):
+        max_volume = silence_max_volume(audio_file)
+        if max_volume is None:
+            log(f"event=silence_check_unavailable audio_file={audio_file}")
+        elif volume_lte(max_volume, cfg("SILENCE_MAX_DB", "-50")):
+            discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms, audio_bytes, max_volume)
+            return 0
+        else:
+            log(
+                f"event=silence_check_ok audio_file={audio_file} "
+                f"max_volume_db={max_volume} threshold_db={cfg('SILENCE_MAX_DB', '-50')}"
+            )
+
+    upload_start_ms = now_ms()
+    transcribe_overlay_start_ms = upload_start_ms
+    log(f"event=transcribe_start audio_file={audio_file} bytes={audio_bytes}")
+    start_overlay("transcribe")
+
+    try:
+        response_text = transcribe_request(audio_file)
+        upload_end_ms = now_ms()
+        text = parse_transcript(response_text)
+    except OpenAIRequestError as exc:
+        upload_end_ms = now_ms()
+        stop_overlay()
+        status = f" http_status={exc.status}" if exc.status else ""
+        log(f"event=transcribe_failed{status} transcription_ms={upload_end_ms - upload_start_ms}")
+        log(
+            f"timing recording_duration_ms={recording_ms} "
+            f"stop_finalize_ms={stop_done_ms - release_ms} "
+            f"transcription_ms={upload_end_ms - upload_start_ms} "
+            f"total_after_release_ms={now_ms() - release_ms}"
+        )
+        print(str(exc), file=sys.stderr)
+        if exc.body:
+            print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
+        notify_msg("OpenAI dictation failed", f"See {LAST_LOG}")
+        cleanup_audio(audio_file)
+        return 1
+
+    if not text:
+        finish_transcribe_overlay(transcribe_overlay_start_ms)
+        log(f"event=transcript_empty transcription_ms={upload_end_ms - upload_start_ms}")
+        log(
+            f"timing recording_duration_ms={recording_ms} "
+            f"stop_finalize_ms={stop_done_ms - release_ms} "
+            f"transcription_ms={upload_end_ms - upload_start_ms} "
+            f"total_after_release_ms={now_ms() - release_ms}"
+        )
+        notify_important("OpenAI dictation skipped", "Transcript was empty. Nothing was pasted.")
+        cleanup_audio(audio_file)
+        print("Transcript was empty; clipboard and focused app were left unchanged.")
+        return 0
+
+    post_process_ms = 0
+    post_processed = False
+    try:
+        text, post_process_ms, post_processed = post_process_transcript(text)
+    except OpenAIRequestError as exc:
+        stop_overlay()
+        print(str(exc), file=sys.stderr)
+        if exc.body:
+            print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
+        notify_msg("OpenAI dictation failed", f"See {LAST_LOG}")
+        cleanup_audio(audio_file)
+        return 1
+
+    if not text:
+        finish_transcribe_overlay(transcribe_overlay_start_ms)
+        log(
+            f"event=post_process_empty transcription_ms={upload_end_ms - upload_start_ms} "
+            f"post_process_ms={post_process_ms}"
+        )
+        log(
+            f"timing recording_duration_ms={recording_ms} "
+            f"stop_finalize_ms={stop_done_ms - release_ms} "
+            f"transcription_ms={upload_end_ms - upload_start_ms} "
+            f"post_process_ms={post_process_ms} total_after_release_ms={now_ms() - release_ms}"
+        )
+        notify_important("OpenAI dictation skipped", "Post-processed transcript was empty.")
+        cleanup_audio(audio_file)
+        print("Post-processed transcript was empty; clipboard and focused app were left unchanged.")
+        return 0
+
+    write_private(LAST_TXT, text)
+    if not copy_to_clipboard(text):
+        stop_overlay()
+        cleanup_audio(audio_file)
+        return 1
+
+    finish_transcribe_overlay(transcribe_overlay_start_ms)
+
+    if cfg_bool("AUTO_PASTE", "0"):
+        time.sleep(cfg_float("PASTE_DELAY", 0.08))
+        if paste_clipboard():
+            log(f"event=auto_paste method={cfg('PASTE_METHOD')}")
+        else:
+            log(f"event=auto_paste_failed method={cfg('PASTE_METHOD')}")
+
+    done_ms = now_ms()
+    log(f"event=done transcript_chars={len(text)} transcript_file={LAST_TXT}")
+    log(
+        f"timing recording_duration_ms={recording_ms} "
+        f"stop_finalize_ms={stop_done_ms - release_ms} "
+        f"transcription_ms={upload_end_ms - upload_start_ms} "
+        f"post_process_ms={post_process_ms} "
+        f"total_after_release_ms={done_ms - release_ms}"
+    )
+
+    print(f"Transcript copied to clipboard ({len(text)} chars).")
+    timing = (
+        "Timing: recording "
+        f"{recording_ms / 1000:.3f}s, transcription "
+        f"{(upload_end_ms - upload_start_ms) / 1000:.3f}s"
+    )
+    if post_processed or post_process_ms:
+        timing += f", post-processing {post_process_ms / 1000:.3f}s"
+    timing += f", total after release {(done_ms - release_ms) / 1000:.3f}s."
+    print(timing)
+    print(f"Latest transcript: {LAST_TXT}")
+    print(f"Latest log: {LAST_LOG}")
+
+    notify_msg("OpenAI dictation copied", f"{math.ceil((done_ms - release_ms) / 1000)}s after release")
+    cleanup_audio(audio_file)
+    return 0
+
+
+def format_mmss(milliseconds):
+    seconds = int(milliseconds) // 1000
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def discard_short_recording(audio_file, release_ms, recording_ms, stop_done_ms):
+    log(
+        f"event=recording_too_short audio_file={audio_file} "
+        f"recording_ms={recording_ms} min_recording_ms={cfg('MIN_RECORDING_MS', '1000')}"
+    )
+    log(
+        f"timing recording_duration_ms={recording_ms} "
+        f"stop_finalize_ms={stop_done_ms - release_ms} transcription_ms=0 "
+        f"total_after_release_ms={now_ms() - release_ms}"
+    )
+    cleanup_audio(audio_file)
+    notify_msg("OpenAI dictation discarded", "Recording was under 1 second.")
+    minimum = cfg_int("MIN_RECORDING_MS", 1000)
+    print(f"Recording was under {minimum // 1000}.{minimum % 1000:03d}s; discarded without sending to OpenAI.")
+
+
+def discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms):
+    recording_label = format_mmss(recording_ms)
+    max_label = format_mmss(cfg_int("MAX_RECORDING_MS", 300000))
+    log(
+        f"event=recording_too_long audio_file={audio_file} "
+        f"recording_ms={recording_ms} max_recording_ms={cfg('MAX_RECORDING_MS', '300000')}"
+    )
+    log(
+        f"timing recording_duration_ms={recording_ms} "
+        f"stop_finalize_ms={stop_done_ms - release_ms} transcription_ms=0 "
+        f"total_after_release_ms={now_ms() - release_ms}"
+    )
+    cleanup_audio(audio_file)
+    notify_important("OpenAI dictation too long", f"Recording was {recording_label}; limit is {max_label}. Not sent.")
+    print(f"Recording was {recording_label}; limit is {max_label}. Discarded without sending to OpenAI.")
+
+
+def stop_recording():
+    init_runtime()
+    state = load_state()
+    if not state:
+        print("OpenAI dictation is not recording.", file=sys.stderr)
+        stop_volume_duck()
+        cleanup_state()
+        return 1
+
+    pid = int(state["PID"])
+    if not process_alive(pid):
+        print("Recorder process is not running; cleaning stale state.", file=sys.stderr)
+        stop_volume_duck()
+        cleanup_state()
+        return 1
+
+    release_ms = now_ms()
+    log(f"event=release pid={pid}")
+    stop_recorder_process(pid)
+    stop_done_ms = now_ms()
+    stop_overlay()
+    stop_volume_duck()
+
+    try:
+        start_ms = int(state["START_MS"])
+    except ValueError:
+        start_ms = release_ms
+    recording_ms = max(0, release_ms - start_ms)
+    audio_file = state["AUDIO_FILE"]
+
+    cleanup_state()
+    if cfg_int("MIN_RECORDING_MS", 0) > 0 and recording_ms < cfg_int("MIN_RECORDING_MS", 1000):
+        discard_short_recording(audio_file, release_ms, recording_ms, stop_done_ms)
+        return 0
+
+    if cfg_int("MAX_RECORDING_MS", 0) > 0 and recording_ms >= cfg_int("MAX_RECORDING_MS", 300000):
+        discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms)
+        return 0
+
+    return transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms)
+
+
+def cancel_recording():
+    init_runtime()
+    state = load_state()
+    if not state:
+        print("OpenAI dictation is not recording.", file=sys.stderr)
+        stop_overlay()
+        stop_volume_duck()
+        cleanup_state()
+        return 0
+
+    cancel_ms = now_ms()
+    pid = state.get("PID", "")
+    log(f"event=cancel pid={pid or 'none'}")
+    if pid and process_alive(pid):
+        stop_recorder_process(int(pid))
+    else:
+        log(f"event=cancel_stale_recorder pid={pid or 'none'}")
+
+    stop_done_ms = now_ms()
+    stop_overlay()
+    stop_volume_duck()
+
+    try:
+        start_ms = int(state.get("START_MS", cancel_ms))
+    except ValueError:
+        start_ms = cancel_ms
+    recording_ms = max(0, cancel_ms - start_ms)
+
+    cleanup_state()
+    audio_file = state.get("AUDIO_FILE", "")
+    if audio_file:
+        cleanup_audio(audio_file)
+
+    log(
+        f"timing recording_duration_ms={recording_ms} "
+        f"stop_finalize_ms={stop_done_ms - cancel_ms} transcription_ms=0 total_after_release_ms=0"
+    )
+    notify_msg("OpenAI dictation canceled", "Recording discarded.")
+    print("OpenAI dictation canceled; recording discarded.")
+    return 0
+
+
+def toggle_recording():
+    return stop_recording() if recording_pid() else start_recording()
+
+
+def once_recording():
+    status = start_recording()
+    if status != 0:
+        return status
+
+    print("Recording. Press Enter to stop and transcribe.", file=sys.stderr)
+    try:
+        input()
+    except KeyboardInterrupt:
+        print("\nStopping...", file=sys.stderr)
+    return stop_recording()
+
+
+def status_recording():
+    pid = recording_pid()
+    if not pid:
+        print("idle")
+        return 0
+
+    print(f"recording pid={pid}")
+    state = load_state()
+    if state:
+        print(f"audio_file={state['AUDIO_FILE']}")
+        with contextlib.suppress(ValueError):
+            print(f"elapsed_ms={now_ms() - int(state['START_MS'])}")
+    return 0
+
+
+def check_setup():
+    commands = ["pw-record", "wl-copy"]
+    if cfg_bool("AUTO_PASTE", "0") and cfg("PASTE_METHOD", "").startswith("hyprctl"):
+        commands.append("hyprctl")
+    if not need_cmds(*commands):
+        return 1
+    return 0 if check_api_key() else 1
+
+
+def show_help(stream=sys.stdout):
+    print(
+        f"""Usage: openai-dictate [start|stop|cancel|toggle|once|status|check]
+
+Commands:
+  start   Start recording in the background.
+  stop    Stop recording, transcribe, copy to clipboard, and log timings.
+  cancel  Stop recording and discard the audio without transcribing.
+  toggle  Start if idle, stop if recording. This is the default.
+  once    Terminal fallback: record until Enter, then transcribe.
+  status  Show whether a recording is active.
+  check   Check dependencies and API key.
+
+Config:
+  {CONFIG_FILE}
+
+Benchmark output:
+  {LAST_TXT}
+  {LAST_LOG}""",
+        file=stream,
+    )
+
+
+def main(argv):
+    command = argv[0] if argv else "toggle"
+    args = argv[1:] if argv else []
+
+    if command == "_overlay":
+        run_overlay(args)
+        return 0
+    if command == "start":
+        return start_recording()
+    if command == "stop":
+        return stop_recording()
+    if command == "cancel":
+        return cancel_recording()
+    if command == "toggle":
+        return toggle_recording()
+    if command == "once":
+        return once_recording()
+    if command == "status":
+        return status_recording()
+    if command == "check":
+        return check_setup()
+    if command in {"help", "--help", "-h"}:
+        show_help()
+        return 0
+
+    show_help(sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
