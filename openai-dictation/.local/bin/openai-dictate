@@ -16,6 +16,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import wave
 from pathlib import Path
 
 
@@ -73,12 +74,6 @@ DEFAULTS = {
     "OPENAI_COST_USD_PER_MINUTE": "auto",
     "OPENAI_COST_CURRENCY": "DKK",
     "OPENAI_COST_USD_TO_DKK": "6.4104",
-    "POST_PROCESS_TRANSCRIPT": "1",
-    "POST_PROCESS_API_URL": "https://api.openai.com/v1/responses",
-    "POST_PROCESS_MODEL": "gpt-4.1-mini",
-    "POST_PROCESS_MAX_OUTPUT_TOKENS": "2000",
-    "POST_PROCESS_TIMEOUT": "45",
-    "POST_PROCESS_FALLBACK": "raw",
     "NOTIFY": "0",
     "CURL_CONNECT_TIMEOUT": "10",
     "CURL_MAX_TIME": "120",
@@ -86,37 +81,6 @@ DEFAULTS = {
 
 TRUE_VALUES = {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
 FALSE_VALUES = {"", "0", "false", "FALSE", "off", "OFF", "no", "NO"}
-
-LATEX_POST_PROCESS_INSTRUCTIONS = r"""
-You post-process speech-to-text into a LaTeX fragment for a technical report.
-Return only the final LaTeX source. Do not wrap it in Markdown fences, a document
-environment, or explanatory text.
-
-Preserve the user's meaning and language. Fix obvious punctuation and speech
-recognition mistakes, but do not invent facts. The user may dictate in English
-or Danish.
-
-Treat spoken control phrases as formatting commands, not prose:
-- "begin/start/enter enumerate mode" starts \begin{enumerate}.
-- "begin/start/enter itemize mode" starts \begin{itemize}.
-- "next item" or a standalone "item" starts \item.
-- "end/exit/leave enumerate mode" closes \end{enumerate}.
-- "end/exit/leave itemize mode" closes \end{itemize}.
-- "begin/start math block", "display math mode", or "equation mode" starts \[.
-- "end/exit math block" closes \].
-- "inline math ... end inline math" becomes $...$.
-- "new paragraph" inserts a blank line; "new line" inserts a line break.
-
-When inside math mode, write idiomatic LaTeX math syntax. Convert clear spoken
-math terms such as alpha, beta, fraction, squared, subscript, superscript, sum,
-integral, equals, less than, greater than, infinity, and Greek letters. If a
-spoken command is ambiguous, prefer readable LaTeX source and keep the original
-wording rather than over-correcting it.
-
-Keep normal report prose as normal LaTeX text. Escape literal LaTeX special
-characters only when needed for valid source. Do not add headings unless the
-speaker dictated them.
-""".strip()
 
 
 class OpenAIRequestError(Exception):
@@ -593,6 +557,45 @@ def stop_volume_duck():
         log("event=volume_duck_stop")
     else:
         log("event=volume_duck_stop_failed")
+
+
+def run_background_task(event, func):
+    try:
+        pid = os.fork()
+    except OSError as exc:
+        log(f"event={event}_async_start_failed error={exc}")
+        return False
+
+    if pid == 0:
+        try:
+            os.setsid()
+            worker_pid = os.fork()
+            if worker_pid > 0:
+                os._exit(0)
+
+            with open(os.devnull, "rb") as stdin, open(os.devnull, "ab") as output:
+                os.dup2(stdin.fileno(), 0)
+                os.dup2(output.fileno(), 1)
+                os.dup2(output.fileno(), 2)
+
+            log(f"event={event}_async_worker pid={os.getpid()}")
+            ok = func()
+            os._exit(0 if ok is not False else 1)
+        except BaseException as exc:
+            with contextlib.suppress(Exception):
+                log(f"event={event}_async_failed error={exc}")
+            os._exit(1)
+
+    with contextlib.suppress(ChildProcessError, OSError):
+        os.waitpid(pid, 0)
+    log(f"event={event}_async")
+    return True
+
+
+def stop_volume_duck_async():
+    if not cfg_bool("DUCK_VOLUME", "1"):
+        return
+    run_background_task("volume_duck_stop", stop_volume_duck)
 
 
 def clamp(value, low, high):
@@ -1191,17 +1194,26 @@ def paste_clipboard():
 
 
 def silence_max_volume(audio_file):
-    if not shutil.which("ffmpeg"):
+    peak = 0
+    try:
+        with wave.open(str(audio_file), "rb") as audio:
+            if audio.getsampwidth() != 2:
+                return None
+
+            while True:
+                data = audio.readframes(32768)
+                if not data:
+                    break
+
+                data = data[: len(data) - (len(data) % 2)]
+                for (sample,) in struct.iter_unpack("<h", data):
+                    peak = max(peak, abs(sample))
+    except (EOFError, OSError, struct.error, wave.Error):
         return None
-    result = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(audio_file), "-af", "volumedetect", "-f", "null", "-"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = result.stdout + result.stderr
-    match = re.search(r"max_volume:\s+(-?inf|-?[0-9]+(?:[.][0-9]+)?)\s+dB", output)
-    return match.group(1) if match else None
+
+    if peak <= 0:
+        return "-inf"
+    return f"{20 * math.log10(peak / 32768.0):.1f}"
 
 
 def volume_lte(volume, threshold):
@@ -1288,101 +1300,6 @@ def parse_transcript(response_text):
     if not isinstance(text, str):
         raise OpenAIRequestError("OpenAI response did not contain a text field.", body=response_text)
     return text.strip()
-
-
-def post_process_request(text):
-    payload = {
-        "model": cfg("POST_PROCESS_MODEL", "gpt-4.1-mini"),
-        "instructions": cfg("POST_PROCESS_INSTRUCTIONS", LATEX_POST_PROCESS_INSTRUCTIONS)
-        or LATEX_POST_PROCESS_INSTRUCTIONS,
-        "input": f"Raw transcript:\n{text}",
-        "max_output_tokens": cfg_int("POST_PROCESS_MAX_OUTPUT_TOKENS", 2000),
-        "store": False,
-    }
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        cfg("POST_PROCESS_API_URL", "https://api.openai.com/v1/responses"),
-        data=body,
-        headers={
-            "Authorization": f"Bearer {cfg('OPENAI_API_KEY')}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=cfg_float("POST_PROCESS_TIMEOUT", 45)) as response:
-            return response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
-        raise OpenAIRequestError(
-            f"OpenAI post-processing failed with HTTP {exc.code}",
-            exc.code,
-            body_text,
-        ) from exc
-    except urllib.error.URLError as exc:
-        raise OpenAIRequestError(f"OpenAI post-processing failed: {exc}") from exc
-
-
-def extract_response_text(response_text):
-    try:
-        data = json.loads(response_text)
-    except json.JSONDecodeError as exc:
-        raise OpenAIRequestError(f"Could not parse post-processing response as JSON: {exc}", body=response_text) from exc
-
-    error = data.get("error") if isinstance(data, dict) else None
-    if error:
-        if isinstance(error, dict):
-            message = error.get("message") or error
-        else:
-            message = error
-        raise OpenAIRequestError(f"OpenAI post-processing error: {message}", body=response_text)
-
-    output_text = data.get("output_text") if isinstance(data, dict) else None
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
-
-    parts = []
-    for item in data.get("output", []) if isinstance(data, dict) else []:
-        if not isinstance(item, dict):
-            continue
-        for content in item.get("content", []):
-            if not isinstance(content, dict):
-                continue
-            text = content.get("text")
-            if isinstance(text, str):
-                parts.append(text)
-
-    text = "".join(parts).strip()
-    if not text:
-        raise OpenAIRequestError("OpenAI post-processing response did not contain text.", body=response_text)
-    return text
-
-
-def post_process_transcript(text):
-    if not cfg_bool("POST_PROCESS_TRANSCRIPT", "0") or not text:
-        return text, 0, False
-
-    start_ms = now_ms()
-    try:
-        processed = extract_response_text(post_process_request(text))
-    except OpenAIRequestError as exc:
-        elapsed_ms = now_ms() - start_ms
-        log(f"event=post_process_failed elapsed_ms={elapsed_ms}")
-        print(str(exc), file=sys.stderr)
-        if exc.body:
-            print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
-        if cfg("POST_PROCESS_FALLBACK", "raw") == "raw":
-            return text, elapsed_ms, False
-        raise
-
-    elapsed_ms = now_ms() - start_ms
-    log(
-        f"event=post_process_done raw_chars={len(text)} "
-        f"processed_chars={len(processed)} model={cfg('POST_PROCESS_MODEL')}"
-    )
-    return processed, elapsed_ms, True
 
 
 def copy_to_clipboard(text):
@@ -1490,43 +1407,11 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         print("Transcript was empty; clipboard and focused app were left unchanged.")
         return 0
 
-    post_process_ms = 0
-    post_processed = False
-    try:
-        text, post_process_ms, post_processed = post_process_transcript(text)
-    except OpenAIRequestError as exc:
-        stop_overlay()
-        print(str(exc), file=sys.stderr)
-        if exc.body:
-            print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
-        notify_msg("OpenAI dictation failed", f"See {LAST_LOG}")
-        cleanup_audio(audio_file)
-        return 1
-
-    if not text:
-        finish_transcribe_overlay(transcribe_overlay_start_ms)
-        log(
-            f"event=post_process_empty transcription_ms={upload_end_ms - upload_start_ms} "
-            f"post_process_ms={post_process_ms}"
-        )
-        log(
-            f"timing recording_duration_ms={recording_ms} "
-            f"stop_finalize_ms={stop_done_ms - release_ms} "
-            f"transcription_ms={upload_end_ms - upload_start_ms} "
-            f"post_process_ms={post_process_ms} total_after_release_ms={now_ms() - release_ms}"
-        )
-        notify_important("OpenAI dictation skipped", "Post-processed transcript was empty.")
-        cleanup_audio(audio_file)
-        print("Post-processed transcript was empty; clipboard and focused app were left unchanged.")
-        return 0
-
     write_private(LAST_TXT, text)
     if not copy_to_clipboard(text):
         stop_overlay()
         cleanup_audio(audio_file)
         return 1
-
-    finish_transcribe_overlay(transcribe_overlay_start_ms)
 
     if cfg_bool("AUTO_PASTE", "0"):
         time.sleep(cfg_float("PASTE_DELAY", 0.08))
@@ -1535,13 +1420,14 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         else:
             log(f"event=auto_paste_failed method={cfg('PASTE_METHOD')}")
 
+    finish_transcribe_overlay(transcribe_overlay_start_ms)
+
     done_ms = now_ms()
     log(f"event=done transcript_chars={len(text)} transcript_file={LAST_TXT}")
     log(
         f"timing recording_duration_ms={recording_ms} "
         f"stop_finalize_ms={stop_done_ms - release_ms} "
         f"transcription_ms={upload_end_ms - upload_start_ms} "
-        f"post_process_ms={post_process_ms} "
         f"total_after_release_ms={done_ms - release_ms}"
     )
 
@@ -1551,8 +1437,6 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         f"{recording_ms / 1000:.3f}s, transcription "
         f"{(upload_end_ms - upload_start_ms) / 1000:.3f}s"
     )
-    if post_processed or post_process_ms:
-        timing += f", post-processing {post_process_ms / 1000:.3f}s"
     timing += f", total after release {(done_ms - release_ms) / 1000:.3f}s."
     print(timing)
     print(f"Latest transcript: {LAST_TXT}")
@@ -1606,14 +1490,14 @@ def stop_recording():
     state = load_state()
     if not state:
         print("OpenAI dictation is not recording.", file=sys.stderr)
-        stop_volume_duck()
+        stop_volume_duck_async()
         cleanup_state()
         return 1
 
     pid = int(state["PID"])
     if not process_alive(pid):
         print("Recorder process is not running; cleaning stale state.", file=sys.stderr)
-        stop_volume_duck()
+        stop_volume_duck_async()
         cleanup_state()
         return 1
 
@@ -1622,7 +1506,7 @@ def stop_recording():
     stop_recorder_process(pid)
     stop_done_ms = now_ms()
     stop_overlay()
-    stop_volume_duck()
+    stop_volume_duck_async()
 
     try:
         start_ms = int(state["START_MS"])
@@ -1649,7 +1533,7 @@ def cancel_recording():
     if not state:
         print("OpenAI dictation is not recording.", file=sys.stderr)
         stop_overlay()
-        stop_volume_duck()
+        stop_volume_duck_async()
         cleanup_state()
         return 0
 
@@ -1663,7 +1547,7 @@ def cancel_recording():
 
     stop_done_ms = now_ms()
     stop_overlay()
-    stop_volume_duck()
+    stop_volume_duck_async()
 
     try:
         start_ms = int(state.get("START_MS", cancel_ms))
