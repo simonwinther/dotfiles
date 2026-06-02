@@ -307,6 +307,20 @@ def load_state():
     return values
 
 
+def recording_state_matches(pid, start_ms):
+    state = load_state()
+    if not state:
+        return False
+
+    try:
+        active_pid = int(state["PID"])
+        active_start_ms = int(state["START_MS"])
+    except (KeyError, ValueError):
+        return False
+
+    return active_pid == int(pid) and active_start_ms == int(start_ms) and process_alive(active_pid)
+
+
 def sanitize_client(client):
     return re.sub(r"[^A-Za-z0-9_.:-]", "_", str(client or "default"))
 
@@ -547,6 +561,26 @@ def start_volume_duck():
         log(f"event=volume_duck_start factor={cfg('VOLUME_DUCK_FACTOR', '0.3')}")
     else:
         log("event=volume_duck_start_failed")
+
+
+def start_volume_duck_async(pid, start_ms):
+    if not cfg_bool("DUCK_VOLUME", "1"):
+        return
+
+    def worker():
+        if not recording_state_matches(pid, start_ms):
+            log(f"event=volume_duck_start_skipped pid={pid}")
+            return True
+
+        start_volume_duck()
+
+        if not recording_state_matches(pid, start_ms):
+            duck_stop(DUCK_CLIENT)
+            log(f"event=volume_duck_start_rolled_back pid={pid}")
+
+        return True
+
+    run_background_task("volume_duck_start", worker)
 
 
 def stop_volume_duck():
@@ -1094,13 +1128,13 @@ def start_recording():
         return 1
 
     write_state(process.pid, audio_file, start_ms)
-    start_volume_duck()
     log(
         f"event=start pid={process.pid} audio_file={audio_file} "
         f"model={cfg('OPENAI_MODEL')} rate_hz={cfg('RECORD_RATE')} "
         f"channels={cfg('RECORD_CHANNELS')} latency={cfg('RECORD_LATENCY')}"
     )
     start_overlay("record", audio_file, start_ms)
+    start_volume_duck_async(process.pid, start_ms)
     notify_msg("OpenAI dictation recording", "Run openai-dictate stop to transcribe.")
     return 0
 
