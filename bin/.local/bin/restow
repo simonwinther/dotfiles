@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+cd "$HOME/dotfiles"
+
+failed=0
+
+for package in */; do
+  package="${package%/}"
+
+  case "$package" in
+  assets | omarchy-supplement)
+    continue
+    ;;
+  esac
+
+  stow -R "$package" || failed=1
+done
+
+exit "$failed"
