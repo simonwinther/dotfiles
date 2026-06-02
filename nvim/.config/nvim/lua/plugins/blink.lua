@@ -39,6 +39,12 @@ return {
 
       -- Menu Customization (Right column for source name)
       completion = {
+        list = {
+          selection = {
+            preselect = true,
+            auto_insert = false,
+          },
+        },
         -- Disable ghost text (prevents clash with Copilot's ghost text)
         ghost_text = { enabled = false },
         menu = {
@@ -59,9 +65,19 @@ return {
       -- Keymaps
       keymap = {
         preset = "default",
-        ["<Tab>"] = { "accept", "fallback" },
-        -- ["<C-j>"] = { "select_next", "fallback" },
-        -- ["<C-k>"] = { "select_prev", "fallback" },
+        ["<Tab>"] = {
+          function(cmp)
+            if cmp.is_menu_visible() then
+              return cmp.select_and_accept()
+            end
+          end,
+          "fallback",
+        },
+        ["<S-Tab>"] = {
+          function()
+            return vim.api.nvim_replace_termcodes("<C-d>", true, true, true)
+          end,
+        },
       },
     },
   },
