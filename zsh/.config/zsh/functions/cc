@@ -1,18 +1,60 @@
 cc() {
-  local final
-  
-  if [[ ! -t 0 ]]; then
+  local append=0 verbose=0 specs final current
+
+  while (( $# )); do
+    case "$1" in
+      -a|--append) append=1 ;;
+      -v|--verbose) verbose=1 ;;
+      *)
+        echo "cc: unknown option: $1" >&2
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  if (( verbose )); then
+    specs="$(print -r -- "
+### System Specs
+- OS: $(uname -srmo 2>/dev/null)
+- Kernel: $(uname -r)
+- Shell: zsh $ZSH_VERSION
+- Editor: ${EDITOR:-${VISUAL:-None}}
+- Desktop: ${XDG_CURRENT_DESKTOP:-Unknown}
+- Session: ${XDG_SESSION_TYPE:-Unknown}
+- Terminal: ${TERM_PROGRAM:-${TERM:-Unknown}}
+- CPU: $(lscpu | awk -F: '/Model name/ {print $2}' | sed 's/^ *//')
+- Cores: $(nproc)
+- RAM: $(free -h | awk '/Mem:/ {print $2}')
+- GPU: $(lspci | grep -i 'vga\|3d' | sed 's/.*: //')
+- Host: $(hostname)
+")"
+    final="$specs"
+    if [[ ! -t 0 ]]; then
+      final="$final"$'\n'"$(cat)"
+    fi
+  elif [[ ! -t 0 ]]; then
     final=$(cat)
   else
     echo "No input provided. Please pipe something into cc." >&2
     return 1
   fi
 
-  if command -v wl-copy >/dev/null; then
-    printf '%s' "$final" | wl-copy
-    echo "󰅍 Copied to clipboard"
-  else
+  if ! command -v wl-copy >/dev/null; then
     echo "cc: wl-copy not found" >&2
     return 1
   fi
+
+  if (( append )); then
+    if ! command -v wl-paste >/dev/null; then
+      echo "cc: wl-paste not found" >&2
+      return 1
+    fi
+
+    current=$(wl-paste -n 2>/dev/null)
+    [[ -n "$current" ]] && final="$current"$'\n'"$final"
+  fi
+
+  printf '%s' "$final" | wl-copy
+  echo "󰅍 Copied to clipboard"
 }
