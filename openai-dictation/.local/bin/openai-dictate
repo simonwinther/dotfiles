@@ -48,7 +48,7 @@ TRANSCRIBE_SWEEP_SPEED = 44.0
 DEFAULTS = {
     "OPENAI_API_URL": "https://api.openai.com/v1/audio/transcriptions",
     "OPENAI_MODEL": "gpt-4o-transcribe",
-    "OPENAI_LANGUAGE": "en",
+    "OPENAI_LANGUAGE": "",
     "OPENAI_PROMPT": "",
     "RECORD_RATE": "16000",
     "RECORD_CHANNELS": "1",
