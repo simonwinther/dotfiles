@@ -3,3 +3,6 @@
 /usr-shell-scripts/.local/bin/infsh
 /openai-dictation/.config/openai-dictation/secrets.env
 
+.codex
+.gemini
+.claude
