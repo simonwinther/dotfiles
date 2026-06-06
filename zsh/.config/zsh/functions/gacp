@@ -1,0 +1,7 @@
+# gacp - git add, AI commit, and push
+# gacp          ~ > ga && gai && gp
+# gacp <type>   ~ > ga && gai <type> && gp
+
+gacp() {
+  ga && gai "$@" && gp
+}
