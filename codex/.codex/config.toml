@@ -2,7 +2,7 @@ model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 approvals_reviewer = "user"
-service_tier = "fast"
+service_tier = "default"
 [projects."/home/simon"]
 trust_level = "trusted"
 
@@ -67,6 +67,12 @@ trust_level = "trusted"
 trust_level = "trusted"
 
 [projects."/home/simon/dev/rework-openai-dictation"]
+trust_level = "trusted"
+
+[projects."/home/simon/Downloads/app"]
+trust_level = "trusted"
+
+[projects."/home/simon/dev/appliedprogramming"]
 trust_level = "trusted"
 
 [notice]
