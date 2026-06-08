@@ -67,6 +67,12 @@ return {
         preset = "default",
         ["<Tab>"] = {
           function(cmp)
+            local ok, suggestion = pcall(require, "copilot.suggestion")
+            if ok and suggestion.is_visible() then
+              suggestion.accept()
+              return true
+            end
+
             if cmp.is_menu_visible() then
               return cmp.select_and_accept()
             end

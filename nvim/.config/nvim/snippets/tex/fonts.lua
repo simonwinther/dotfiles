@@ -16,13 +16,13 @@ table.insert(
 -- MATHCAL
 table.insert(
   snippets,
-  s({ trig = "cal", snippetType = "autosnippet" }, fmt("\\mathcal{{{}}}", { i(1) }), { condition = cond.in_mathzone })
+  s({ trig = "cal", snippetType = "autosnippet" }, fmt("\\mathcal {}", { i(1) }), { condition = cond.in_mathzone })
 )
 
 -- MATHBB
 table.insert(
   snippets,
-  s({ trig = "bb", snippetType = "autosnippet" }, fmt("\\mathbb{{{}}}", { i(1) }), { condition = cond.in_mathzone })
+  s({ trig = "bb", snippetType = "autosnippet" }, fmt("\\mathbb {}", { i(1) }), { condition = cond.in_mathzone })
 )
 
 -- BOLD TEXT
