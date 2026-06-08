@@ -1,4 +1,4 @@
-local dev_mode = true
+local dev_mode = false
 
 return {
   {
