@@ -3,7 +3,7 @@
 return {
   "andweeb/presence.nvim",
   lazy = false,
-  enabled = true,
+  enabled = false,
   config = function()
     require("presence").setup({
       auto_update = true,
