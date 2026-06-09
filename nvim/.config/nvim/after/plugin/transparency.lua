@@ -61,9 +61,6 @@ vim.api.nvim_set_hl(0, "WhichKeyDesc", { bg = "none" })
 vim.api.nvim_set_hl(0, "WhichKeySeparator", { bg = "none" })
 vim.api.nvim_set_hl(0, "WhichKeyValue", { bg = "none" })
 
--- Transparent background for Assistant plugin
-vim.api.nvim_set_hl(0, "NavicText", { bg = "none" })
-
 -- Disable transparency for blink.cmp completion menu
 -- vim.api.nvim_set_hl(0, "Pmenu", { bg = "#1e1e2e" }) -- pick a solid color
 -- vim.api.nvim_set_hl(0, "PmenuSel", { bg = "#313244" }) -- selected item

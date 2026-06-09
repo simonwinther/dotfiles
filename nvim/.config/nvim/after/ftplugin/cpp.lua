@@ -1,9 +1,61 @@
-vim.keymap.set("n", "<leader>a", "<cmd>Assistant<cr>", {
+--- ====================================
+--- C++ codeforces move to solutions keybind
+--- ====================================
+local codeforces_repo = vim.fn.expand("~/dev/codeforces-cp") -- expand does ~/... = /home/username/...
+local file = vim.fn.expand("%:p")
+
+if vim.startswith(file, codeforces_repo .. "/") then
+  -- only if codeforce repo set the keybind
+  vim.keymap.set("n", "<localleader>m", function()
+    local src = vim.fn.expand("%:p")
+    local dest = codeforces_repo .. "/solutions/" .. vim.fn.expand("%:t")
+
+    if vim.fn.filereadable(dest) == 1 then
+      vim.notify("File already exists in solutions: " .. vim.fn.expand("%:t"), vim.log.levels.ERROR)
+      return
+    end
+
+    vim.cmd("write")
+
+    if vim.fn.rename(src, dest) ~= 0 then
+      vim.notify("Failed to move file", vim.log.levels.ERROR)
+      return
+    end
+
+    vim.cmd("edit " .. vim.fn.fnameescape(dest))
+    vim.notify("Moved to solutions/" .. vim.fn.expand("%:t"))
+  end, {
+    buffer = true,
+    desc = "Move file to solutions",
+  })
+end
+
+-- ==============================
+-- Compile and run current C++ file
+-- ================================
+vim.keymap.set("n", "<localleader>r", function()
+  local file = vim.fn.expand("%:p")
+  local exe = vim.fn.expand("%:p:r")
+
+  vim.cmd("write")
+
+  local cmd = string.format(
+    "g++ -std=c++20 -Wall -Wextra -O2 %s -o %s && %s",
+    vim.fn.shellescape(file),
+    vim.fn.shellescape(exe),
+    vim.fn.shellescape(exe)
+  )
+
+  vim.cmd("split | terminal " .. cmd)
+  vim.cmd("startinsert")
+end, {
   buffer = true,
-  desc = "Assistant.nvim",
+  desc = "Compile and run C++ file",
 })
 
+--- ====================================
 -- === Start of header/source switch logic ===
+--- ====================================
 
 local function switch_header_source()
   local current_file = vim.fn.expand("%:p")
@@ -72,24 +124,3 @@ vim.keymap.set("n", "gm", switch_header_source, {
   cpp,
 })
 -- === End of header/source switch logic ===
-
--- Compile and run current C++ file
-vim.keymap.set("n", "<localleader>r", function()
-  local file = vim.fn.expand("%:p")
-  local exe = vim.fn.expand("%:p:r")
-
-  vim.cmd("write")
-
-  local cmd = string.format(
-    "g++ -std=c++20 -Wall -Wextra -O2 %s -o %s && %s",
-    vim.fn.shellescape(file),
-    vim.fn.shellescape(exe),
-    vim.fn.shellescape(exe)
-  )
-
-  vim.cmd("split | terminal " .. cmd)
-  vim.cmd("startinsert")
-end, {
-  buffer = true,
-  desc = "Compile and run C++ file",
-})
