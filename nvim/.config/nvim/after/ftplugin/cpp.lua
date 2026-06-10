@@ -1,21 +1,23 @@
 --- ====================================
 --- C++ codeforces move to solutions keybind
 --- ====================================
-local codeforces_repo = vim.fn.expand("~/dev/codeforces-cp") -- expand does ~/... = /home/username/...
+local codeforces_repo = vim.fn.expand("~/dev/codeforces-cp")
 local file = vim.fn.expand("%:p")
 
-if vim.startswith(file, codeforces_repo .. "/") then
-  -- only if codeforce repo set the keybind
+if vim.startswith(file, codeforces_repo .. "/") and not vim.startswith(file, codeforces_repo .. "/solutions/") then
   vim.keymap.set("n", "<localleader>m", function()
     local src = vim.fn.expand("%:p")
-    local dest = codeforces_repo .. "/solutions/" .. vim.fn.expand("%:t")
+    local src_no_ext = vim.fn.expand("%:p:r")
+    local filename = vim.fn.expand("%:t")
+    local solutions_dir = codeforces_repo .. "/solutions"
+    local dest = solutions_dir .. "/" .. filename
+
+    vim.fn.mkdir(solutions_dir, "p")
 
     if vim.fn.filereadable(dest) == 1 then
-      vim.notify("File already exists in solutions: " .. vim.fn.expand("%:t"), vim.log.levels.ERROR)
+      vim.notify("File already exists in solutions: " .. filename, vim.log.levels.ERROR)
       return
     end
-
-    vim.cmd("write")
 
     if vim.fn.rename(src, dest) ~= 0 then
       vim.notify("Failed to move file", vim.log.levels.ERROR)
@@ -23,7 +25,12 @@ if vim.startswith(file, codeforces_repo .. "/") then
     end
 
     vim.cmd("edit " .. vim.fn.fnameescape(dest))
-    vim.notify("Moved to solutions/" .. vim.fn.expand("%:t"))
+    vim.notify("Moved to solutions/" .. filename)
+
+    if vim.fn.filereadable(src_no_ext) == 1 then
+      -- Delete the compiled executable if it exists
+      vim.fn.delete(src_no_ext)
+    end
   end, {
     buffer = true,
     desc = "Move file to solutions",
@@ -51,6 +58,11 @@ vim.keymap.set("n", "<localleader>r", function()
 end, {
   buffer = true,
   desc = "Compile and run C++ file",
+})
+
+vim.keymap.set("n", "<localleader>t", "<cmd>CompetiTest run<cr>", {
+  buffer = true,
+  desc = "Run CompetiTest",
 })
 
 --- ====================================
