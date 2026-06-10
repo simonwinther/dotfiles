@@ -1,3 +1,10 @@
+local function cmdline_range_prefix_width()
+  local range = vim.fn.getcmdline():match("^%s*'<%s*,%s*'>%s*")
+    or vim.fn.getcmdline():match("^%s*%d+%s*,%s*%d+%s*")
+
+  return range and vim.fn.strdisplaywidth(range) or 0
+end
+
 return {
   {
     "saghen/blink.cmp",
@@ -47,7 +54,33 @@ return {
         },
         -- Disable ghost text (prevents clash with Copilot's ghost text)
         ghost_text = { enabled = false },
+        documentation = {
+          window = {
+            border = "rounded",
+            max_width = 100,
+            max_height = 12,
+            scrollbar = false,
+          },
+        },
         menu = {
+          border = "rounded",
+          scrollbar = false,
+          cmdline_position = function()
+            if vim.g.ui_cmdline_pos ~= nil then
+              local pos = vim.g.ui_cmdline_pos
+              local ok, menu = pcall(require, "blink.cmp.completion.windows.menu")
+              if ok and menu.win and menu.win:is_open() then
+                pcall(vim.api.nvim_win_set_config, menu.win:get_win(), {
+                  border = { "", "", "╭", "│", "╯", "─", "╰", "│" },
+                })
+              end
+
+              return { pos[1] - 1, math.max(pos[2] - cmdline_range_prefix_width(), 0) }
+            end
+
+            local height = (vim.o.cmdheight == 0) and 1 or vim.o.cmdheight
+            return { vim.o.lines - height, 0 }
+          end,
           draw = {
             columns = { { "kind_icon" }, { "label", "label_description", gap = 1 }, { "source_name" } },
             components = {
@@ -62,9 +95,20 @@ return {
         },
       },
 
+      signature = {
+        window = {
+          border = "rounded",
+          max_width = 100,
+          max_height = 12,
+          scrollbar = false,
+        },
+      },
+
       -- Keymaps
       keymap = {
         preset = "default",
+        ["<C-j>"] = { "select_next", "fallback" },
+        ["<C-k>"] = { "select_prev", "show_signature", "hide_signature", "fallback" },
         ["<Tab>"] = {
           function(cmp)
             local ok, suggestion = pcall(require, "copilot.suggestion")
