@@ -62,12 +62,6 @@ vim.api.nvim_set_hl(0, "WhichKeySeparator", { bg = "none" })
 vim.api.nvim_set_hl(0, "WhichKeyValue", { bg = "none" })
 
 -- Disable transparency for blink.cmp completion menu
--- vim.api.nvim_set_hl(0, "Pmenu", { bg = "#1e1e2e" }) -- pick a solid color
--- vim.api.nvim_set_hl(0, "PmenuSel", { bg = "#313244" }) -- selected item
--- vim.api.nvim_set_hl(0, "PmenuSbar", { bg = "#181825" })
--- vim.api.nvim_set_hl(0, "PmenuThumb", { bg = "#45475a" })
-
-vim.api.nvim_set_hl(0, "Pmenu", { bg = "#16161e" }) -- popup background
-vim.api.nvim_set_hl(0, "PmenuSel", { bg = "#2f3549" }) -- selected item
-vim.api.nvim_set_hl(0, "PmenuSbar", { bg = "#1f2335" }) -- scrollbar
-vim.api.nvim_set_hl(0, "PmenuThumb", { bg = "#3b4261" }) -- scrollbar thumb
+vim.api.nvim_set_hl(0, "Pmenu", { bg = "none" })
+vim.api.nvim_set_hl(0, "BlinkCmpMenuBorder", { link = "NoiceCmdlinePopupBorder" })
+vim.api.nvim_set_hl(0, "BlinkCmpDocBorder", { fg = "#cdd6f4", bg = "none" })
