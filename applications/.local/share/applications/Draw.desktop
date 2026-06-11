@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Draw
+Comment=Draw
+Exec=omarchy-launch-webapp https://draw.wintherne.dk
+Terminal=false
+Type=Application
+Icon=/home/simon/.local/share/applications/icons/Draw.png
+StartupNotify=true
