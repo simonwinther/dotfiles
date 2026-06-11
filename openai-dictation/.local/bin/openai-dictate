@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import array
 import contextlib
 import fcntl
 import json
@@ -44,6 +45,10 @@ HEIGHT = 76
 BARS = 42
 WAV_HEADER_BYTES = 44
 TRANSCRIBE_SWEEP_SPEED = 44.0
+PREPROCESS_TIMEOUT_S = 15
+DEBUG_COLOR_INFO = "rgb(18d5ff)"
+DEBUG_COLOR_SKIP = "rgb(b7bede)"
+DEBUG_COLOR_FAIL = "rgb(f4304e)"
 
 DEFAULTS = {
     "OPENAI_API_URL": "https://api.openai.com/v1/audio/transcriptions",
@@ -59,6 +64,17 @@ DEFAULTS = {
     "MAX_RECORDING_MS": "300000",
     "SKIP_SILENCE": "1",
     "SILENCE_MAX_DB": "-50",
+    "FFMPEG_PREPROCESS": "1",
+    "TRIM_SILENCE": "1",
+    "SILENCE_AUTO_THRESHOLD": "1",
+    "SILENCE_THRESHOLD_DB": "-45",
+    "SILENCE_SPEECH_MARGIN_DB": "12",
+    "SILENCE_MIN_PAUSE": "0.45",
+    "SILENCE_KEEP": "0.25",
+    "SPEEDUP_FACTOR": "1.5",
+    "PREPROCESS_MIN_MS": "3000",
+    "UPLOAD_CODEC": "wav",
+    "DEBUG_NOTIFY": "0",
     "KEEP_AUDIO": "0",
     "AUTO_PASTE": "0",
     "PASTE_METHOD": "hyprctl-super-v",
@@ -214,6 +230,21 @@ def notify_important(title, body=""):
     )
 
 
+def debug_notify(message, color=DEBUG_COLOR_INFO, timeout_ms=6000):
+    if not cfg_bool("DEBUG_NOTIFY", "0"):
+        return
+    if shutil.which("hyprctl"):
+        result = subprocess.run(
+            ["hyprctl", "notify", "-1", str(timeout_ms), color, message],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+    notify_important("OpenAI dictation debug", message)
+
+
 def need_cmds(*commands):
     missing = [command for command in commands if not shutil.which(command)]
     if not missing:
@@ -284,7 +315,16 @@ def cleanup_audio(audio_file):
     log(f"event=audio_removed audio_file={path}")
 
 
-def write_state(pid, audio_file, start_ms):
+def cleanup_audio_files(*audio_files):
+    cleaned = []
+    for audio_file in audio_files:
+        path = str(audio_file)
+        if path and path not in cleaned:
+            cleaned.append(path)
+            cleanup_audio(path)
+
+
+def write_state(pid, audio_file, start_ms, language=""):
     write_private(
         STATE_FILE,
         "\n".join(
@@ -292,6 +332,7 @@ def write_state(pid, audio_file, start_ms):
                 f"PID={shlex.quote(str(pid))}",
                 f"AUDIO_FILE={shlex.quote(str(audio_file))}",
                 f"START_MS={shlex.quote(str(start_ms))}",
+                f"LANGUAGE={shlex.quote(str(language))}",
                 "",
             ]
         ),
@@ -709,6 +750,20 @@ def read_levels(audio_file):
     return levels
 
 
+def model_usd_per_minute():
+    model = cfg("OPENAI_MODEL")
+    if model.startswith("gpt-4o-mini-transcribe"):
+        return 0.003
+    if model.startswith("gpt-4o-transcribe") or model == "whisper-1":
+        return 0.006
+    return 0.0
+
+
+def format_usd_dkk(usd):
+    dkk = usd * cfg_float("OPENAI_COST_USD_TO_DKK", 6.4104)
+    return f"${usd:.4f} / {decimal_comma(dkk, 4)} kr"
+
+
 def overlay_cost_usd_per_minute():
     if not cfg_bool("SHOW_COST_ESTIMATE", "1"):
         return 0.0
@@ -717,12 +772,7 @@ def overlay_cost_usd_per_minute():
     if value in FALSE_VALUES:
         return 0.0
     if value.lower() == "auto":
-        model = cfg("OPENAI_MODEL")
-        if model.startswith("gpt-4o-mini-transcribe"):
-            return 0.003
-        if model.startswith("gpt-4o-transcribe") or model == "whisper-1":
-            return 0.006
-        return 0.0
+        return model_usd_per_minute()
     return parse_float(value, 0.0)
 
 
@@ -1083,7 +1133,7 @@ def stop_recorder_process(pid):
         os.kill(int(pid), signal.SIGKILL)
 
 
-def start_recording():
+def start_recording(language=""):
     init_runtime()
     if not need_cmds("pw-record"):
         return 1
@@ -1127,10 +1177,11 @@ def start_recording():
         cleanup_state()
         return 1
 
-    write_state(process.pid, audio_file, start_ms)
+    write_state(process.pid, audio_file, start_ms, language)
     log(
         f"event=start pid={process.pid} audio_file={audio_file} "
-        f"model={cfg('OPENAI_MODEL')} rate_hz={cfg('RECORD_RATE')} "
+        f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} "
+        f"rate_hz={cfg('RECORD_RATE')} "
         f"channels={cfg('RECORD_CHANNELS')} latency={cfg('RECORD_LATENCY')}"
     )
     start_overlay("record", audio_file, start_ms)
@@ -1259,6 +1310,263 @@ def volume_lte(volume, threshold):
         return False
 
 
+def wav_duration_ms(path):
+    try:
+        with wave.open(str(path), "rb") as audio:
+            rate = audio.getframerate()
+            if rate <= 0:
+                return None
+            return int(audio.getnframes() * 1000 / rate)
+    except (EOFError, OSError, wave.Error):
+        return None
+
+
+def ffprobe_duration_ms(path):
+    if not shutil.which("ffprobe"):
+        return None
+    result = run_capture(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ]
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(float(result.stdout.strip()) * 1000)
+    except ValueError:
+        return None
+
+
+def audio_duration_ms(path):
+    duration_ms = wav_duration_ms(path)
+    if duration_ms is None:
+        duration_ms = ffprobe_duration_ms(path)
+    return duration_ms
+
+
+def remove_file(path):
+    with contextlib.suppress(OSError):
+        Path(path).unlink()
+
+
+def frame_levels_db(audio_file, frame_ms=50, stride_ms=200):
+    levels = []
+    try:
+        with wave.open(str(audio_file), "rb") as audio:
+            if audio.getsampwidth() != 2 or audio.getnchannels() != 1:
+                return []
+            rate = audio.getframerate()
+            if rate <= 0:
+                return []
+            frame_count = max(1, int(rate * frame_ms / 1000))
+            stride_count = max(frame_count, int(rate * stride_ms / 1000))
+            total_frames = audio.getnframes()
+            position = 0
+            while position < total_frames:
+                audio.setpos(position)
+                data = audio.readframes(frame_count)
+                if not data:
+                    break
+                samples = array.array("h")
+                samples.frombytes(data[: (len(data) // 2) * 2])
+                if not samples:
+                    break
+                acc = 0
+                for sample in samples:
+                    acc += sample * sample
+                rms = math.sqrt(acc / len(samples)) / 32768.0
+                levels.append(20 * math.log10(rms) if rms > 0 else -120.0)
+                position += stride_count
+    except (EOFError, OSError, wave.Error):
+        return []
+    return levels
+
+
+def auto_silence_threshold(audio_file):
+    levels = sorted(frame_levels_db(audio_file))
+    if len(levels) < 10:
+        return None
+
+    floor_db = levels[min(len(levels) - 1, int(len(levels) * 0.2))]
+    speech_db = levels[min(len(levels) - 1, int(len(levels) * 0.95))]
+    if speech_db - floor_db < 12.0:
+        return None
+
+    # Anchor on the speech level, not the noise floor: breaths and key
+    # clicks sit well above the floor and would otherwise count as speech.
+    margin_db = cfg_float("SILENCE_SPEECH_MARGIN_DB", 12)
+    threshold_db = max(speech_db - margin_db, floor_db + 8.0)
+    threshold_db = min(threshold_db, speech_db - 6.0)
+    return clamp(threshold_db, -60.0, -25.0), floor_db, speech_db
+
+
+def upload_codec_args():
+    if cfg("UPLOAD_CODEC", "wav").strip().lower() == "mp3":
+        return ".mp3", ["-c:a", "libmp3lame", "-b:a", "48k"]
+    return ".wav", ["-c:a", "pcm_s16le"]
+
+
+def preprocess_filters(trim=None, speedup=None, threshold_db=None):
+    if trim is None:
+        trim = cfg_bool("TRIM_SILENCE", "1")
+    if speedup is None:
+        speedup = cfg_float("SPEEDUP_FACTOR", 1.5)
+
+    filters = []
+    if trim:
+        threshold = threshold_db if threshold_db is not None else cfg_float("SILENCE_THRESHOLD_DB", -45)
+        min_pause = cfg_float("SILENCE_MIN_PAUSE", 0.45)
+        keep = cfg_float("SILENCE_KEEP", 0.25)
+        filters.append(
+            "silenceremove="
+            f"start_periods=1:start_threshold={threshold:.1f}dB:start_silence={keep:g}:"
+            f"stop_periods=-1:stop_duration={min_pause:g}:"
+            f"stop_threshold={threshold:.1f}dB:stop_silence={keep:g}:window=0.05"
+        )
+
+    speedup = clamp(parse_float(speedup, 1.0), 0.5, 4.0)
+    if abs(speedup - 1.0) >= 0.01:
+        filters.append(f"atempo={speedup:g}")
+    return filters
+
+
+def run_ffmpeg_filter(in_path, out_path, filters, codec_args):
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(in_path),
+        "-af",
+        ",".join(filters),
+        "-ar",
+        cfg("RECORD_RATE", "16000"),
+        "-ac",
+        "1",
+        *codec_args,
+        str(out_path),
+    ]
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=PREPROCESS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, threshold_db=None, floor_db=None, speech_db=None):
+    parts = [f"{in_ms / 1000:.1f}s"]
+    sped = abs(speedup - 1.0) >= 0.01
+    if cfg_bool("TRIM_SILENCE", "1"):
+        if sped and out_ms:
+            parts.append(f"trim {out_ms * speedup / 1000:.1f}s")
+        else:
+            parts.append("trim")
+    if sped:
+        parts.append(f"{speedup:g}x")
+    if out_ms:
+        saved = max(0.0, (1 - out_ms / in_ms) * 100) if in_ms else 0.0
+        detail = f"-{saved:.0f}%"
+        if threshold_db is not None:
+            detail += f", thr {threshold_db:.0f}dB"
+            if floor_db is not None and speech_db is not None:
+                detail += f" (fl {floor_db:.0f} sp {speech_db:.0f})"
+        detail += f", ffmpeg {elapsed_ms / 1000:.2f}s"
+        parts.append(f"{out_ms / 1000:.1f}s ({detail})")
+    else:
+        parts.append(f"done (ffmpeg {elapsed_ms / 1000:.2f}s)")
+    return " → ".join(parts)
+
+
+def preprocess_audio(audio_file, recording_ms):
+    if not cfg_bool("FFMPEG_PREPROCESS", "1"):
+        return str(audio_file), 0
+    if recording_ms < cfg_int("PREPROCESS_MIN_MS", 3000):
+        log(f"event=preprocess_skipped reason=short_clip recording_ms={recording_ms}")
+        debug_notify(
+            f"no preprocess: clip {recording_ms / 1000:.1f}s < "
+            f"{cfg_int('PREPROCESS_MIN_MS', 3000) / 1000:.1f}s",
+            DEBUG_COLOR_SKIP,
+        )
+        return str(audio_file), 0
+    if not shutil.which("ffmpeg"):
+        log("event=preprocess_skipped reason=ffmpeg_missing")
+        debug_notify("no preprocess: ffmpeg missing, raw upload", DEBUG_COLOR_FAIL)
+        return str(audio_file), 0
+
+    trim = cfg_bool("TRIM_SILENCE", "1")
+    threshold_db = floor_db = speech_db = None
+    if trim and cfg_bool("SILENCE_AUTO_THRESHOLD", "1"):
+        calibration = auto_silence_threshold(audio_file)
+        if calibration:
+            threshold_db, floor_db, speech_db = calibration
+            log(
+                f"event=silence_calibration floor_db={floor_db:.1f} "
+                f"speech_db={speech_db:.1f} threshold_db={threshold_db:.1f}"
+            )
+        else:
+            log(f"event=silence_calibration_failed fallback_db={cfg('SILENCE_THRESHOLD_DB', '-45')}")
+
+    speedup = clamp(cfg_float("SPEEDUP_FACTOR", 1.5), 0.5, 4.0)
+    filters = preprocess_filters(trim=trim, speedup=speedup, threshold_db=threshold_db)
+    if not filters:
+        log("event=preprocess_skipped reason=no_filters")
+        debug_notify("no preprocess: trim and speedup disabled", DEBUG_COLOR_SKIP)
+        return str(audio_file), 0
+
+    in_path = Path(audio_file)
+    extension, codec_args = upload_codec_args()
+    out_path = in_path.with_name(f"{in_path.stem}.proc{extension}")
+
+    started_ms = now_ms()
+    result = run_ffmpeg_filter(in_path, out_path, filters, codec_args)
+    elapsed_ms = now_ms() - started_ms
+
+    if result is None or result.returncode != 0:
+        reason = "timeout" if result is None else f"ffmpeg_exit_{result.returncode}"
+        detail = "" if result is None else " ".join(result.stderr.split())[:200]
+        log(f"event=preprocess_failed reason={reason} elapsed_ms={elapsed_ms} detail={detail}")
+        debug_notify(f"preprocess FAILED ({reason}), raw upload", DEBUG_COLOR_FAIL, 8000)
+        remove_file(out_path)
+        return str(in_path), elapsed_ms
+
+    out_ms = audio_duration_ms(out_path)
+    try:
+        out_bytes = out_path.stat().st_size
+    except OSError:
+        out_bytes = 0
+
+    if out_bytes < 2048 or (out_ms is not None and out_ms < 300):
+        log(
+            f"event=preprocess_failed reason=suspicious_output "
+            f"out_ms={out_ms if out_ms is not None else 'unknown'} out_bytes={out_bytes}"
+        )
+        out_label = f"{out_ms / 1000:.1f}s" if out_ms is not None else f"{out_bytes}B"
+        debug_notify(f"preprocess suspicious ({out_label}), raw upload", DEBUG_COLOR_FAIL, 8000)
+        remove_file(out_path)
+        return str(in_path), elapsed_ms
+
+    in_ms = wav_duration_ms(in_path) or recording_ms
+    ratio = (out_ms / in_ms) if out_ms and in_ms else 0.0
+    log(
+        f"event=preprocess in_ms={in_ms} out_ms={out_ms if out_ms is not None else 'unknown'} "
+        f"ratio={ratio:.2f} elapsed_ms={elapsed_ms} file={out_path}"
+    )
+    effective_db = threshold_db if threshold_db is not None else cfg_float("SILENCE_THRESHOLD_DB", -45)
+    debug_notify(
+        preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, effective_db if trim else None, floor_db, speech_db)
+    )
+    return str(out_path), elapsed_ms
+
+
 def build_multipart_body(fields, audio_file):
     boundary = f"openai-dictation-{secrets.token_hex(16)}"
     body = bytearray()
@@ -1284,13 +1592,14 @@ def build_multipart_body(fields, audio_file):
     return boundary, bytes(body)
 
 
-def transcribe_request(audio_file):
+def transcribe_request(audio_file, language=""):
     fields = [
         ("model", cfg("OPENAI_MODEL")),
-        ("response_format", "json"),
+        ("response_format", "text"),
     ]
-    if cfg("OPENAI_LANGUAGE"):
-        fields.append(("language", cfg("OPENAI_LANGUAGE")))
+    language = language or cfg("OPENAI_LANGUAGE")
+    if language:
+        fields.append(("language", language))
     if cfg("OPENAI_PROMPT"):
         fields.append(("prompt", cfg("OPENAI_PROMPT")))
 
@@ -1308,7 +1617,8 @@ def transcribe_request(audio_file):
 
     try:
         with urllib.request.urlopen(request, timeout=cfg_float("CURL_MAX_TIME", 120)) as response:
-            return response.read().decode("utf-8")
+            content_type = response.headers.get("Content-Type", "") or ""
+            return response.read().decode("utf-8"), content_type
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode("utf-8", errors="replace")
         raise OpenAIRequestError(f"OpenAI request failed with HTTP {exc.code}", exc.code, body_text) from exc
@@ -1316,7 +1626,10 @@ def transcribe_request(audio_file):
         raise OpenAIRequestError(f"OpenAI request failed: {exc}") from exc
 
 
-def parse_transcript(response_text):
+def parse_transcript(response_text, content_type=""):
+    if "json" not in (content_type or "").lower():
+        return response_text.strip()
+
     try:
         data = json.loads(response_text)
     except json.JSONDecodeError as exc:
@@ -1364,7 +1677,7 @@ def discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms,
     print("No speech detected; discarded without sending to OpenAI.")
 
 
-def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
+def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, language=""):
     if not need_cmds("wl-copy"):
         return 1
     if not check_api_key():
@@ -1400,15 +1713,24 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
                 f"max_volume_db={max_volume} threshold_db={cfg('SILENCE_MAX_DB', '-50')}"
             )
 
-    upload_start_ms = now_ms()
-    transcribe_overlay_start_ms = upload_start_ms
-    log(f"event=transcribe_start audio_file={audio_file} bytes={audio_bytes}")
+    transcribe_overlay_start_ms = now_ms()
     start_overlay("transcribe")
+    upload_file, preprocess_ms = preprocess_audio(audio_file, recording_ms)
+    try:
+        upload_bytes = Path(upload_file).stat().st_size
+    except OSError:
+        upload_bytes = audio_bytes
+
+    upload_start_ms = now_ms()
+    log(
+        f"event=transcribe_start audio_file={upload_file} bytes={upload_bytes} "
+        f"preprocess_ms={preprocess_ms} language={language or 'auto'}"
+    )
 
     try:
-        response_text = transcribe_request(audio_file)
+        response_text, content_type = transcribe_request(upload_file, language)
         upload_end_ms = now_ms()
-        text = parse_transcript(response_text)
+        text = parse_transcript(response_text, content_type)
     except OpenAIRequestError as exc:
         upload_end_ms = now_ms()
         stop_overlay()
@@ -1417,6 +1739,7 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         log(
             f"timing recording_duration_ms={recording_ms} "
             f"stop_finalize_ms={stop_done_ms - release_ms} "
+            f"preprocess_ms={preprocess_ms} "
             f"transcription_ms={upload_end_ms - upload_start_ms} "
             f"total_after_release_ms={now_ms() - release_ms}"
         )
@@ -1424,7 +1747,7 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         if exc.body:
             print("\n".join(exc.body.splitlines()[:20]), file=sys.stderr)
         notify_msg("OpenAI dictation failed", f"See {LAST_LOG}")
-        cleanup_audio(audio_file)
+        cleanup_audio_files(audio_file, upload_file)
         return 1
 
     if not text:
@@ -1433,18 +1756,19 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
         log(
             f"timing recording_duration_ms={recording_ms} "
             f"stop_finalize_ms={stop_done_ms - release_ms} "
+            f"preprocess_ms={preprocess_ms} "
             f"transcription_ms={upload_end_ms - upload_start_ms} "
             f"total_after_release_ms={now_ms() - release_ms}"
         )
         notify_important("OpenAI dictation skipped", "Transcript was empty. Nothing was pasted.")
-        cleanup_audio(audio_file)
+        cleanup_audio_files(audio_file, upload_file)
         print("Transcript was empty; clipboard and focused app were left unchanged.")
         return 0
 
     write_private(LAST_TXT, text)
     if not copy_to_clipboard(text):
         stop_overlay()
-        cleanup_audio(audio_file)
+        cleanup_audio_files(audio_file, upload_file)
         return 1
 
     if cfg_bool("AUTO_PASTE", "0"):
@@ -1461,6 +1785,7 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
     log(
         f"timing recording_duration_ms={recording_ms} "
         f"stop_finalize_ms={stop_done_ms - release_ms} "
+        f"preprocess_ms={preprocess_ms} "
         f"transcription_ms={upload_end_ms - upload_start_ms} "
         f"total_after_release_ms={done_ms - release_ms}"
     )
@@ -1468,7 +1793,8 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
     print(f"Transcript copied to clipboard ({len(text)} chars).")
     timing = (
         "Timing: recording "
-        f"{recording_ms / 1000:.3f}s, transcription "
+        f"{recording_ms / 1000:.3f}s, preprocess "
+        f"{preprocess_ms / 1000:.3f}s, transcription "
         f"{(upload_end_ms - upload_start_ms) / 1000:.3f}s"
     )
     timing += f", total after release {(done_ms - release_ms) / 1000:.3f}s."
@@ -1477,7 +1803,7 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms):
     print(f"Latest log: {LAST_LOG}")
 
     notify_msg("OpenAI dictation copied", f"{math.ceil((done_ms - release_ms) / 1000)}s after release")
-    cleanup_audio(audio_file)
+    cleanup_audio_files(audio_file, upload_file)
     return 0
 
 
@@ -1519,7 +1845,7 @@ def discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms):
     print(f"Recording was {recording_label}; limit is {max_label}. Discarded without sending to OpenAI.")
 
 
-def stop_recording():
+def stop_recording(language_override=""):
     init_runtime()
     state = load_state()
     if not state:
@@ -1548,6 +1874,7 @@ def stop_recording():
         start_ms = release_ms
     recording_ms = max(0, release_ms - start_ms)
     audio_file = state["AUDIO_FILE"]
+    language = language_override or state.get("LANGUAGE", "")
 
     cleanup_state()
     if cfg_int("MIN_RECORDING_MS", 0) > 0 and recording_ms < cfg_int("MIN_RECORDING_MS", 1000):
@@ -1558,7 +1885,7 @@ def stop_recording():
         discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms)
         return 0
 
-    return transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms)
+    return transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, language)
 
 
 def cancel_recording():
@@ -1603,12 +1930,12 @@ def cancel_recording():
     return 0
 
 
-def toggle_recording():
-    return stop_recording() if recording_pid() else start_recording()
+def toggle_recording(language=""):
+    return stop_recording(language) if recording_pid() else start_recording(language)
 
 
-def once_recording():
-    status = start_recording()
+def once_recording(language=""):
+    status = start_recording(language)
     if status != 0:
         return status
 
@@ -1641,12 +1968,138 @@ def check_setup():
         commands.append("hyprctl")
     if not need_cmds(*commands):
         return 1
+    if shutil.which("ffmpeg"):
+        print("ffmpeg: found, preprocessing available")
+    else:
+        print("ffmpeg: missing, uploads use the raw recording")
     return 0 if check_api_key() else 1
+
+
+def bench_transcriptions(source, factors, language):
+    if not need_cmds("ffmpeg"):
+        return 1
+    if not check_api_key():
+        return 1
+
+    source_path = Path(source).expanduser()
+    if not source_path.is_file():
+        print(f"No such audio file: {source_path}", file=sys.stderr)
+        return 1
+
+    init_runtime()
+    bench_dir = RUNTIME_DIR / f"bench-{now_ms()}"
+    bench_dir.mkdir(parents=True, exist_ok=True)
+
+    variants = [("original", None), ("trim", 1.0)]
+    variants.extend((f"trim+{factor:g}x", factor) for factor in factors)
+
+    threshold_db = None
+    calibration = auto_silence_threshold(source_path) if cfg_bool("SILENCE_AUTO_THRESHOLD", "1") else None
+    if calibration:
+        threshold_db = calibration[0]
+        print(
+            f"auto threshold: {calibration[0]:.1f}dB "
+            f"(floor {calibration[1]:.1f}dB, speech {calibration[2]:.1f}dB)"
+        )
+
+    usd_per_minute = model_usd_per_minute()
+    print(f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} source={source_path}")
+
+    results = []
+    for name, speedup in variants:
+        if speedup is None:
+            variant_path = source_path
+        else:
+            extension, codec_args = upload_codec_args()
+            variant_path = bench_dir / f"{name.replace('+', '-')}{extension}"
+            filters = preprocess_filters(trim=True, speedup=speedup, threshold_db=threshold_db)
+            result = run_ffmpeg_filter(source_path, variant_path, filters, codec_args)
+            if result is None or result.returncode != 0:
+                print(f"{name}: ffmpeg failed, skipped", file=sys.stderr)
+                continue
+
+        duration_ms = audio_duration_ms(variant_path) or 0
+        try:
+            variant_bytes = variant_path.stat().st_size
+        except OSError:
+            variant_bytes = 0
+
+        request_start_ms = now_ms()
+        try:
+            response_text, content_type = transcribe_request(variant_path, language)
+            text = parse_transcript(response_text, content_type)
+            error = ""
+        except OpenAIRequestError as exc:
+            text = ""
+            error = str(exc)
+        api_ms = now_ms() - request_start_ms
+        cost_usd = (duration_ms / 60000.0) * usd_per_minute
+        results.append((name, duration_ms, variant_bytes, api_ms, cost_usd, text, error))
+        print(f"{name}: {duration_ms / 1000:.1f}s -> api {api_ms} ms")
+
+    print()
+    for name, duration_ms, variant_bytes, api_ms, cost_usd, text, error in results:
+        print(
+            f"== {name}: {duration_ms / 1000:.1f}s, {variant_bytes / 1024:.0f} KB, "
+            f"api {api_ms} ms, ~{format_usd_dkk(cost_usd)}, {len(text)} chars"
+        )
+        print(error if error else (text or "<empty transcript>"))
+        print()
+
+    if cfg_bool("KEEP_AUDIO", "0"):
+        print(f"Variant files kept in {bench_dir}")
+    else:
+        shutil.rmtree(bench_dir, ignore_errors=True)
+    return 0
+
+
+def bench_command(args, language):
+    if not args:
+        print("Usage: openai-dictate bench <audio-file> [speedup-factor...]", file=sys.stderr)
+        return 2
+
+    factors = []
+    for arg in args[1:]:
+        factor = parse_float(arg, 0.0)
+        if factor < 0.5 or factor > 4.0:
+            print(f"Speedup factor out of range (0.5-4.0): {arg}", file=sys.stderr)
+            return 2
+        if abs(factor - 1.0) >= 0.01:
+            factors.append(factor)
+    if not factors:
+        factors = [1.5, 2.0]
+    return bench_transcriptions(args[0], factors, language)
+
+
+def parse_language_args(args):
+    language = ""
+    rest = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"--language", "--lang"}:
+            if index + 1 >= len(args):
+                print("Missing value for --language.", file=sys.stderr)
+                return None, args
+            language = args[index + 1]
+            index += 2
+            continue
+        if arg.startswith(("--language=", "--lang=")):
+            language = arg.split("=", 1)[1]
+            index += 1
+            continue
+        rest.append(arg)
+        index += 1
+
+    if language and not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z]{2,8})?", language):
+        print(f"Invalid language code: {language}", file=sys.stderr)
+        return None, args
+    return language.lower(), rest
 
 
 def show_help(stream=sys.stdout):
     print(
-        f"""Usage: openai-dictate [start|stop|cancel|toggle|once|status|check]
+        f"""Usage: openai-dictate [command] [--language xx]
 
 Commands:
   start   Start recording in the background.
@@ -1656,6 +2109,12 @@ Commands:
   once    Terminal fallback: record until Enter, then transcribe.
   status  Show whether a recording is active.
   check   Check dependencies and API key.
+  bench   Transcribe preprocessing variants of a file side by side:
+          openai-dictate bench sample.wav [1.5 2.0]
+
+Options:
+  --language xx  Pin the transcription language for this recording
+                 (for example en or da). Default: auto-detect.
 
 Config:
   {CONFIG_FILE}
@@ -1674,23 +2133,34 @@ def main(argv):
     if command == "_overlay":
         run_overlay(args)
         return 0
+    if command in {"help", "--help", "-h"}:
+        show_help()
+        return 0
+
+    if command.startswith("--"):
+        args = [command, *args]
+        command = "toggle"
+
+    language, args = parse_language_args(args)
+    if language is None:
+        return 2
+
     if command == "start":
-        return start_recording()
+        return start_recording(language)
     if command == "stop":
-        return stop_recording()
+        return stop_recording(language)
     if command == "cancel":
         return cancel_recording()
     if command == "toggle":
-        return toggle_recording()
+        return toggle_recording(language)
     if command == "once":
-        return once_recording()
+        return once_recording(language)
     if command == "status":
         return status_recording()
     if command == "check":
         return check_setup()
-    if command in {"help", "--help", "-h"}:
-        show_help()
-        return 0
+    if command == "bench":
+        return bench_command(args, language)
 
     show_help(sys.stderr)
     return 2
