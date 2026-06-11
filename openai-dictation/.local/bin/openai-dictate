@@ -20,11 +20,12 @@ import urllib.request
 import wave
 from pathlib import Path
 
-
 os.umask(0o077)
 
 HOME = Path.home()
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "openai-dictation"
+CONFIG_DIR = (
+    Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "openai-dictation"
+)
 CONFIG_FILE = CONFIG_DIR / "config.env"
 SECRETS_FILE = CONFIG_DIR / "secrets.env"
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "openai-dictation"
@@ -35,7 +36,9 @@ OVERLAY_PID_FILE = RUNTIME_DIR / "loading.pid"
 LAST_TXT = Path("/tmp/openai-dictation-last.txt")
 LAST_LOG = Path("/tmp/openai-dictation-last.log")
 
-DUCK_RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "dictation-volume-duck"
+DUCK_RUNTIME_DIR = (
+    Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "dictation-volume-duck"
+)
 DUCK_STATE_FILE = DUCK_RUNTIME_DIR / "state.env"
 DUCK_LOCK_FILE = DUCK_RUNTIME_DIR / "lock"
 DUCK_CLIENT = "openai-dictation"
@@ -359,7 +362,11 @@ def recording_state_matches(pid, start_ms):
     except (KeyError, ValueError):
         return False
 
-    return active_pid == int(pid) and active_start_ms == int(start_ms) and process_alive(active_pid)
+    return (
+        active_pid == int(pid)
+        and active_start_ms == int(start_ms)
+        and process_alive(active_pid)
+    )
 
 
 def sanitize_client(client):
@@ -446,35 +453,53 @@ def scaled_volume(volume, factor):
 
 def set_audio_volume(backend, volume):
     if backend == "wpctl":
-        command = ["wpctl", "set-volume", "-l", "2.0", "@DEFAULT_AUDIO_SINK@", str(volume)]
+        command = [
+            "wpctl",
+            "set-volume",
+            "-l",
+            "2.0",
+            "@DEFAULT_AUDIO_SINK@",
+            str(volume),
+        ]
     elif backend == "pactl":
         percent = f"{round(float(volume) * 100)}%"
         command = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", percent]
     else:
         return False
 
-    return subprocess.run(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def set_audio_mute(backend, muted):
     if backend == "wpctl":
         command = ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", str(muted)]
     elif backend == "pactl":
-        command = ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if str(muted) == "1" else "0"]
+        command = [
+            "pactl",
+            "set-sink-mute",
+            "@DEFAULT_SINK@",
+            "1" if str(muted) == "1" else "0",
+        ]
     else:
         return False
 
-    return subprocess.run(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def fade_audio_volume(backend, from_volume, to_volume, duration_ms, steps):
@@ -735,7 +760,9 @@ def read_levels(audio_file):
     if sample_count < BARS:
         return [0.05] * BARS
 
-    samples = struct.unpack("<" + "h" * sample_count, data[: sample_count * bytes_per_sample])
+    samples = struct.unpack(
+        "<" + "h" * sample_count, data[: sample_count * bytes_per_sample]
+    )
     chunk = max(1, sample_count // BARS)
     levels = []
 
@@ -837,8 +864,10 @@ def finish_transcribe_overlay(overlay_start_ms):
     stop_overlay()
 
 
-def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
-    from PySide6.QtCore import Qt, QTimer, QRectF
+def run_pyside_overlay(
+    mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk
+):
+    from PySide6.QtCore import QRectF, Qt, QTimer
     from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
     from PySide6.QtWidgets import QApplication, QWidget
 
@@ -883,7 +912,9 @@ def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cur
             self.elapsed = current - self.started_at
             if self.mode == "record":
                 latest = read_levels(self.audio_file)
-                self.levels = [self.levels[i] * 0.58 + latest[i] * 0.42 for i in range(BARS)]
+                self.levels = [
+                    self.levels[i] * 0.58 + latest[i] * 0.42 for i in range(BARS)
+                ]
             self.update()
 
         def draw_panel(self, painter):
@@ -915,7 +946,9 @@ def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cur
             cx, cy = 26, self.height() / 2
             painter.setPen(Qt.NoPen)
             painter.setBrush(glow)
-            painter.drawEllipse(QRectF(cx - 10 * pulse, cy - 10 * pulse, 20 * pulse, 20 * pulse))
+            painter.drawEllipse(
+                QRectF(cx - 10 * pulse, cy - 10 * pulse, 20 * pulse, 20 * pulse)
+            )
             painter.setBrush(core)
             painter.drawEllipse(QRectF(cx - 6, cy - 6, 12, 12))
 
@@ -992,7 +1025,11 @@ def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cur
                 return
             painter.setPen(QColor(131, 227, 255, 235))
             painter.setFont(QFont("monospace", 9, QFont.Medium))
-            painter.drawText(QRectF(self.width() - 150, 8, 134, 16), Qt.AlignRight | Qt.AlignVCenter, text)
+            painter.drawText(
+                QRectF(self.width() - 150, 8, 134, 16),
+                Qt.AlignRight | Qt.AlignVCenter,
+                text,
+            )
 
         def paintEvent(self, event):
             del event
@@ -1014,7 +1051,9 @@ def run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cur
     sys.exit(app.exec())
 
 
-def run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk):
+def run_tkinter_overlay(
+    mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk
+):
     import tkinter as tk
 
     root = tk.Tk()
@@ -1025,7 +1064,9 @@ def run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cu
     x = (root.winfo_screenwidth() - WIDTH) // 2
     y = root.winfo_screenheight() - HEIGHT - 86
     root.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
-    canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0)
+    canvas = tk.Canvas(
+        root, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0
+    )
     canvas.pack()
     levels = [0.06] * BARS
     started_at = time.monotonic()
@@ -1072,12 +1113,23 @@ def run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_cu
                 height = 6 + (bottom - top) * envelope * (0.5 + 0.5 * wave)
                 color = "#a5aecf"
             x = left + i * slot + (slot - bar_w) / 2
-            canvas.create_rectangle(x, mid - height / 2, x + bar_w, mid + height / 2, fill=color, outline="")
+            canvas.create_rectangle(
+                x, mid - height / 2, x + bar_w, mid + height / 2, fill=color, outline=""
+            )
 
         if mode == "record":
-            cost = format_cost(start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+            cost = format_cost(
+                start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk
+            )
             if cost:
-                canvas.create_text(WIDTH - 14, 15, text=cost, fill="#83e3ff", anchor="e", font=("monospace", 9))
+                canvas.create_text(
+                    WIDTH - 14,
+                    15,
+                    text=cost,
+                    fill="#83e3ff",
+                    anchor="e",
+                    font=("monospace", 9),
+                )
             canvas.create_text(
                 WIDTH - 14,
                 HEIGHT - 17,
@@ -1106,9 +1158,23 @@ def run_overlay(argv):
     cost_usd_to_dkk = parse_float(argv[5], 6.4104) if len(argv) > 5 else 6.4104
 
     try:
-        run_pyside_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+        run_pyside_overlay(
+            mode,
+            audio_file,
+            start_ms,
+            cost_usd_per_minute,
+            cost_currency,
+            cost_usd_to_dkk,
+        )
     except Exception:
-        run_tkinter_overlay(mode, audio_file, start_ms, cost_usd_per_minute, cost_currency, cost_usd_to_dkk)
+        run_tkinter_overlay(
+            mode,
+            audio_file,
+            start_ms,
+            cost_usd_per_minute,
+            cost_currency,
+            cost_usd_to_dkk,
+        )
 
 
 def stop_recorder_process(pid):
@@ -1173,7 +1239,12 @@ def start_recording(language=""):
     if process.poll() is not None:
         log(f"event=start_failed pid={process.pid} audio_file={audio_file}")
         with contextlib.suppress(OSError):
-            print("\n".join(RECORDER_ERR_FILE.read_text(encoding="utf-8").splitlines()[:20]), file=sys.stderr)
+            print(
+                "\n".join(
+                    RECORDER_ERR_FILE.read_text(encoding="utf-8").splitlines()[:20]
+                ),
+                file=sys.stderr,
+            )
         cleanup_state()
         return 1
 
@@ -1205,18 +1276,24 @@ def active_window_class():
 
 def active_window_is_ghostty():
     window_class = active_window_class()
-    return window_class in {"com.mitchellh.ghostty", "ghostty"} or "Ghostty" in window_class
+    return (
+        window_class in {"com.mitchellh.ghostty", "ghostty"}
+        or "Ghostty" in window_class
+    )
 
 
 def dispatch_shortcut(shortcut):
     if not need_cmds("hyprctl"):
         return False
-    return subprocess.run(
-        ["hyprctl", "dispatch", "sendshortcut", shortcut],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            ["hyprctl", "dispatch", "sendshortcut", shortcut],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def paste_hyprctl_super_v():
@@ -1240,39 +1317,63 @@ def paste_clipboard():
     if method == "wtype-ctrl-v":
         if not need_cmds("wtype"):
             return False
-        return subprocess.run(
-            ["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        ).returncode == 0
+        return (
+            subprocess.run(
+                ["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
     if method == "wtype-ctrl-shift-v":
         if not need_cmds("wtype"):
             return False
-        return subprocess.run(
-            ["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        ).returncode == 0
+        return (
+            subprocess.run(
+                [
+                    "wtype",
+                    "-M",
+                    "ctrl",
+                    "-M",
+                    "shift",
+                    "-k",
+                    "v",
+                    "-m",
+                    "shift",
+                    "-m",
+                    "ctrl",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
     if method == "ydotool-ctrl-v":
         if not need_cmds("ydotool"):
             return False
-        return subprocess.run(
-            ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        ).returncode == 0
+        return (
+            subprocess.run(
+                ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
     if method == "ydotool-ctrl-shift-v":
         if not need_cmds("ydotool"):
             return False
-        return subprocess.run(
-            ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        ).returncode == 0
+        return (
+            subprocess.run(
+                ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
 
     print(f"Unknown PASTE_METHOD: {method}", file=sys.stderr)
     return False
@@ -1396,7 +1497,7 @@ def auto_silence_threshold(audio_file):
 
     floor_db = levels[min(len(levels) - 1, int(len(levels) * 0.2))]
     speech_db = levels[min(len(levels) - 1, int(len(levels) * 0.95))]
-    if speech_db - floor_db < 12.0:
+    if speech_db - floor_db < 10.0:
         return None
 
     # Anchor on the speech level, not the noise floor: breaths and key
@@ -1421,7 +1522,11 @@ def preprocess_filters(trim=None, speedup=None, threshold_db=None):
 
     filters = []
     if trim:
-        threshold = threshold_db if threshold_db is not None else cfg_float("SILENCE_THRESHOLD_DB", -45)
+        threshold = (
+            threshold_db
+            if threshold_db is not None
+            else cfg_float("SILENCE_THRESHOLD_DB", -45)
+        )
         min_pause = cfg_float("SILENCE_MIN_PAUSE", 0.45)
         keep = cfg_float("SILENCE_KEEP", 0.25)
         filters.append(
@@ -1457,12 +1562,16 @@ def run_ffmpeg_filter(in_path, out_path, filters, codec_args):
         str(out_path),
     ]
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=PREPROCESS_TIMEOUT_S)
+        return subprocess.run(
+            command, capture_output=True, text=True, timeout=PREPROCESS_TIMEOUT_S
+        )
     except subprocess.TimeoutExpired:
         return None
 
 
-def preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, threshold_db=None, floor_db=None, speech_db=None):
+def preprocess_summary(
+    in_ms, out_ms, speedup, elapsed_ms, threshold_db=None, floor_db=None, speech_db=None
+):
     parts = [f"{in_ms / 1000:.1f}s"]
     sped = abs(speedup - 1.0) >= 0.01
     if cfg_bool("TRIM_SILENCE", "1"):
@@ -1513,7 +1622,9 @@ def preprocess_audio(audio_file, recording_ms):
                 f"speech_db={speech_db:.1f} threshold_db={threshold_db:.1f}"
             )
         else:
-            log(f"event=silence_calibration_failed fallback_db={cfg('SILENCE_THRESHOLD_DB', '-45')}")
+            log(
+                f"event=silence_calibration_failed fallback_db={cfg('SILENCE_THRESHOLD_DB', '-45')}"
+            )
 
     speedup = clamp(cfg_float("SPEEDUP_FACTOR", 1.5), 0.5, 4.0)
     filters = preprocess_filters(trim=trim, speedup=speedup, threshold_db=threshold_db)
@@ -1533,8 +1644,12 @@ def preprocess_audio(audio_file, recording_ms):
     if result is None or result.returncode != 0:
         reason = "timeout" if result is None else f"ffmpeg_exit_{result.returncode}"
         detail = "" if result is None else " ".join(result.stderr.split())[:200]
-        log(f"event=preprocess_failed reason={reason} elapsed_ms={elapsed_ms} detail={detail}")
-        debug_notify(f"preprocess FAILED ({reason}), raw upload", DEBUG_COLOR_FAIL, 8000)
+        log(
+            f"event=preprocess_failed reason={reason} elapsed_ms={elapsed_ms} detail={detail}"
+        )
+        debug_notify(
+            f"preprocess FAILED ({reason}), raw upload", DEBUG_COLOR_FAIL, 8000
+        )
         remove_file(out_path)
         return str(in_path), elapsed_ms
 
@@ -1550,7 +1665,9 @@ def preprocess_audio(audio_file, recording_ms):
             f"out_ms={out_ms if out_ms is not None else 'unknown'} out_bytes={out_bytes}"
         )
         out_label = f"{out_ms / 1000:.1f}s" if out_ms is not None else f"{out_bytes}B"
-        debug_notify(f"preprocess suspicious ({out_label}), raw upload", DEBUG_COLOR_FAIL, 8000)
+        debug_notify(
+            f"preprocess suspicious ({out_label}), raw upload", DEBUG_COLOR_FAIL, 8000
+        )
         remove_file(out_path)
         return str(in_path), elapsed_ms
 
@@ -1560,9 +1677,21 @@ def preprocess_audio(audio_file, recording_ms):
         f"event=preprocess in_ms={in_ms} out_ms={out_ms if out_ms is not None else 'unknown'} "
         f"ratio={ratio:.2f} elapsed_ms={elapsed_ms} file={out_path}"
     )
-    effective_db = threshold_db if threshold_db is not None else cfg_float("SILENCE_THRESHOLD_DB", -45)
+    effective_db = (
+        threshold_db
+        if threshold_db is not None
+        else cfg_float("SILENCE_THRESHOLD_DB", -45)
+    )
     debug_notify(
-        preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, effective_db if trim else None, floor_db, speech_db)
+        preprocess_summary(
+            in_ms,
+            out_ms,
+            speedup,
+            elapsed_ms,
+            effective_db if trim else None,
+            floor_db,
+            speech_db,
+        )
     )
     return str(out_path), elapsed_ms
 
@@ -1573,12 +1702,16 @@ def build_multipart_body(fields, audio_file):
 
     for name, value in fields:
         body.extend(f"--{boundary}\r\n".encode("utf-8"))
-        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8")
+        )
         body.extend(str(value).encode("utf-8"))
         body.extend(b"\r\n")
 
     audio_path = Path(audio_file)
-    content_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
+    content_type = (
+        mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
+    )
     body.extend(f"--{boundary}\r\n".encode("utf-8"))
     body.extend(
         (
@@ -1616,12 +1749,16 @@ def transcribe_request(audio_file, language=""):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=cfg_float("CURL_MAX_TIME", 120)) as response:
+        with urllib.request.urlopen(
+            request, timeout=cfg_float("CURL_MAX_TIME", 120)
+        ) as response:
             content_type = response.headers.get("Content-Type", "") or ""
             return response.read().decode("utf-8"), content_type
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode("utf-8", errors="replace")
-        raise OpenAIRequestError(f"OpenAI request failed with HTTP {exc.code}", exc.code, body_text) from exc
+        raise OpenAIRequestError(
+            f"OpenAI request failed with HTTP {exc.code}", exc.code, body_text
+        ) from exc
     except urllib.error.URLError as exc:
         raise OpenAIRequestError(f"OpenAI request failed: {exc}") from exc
 
@@ -1633,7 +1770,9 @@ def parse_transcript(response_text, content_type=""):
     try:
         data = json.loads(response_text)
     except json.JSONDecodeError as exc:
-        raise OpenAIRequestError(f"Could not parse OpenAI response as JSON: {exc}", body=response_text) from exc
+        raise OpenAIRequestError(
+            f"Could not parse OpenAI response as JSON: {exc}", body=response_text
+        ) from exc
 
     error = data.get("error") if isinstance(data, dict) else None
     if error:
@@ -1645,24 +1784,31 @@ def parse_transcript(response_text, content_type=""):
 
     text = data.get("text") if isinstance(data, dict) else None
     if not isinstance(text, str):
-        raise OpenAIRequestError("OpenAI response did not contain a text field.", body=response_text)
+        raise OpenAIRequestError(
+            "OpenAI response did not contain a text field.", body=response_text
+        )
     return text.strip()
 
 
 def copy_to_clipboard(text):
     if not need_cmds("wl-copy"):
         return False
-    return subprocess.run(
-        ["wl-copy", "--trim-newline"],
-        input=text,
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            ["wl-copy", "--trim-newline"],
+            input=text,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
-def discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms, audio_bytes, max_volume):
+def discard_silent_recording(
+    audio_file, release_ms, recording_ms, stop_done_ms, audio_bytes, max_volume
+):
     log(
         f"event=audio_silent audio_file={audio_file} bytes={audio_bytes} "
         f"max_volume_db={max_volume} threshold_db={cfg('SILENCE_MAX_DB', '-50')}"
@@ -1673,7 +1819,9 @@ def discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms,
         f"total_after_release_ms={now_ms() - release_ms}"
     )
     cleanup_audio(audio_file)
-    notify_important("OpenAI dictation skipped", "No speech detected. Nothing was sent.")
+    notify_important(
+        "OpenAI dictation skipped", "No speech detected. Nothing was sent."
+    )
     print("No speech detected; discarded without sending to OpenAI.")
 
 
@@ -1705,7 +1853,14 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
         if max_volume is None:
             log(f"event=silence_check_unavailable audio_file={audio_file}")
         elif volume_lte(max_volume, cfg("SILENCE_MAX_DB", "-50")):
-            discard_silent_recording(audio_file, release_ms, recording_ms, stop_done_ms, audio_bytes, max_volume)
+            discard_silent_recording(
+                audio_file,
+                release_ms,
+                recording_ms,
+                stop_done_ms,
+                audio_bytes,
+                max_volume,
+            )
             return 0
         else:
             log(
@@ -1735,7 +1890,9 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
         upload_end_ms = now_ms()
         stop_overlay()
         status = f" http_status={exc.status}" if exc.status else ""
-        log(f"event=transcribe_failed{status} transcription_ms={upload_end_ms - upload_start_ms}")
+        log(
+            f"event=transcribe_failed{status} transcription_ms={upload_end_ms - upload_start_ms}"
+        )
         log(
             f"timing recording_duration_ms={recording_ms} "
             f"stop_finalize_ms={stop_done_ms - release_ms} "
@@ -1752,7 +1909,9 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
 
     if not text:
         finish_transcribe_overlay(transcribe_overlay_start_ms)
-        log(f"event=transcript_empty transcription_ms={upload_end_ms - upload_start_ms}")
+        log(
+            f"event=transcript_empty transcription_ms={upload_end_ms - upload_start_ms}"
+        )
         log(
             f"timing recording_duration_ms={recording_ms} "
             f"stop_finalize_ms={stop_done_ms - release_ms} "
@@ -1760,7 +1919,9 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
             f"transcription_ms={upload_end_ms - upload_start_ms} "
             f"total_after_release_ms={now_ms() - release_ms}"
         )
-        notify_important("OpenAI dictation skipped", "Transcript was empty. Nothing was pasted.")
+        notify_important(
+            "OpenAI dictation skipped", "Transcript was empty. Nothing was pasted."
+        )
         cleanup_audio_files(audio_file, upload_file)
         print("Transcript was empty; clipboard and focused app were left unchanged.")
         return 0
@@ -1802,7 +1963,10 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
     print(f"Latest transcript: {LAST_TXT}")
     print(f"Latest log: {LAST_LOG}")
 
-    notify_msg("OpenAI dictation copied", f"{math.ceil((done_ms - release_ms) / 1000)}s after release")
+    notify_msg(
+        "OpenAI dictation copied",
+        f"{math.ceil((done_ms - release_ms) / 1000)}s after release",
+    )
     cleanup_audio_files(audio_file, upload_file)
     return 0
 
@@ -1825,7 +1989,9 @@ def discard_short_recording(audio_file, release_ms, recording_ms, stop_done_ms):
     cleanup_audio(audio_file)
     notify_msg("OpenAI dictation discarded", "Recording was under 1 second.")
     minimum = cfg_int("MIN_RECORDING_MS", 1000)
-    print(f"Recording was under {minimum // 1000}.{minimum % 1000:03d}s; discarded without sending to OpenAI.")
+    print(
+        f"Recording was under {minimum // 1000}.{minimum % 1000:03d}s; discarded without sending to OpenAI."
+    )
 
 
 def discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms):
@@ -1841,8 +2007,13 @@ def discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms):
         f"total_after_release_ms={now_ms() - release_ms}"
     )
     cleanup_audio(audio_file)
-    notify_important("OpenAI dictation too long", f"Recording was {recording_label}; limit is {max_label}. Not sent.")
-    print(f"Recording was {recording_label}; limit is {max_label}. Discarded without sending to OpenAI.")
+    notify_important(
+        "OpenAI dictation too long",
+        f"Recording was {recording_label}; limit is {max_label}. Not sent.",
+    )
+    print(
+        f"Recording was {recording_label}; limit is {max_label}. Discarded without sending to OpenAI."
+    )
 
 
 def stop_recording(language_override=""):
@@ -1877,15 +2048,21 @@ def stop_recording(language_override=""):
     language = language_override or state.get("LANGUAGE", "")
 
     cleanup_state()
-    if cfg_int("MIN_RECORDING_MS", 0) > 0 and recording_ms < cfg_int("MIN_RECORDING_MS", 1000):
+    if cfg_int("MIN_RECORDING_MS", 0) > 0 and recording_ms < cfg_int(
+        "MIN_RECORDING_MS", 1000
+    ):
         discard_short_recording(audio_file, release_ms, recording_ms, stop_done_ms)
         return 0
 
-    if cfg_int("MAX_RECORDING_MS", 0) > 0 and recording_ms >= cfg_int("MAX_RECORDING_MS", 300000):
+    if cfg_int("MAX_RECORDING_MS", 0) > 0 and recording_ms >= cfg_int(
+        "MAX_RECORDING_MS", 300000
+    ):
         discard_long_recording(audio_file, release_ms, recording_ms, stop_done_ms)
         return 0
 
-    return transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, language)
+    return transcribe_audio(
+        audio_file, release_ms, recording_ms, stop_done_ms, language
+    )
 
 
 def cancel_recording():
@@ -1994,7 +2171,11 @@ def bench_transcriptions(source, factors, language):
     variants.extend((f"trim+{factor:g}x", factor) for factor in factors)
 
     threshold_db = None
-    calibration = auto_silence_threshold(source_path) if cfg_bool("SILENCE_AUTO_THRESHOLD", "1") else None
+    calibration = (
+        auto_silence_threshold(source_path)
+        if cfg_bool("SILENCE_AUTO_THRESHOLD", "1")
+        else None
+    )
     if calibration:
         threshold_db = calibration[0]
         print(
@@ -2003,7 +2184,9 @@ def bench_transcriptions(source, factors, language):
         )
 
     usd_per_minute = model_usd_per_minute()
-    print(f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} source={source_path}")
+    print(
+        f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} source={source_path}"
+    )
 
     results = []
     for name, speedup in variants:
@@ -2012,7 +2195,9 @@ def bench_transcriptions(source, factors, language):
         else:
             extension, codec_args = upload_codec_args()
             variant_path = bench_dir / f"{name.replace('+', '-')}{extension}"
-            filters = preprocess_filters(trim=True, speedup=speedup, threshold_db=threshold_db)
+            filters = preprocess_filters(
+                trim=True, speedup=speedup, threshold_db=threshold_db
+            )
             result = run_ffmpeg_filter(source_path, variant_path, filters, codec_args)
             if result is None or result.returncode != 0:
                 print(f"{name}: ffmpeg failed, skipped", file=sys.stderr)
@@ -2034,7 +2219,9 @@ def bench_transcriptions(source, factors, language):
             error = str(exc)
         api_ms = now_ms() - request_start_ms
         cost_usd = (duration_ms / 60000.0) * usd_per_minute
-        results.append((name, duration_ms, variant_bytes, api_ms, cost_usd, text, error))
+        results.append(
+            (name, duration_ms, variant_bytes, api_ms, cost_usd, text, error)
+        )
         print(f"{name}: {duration_ms / 1000:.1f}s -> api {api_ms} ms")
 
     print()
@@ -2055,7 +2242,10 @@ def bench_transcriptions(source, factors, language):
 
 def bench_command(args, language):
     if not args:
-        print("Usage: openai-dictate bench <audio-file> [speedup-factor...]", file=sys.stderr)
+        print(
+            "Usage: openai-dictate bench <audio-file> [speedup-factor...]",
+            file=sys.stderr,
+        )
         return 2
 
     factors = []
