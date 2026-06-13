@@ -12,7 +12,7 @@ table.insert(
   snippets,
   s(
     { trig = ",m", snippetType = "autosnippet", wordTrig = false },
-    fmt("\\(<>\\)", { i(1) }, { delimiters = "<>" }),
+    fmt("\\(<>", { i(1) }, { delimiters = "<>" }),
     { condition = cond.not_in_mathzone }
   )
 )
