@@ -107,8 +107,7 @@ return {
       -- Keymaps
       keymap = {
         preset = "default",
-        ["<C-j>"] = { "select_next", "fallback" },
-        ["<C-k>"] = { "select_prev", "show_signature", "hide_signature", "fallback" },
+        ["<C-k>"] = { "show_signature", "hide_signature", "fallback" },
         ["<Tab>"] = {
           function(cmp)
             local ok, suggestion = pcall(require, "copilot.suggestion")
