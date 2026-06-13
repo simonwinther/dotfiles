@@ -6,22 +6,20 @@ return {
     name = "cppman.nvim-dev",
     cmd = "CPPManDev",
     enabled = dev_mode,
-    keys = {
-      {
-        "<localleader>w",
-        function()
-          require("cppman").open_for(vim.fn.expand("<cword>"))
+    init = function()
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = { "cpp", "c" },
+        callback = function(args)
+          vim.keymap.set("n", "<localleader>w", function()
+            require("cppman").open_for(vim.fn.expand("<cword>"))
+          end, { buffer = args.buf, desc = "DEV: [C++] open under cursor" })
+
+          vim.keymap.set("n", "<localleader>s", function()
+            require("cppman").search()
+          end, { buffer = args.buf, desc = "DEV: [C++] keyword search" })
         end,
-        desc = "DEV: [C++] open under cursor",
-      },
-      {
-        "<localleader>s",
-        function()
-          require("cppman").search()
-        end,
-        desc = "DEV: [C++] keyword search",
-      },
-    },
+      })
+    end,
   },
 
   {
@@ -30,21 +28,19 @@ return {
     version = "*",
     cmd = "CPPMan",
     enabled = not dev_mode,
-    keys = {
-      {
-        "<localleader>w",
-        function()
-          require("cppman").open_for(vim.fn.expand("<cword>"))
+    init = function()
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = { "cpp", "c" },
+        callback = function(args)
+          vim.keymap.set("n", "<localleader>w", function()
+            require("cppman").open_for(vim.fn.expand("<cword>"))
+          end, { buffer = args.buf, desc = "[C++] open under cursor" })
+
+          vim.keymap.set("n", "<localleader>s", function()
+            require("cppman").search()
+          end, { buffer = args.buf, desc = "[C++] keyword search" })
         end,
-        desc = "[C++] open under cursor",
-      },
-      {
-        "<localleader>s",
-        function()
-          require("cppman").search()
-        end,
-        desc = "[C++] keyword search",
-      },
-    },
+      })
+    end,
   },
 }

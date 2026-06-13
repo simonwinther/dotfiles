@@ -43,8 +43,8 @@ return {
 
       -- Underbrace | Overbrace
       {
-        [[[\\underbrace{\(]] .. brace .. [[\)}_{\(]] .. brace .. [[\)}]]] = [[\\overbrace{\1}^{\2}]],
-        [[[\\overbrace{\(]] .. brace .. [[\)}\^{\(]] .. brace .. [[\)}]]] = [[\\underbrace{\1}_{\2}]],
+        [ [[\\underbrace{\(]] .. brace .. [[\)}_{\(]] .. brace .. [[\)}]] ] = [[\\overbrace{\1}^{\2}]],
+        [ [[\\overbrace{\(]] .. brace .. [[\)}\^{\(]] .. brace .. [[\)}]] ] = [[\\underbrace{\1}_{\2}]],
       },
     }
 
