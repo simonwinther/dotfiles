@@ -51,6 +51,34 @@ local function border_width(border)
   return border_dimensions(border).width
 end
 
+local function border_padding_dimensions(border)
+  if type(border) ~= "table" or type(border.padding) ~= "table" then
+    return { width = 0, height = 0 }
+  end
+
+  local padding = border.padding
+  local top = padding.top or padding[1] or 0
+  local right = padding.right or padding[2] or top
+  local bottom = padding.bottom or padding[3] or top
+  local left = padding.left or padding[4] or right
+
+  return {
+    width = left + right,
+    height = top + bottom,
+  }
+end
+
+local function noice_border_dimensions(border)
+  local style = type(border) == "table" and border.style or border
+  local padding = border_padding_dimensions(border)
+  local chars = border_dimensions(style)
+
+  return {
+    width = chars.width + padding.width,
+    height = chars.height + padding.height,
+  }
+end
+
 local function win_rect(win)
   if not win or not vim.api.nvim_win_is_valid(win) then
     return nil
@@ -76,19 +104,135 @@ local function win_rect(win)
   }
 end
 
+local function editor_position_col(col, width)
+  if type(col) == "number" then
+    if col < 0 then
+      return vim.o.columns + col - width
+    end
+
+    return col
+  end
+
+  if type(col) ~= "string" then
+    return nil
+  end
+
+  local percent = col:match("^%s*([%d.]+)%%%s*$")
+  if percent ~= nil then
+    return math.floor((vim.o.columns - width) * tonumber(percent) / 100)
+  end
+
+  local number = tonumber(col)
+  return number and editor_position_col(number, width) or nil
+end
+
+local function expected_cmdline_box_rect()
+  local ok, cmdline = pcall(require, "noice.ui.cmdline")
+  if not ok or type(cmdline.last) ~= "function" then
+    return nil
+  end
+
+  local active = cmdline.last()
+  if active == nil or type(active.state) ~= "table" then
+    return nil
+  end
+
+  local current = setmetatable({
+    state = vim.deepcopy(active.state),
+    offset = active.offset,
+  }, getmetatable(active))
+
+  current.state.content = { { 0, vim.fn.getcmdline() } }
+  current.state.pos = vim.fn.getcmdpos()
+
+  if type(current.get_format) ~= "function" or type(current.format) ~= "function" then
+    return nil
+  end
+
+  local format = current:get_format()
+  local view = format and format.view or "cmdline_popup"
+
+  local message_ok, Message = pcall(require, "noice.message")
+  local views_ok, views = pcall(require, "noice.config.views")
+  local nui_ok, nui = pcall(require, "noice.util.nui")
+  if not message_ok or not views_ok or not nui_ok or type(views.get_options) ~= "function" then
+    return nil
+  end
+
+  local message = Message("cmdline", nil)
+  current:format(message)
+
+  -- views.get_options returns the raw view config, which only carries `backend`.
+  -- noice.util.nui.get_layout runs the options through `normalize`, which errors
+  -- unless the resolved nui `type` is present (the popup/split backends set it
+  -- at view-init time). Mirror that mapping here so get_layout never throws.
+  local opts = vim.deepcopy(views.get_options(view))
+  if opts.type == nil then
+    local backend = type(opts.backend) == "table" and opts.backend[1] or opts.backend
+    opts.type = backend == "split" and "split" or "popup"
+  end
+
+  local layout = nui.get_layout({ width = message:width(), height = message:height() }, opts)
+  if
+    layout == nil
+    or type(layout.size) ~= "table"
+    or type(layout.size.width) ~= "number"
+    or type(layout.position) ~= "table"
+  then
+    return nil
+  end
+
+  local content_col = editor_position_col(layout.position.col, layout.size.width)
+  if content_col == nil then
+    return nil
+  end
+
+  local border = noice_border_dimensions(opts.border)
+  local box_left = content_col - math.floor(border.width / 2 + 0.5)
+
+  return {
+    col = box_left,
+    row = type(layout.position.row) == "number" and layout.position.row or 0,
+    width = layout.size.width + border.width,
+    height = (type(layout.size.height) == "number" and layout.size.height or 1) + border.height,
+  }
+end
+
+local function merge_rects(a, b)
+  if a == nil then
+    return b
+  end
+  if b == nil then
+    return a
+  end
+
+  local left = math.min(a.col, b.col)
+  local top = math.min(a.row, b.row)
+  local right = math.max(a.col + a.width - 1, b.col + b.width - 1)
+  local bottom = math.max(a.row + a.height - 1, b.row + b.height - 1)
+
+  return {
+    col = left,
+    row = top,
+    width = right - left + 1,
+    height = bottom - top + 1,
+  }
+end
+
 -- The visible cmdline box auto-grows with its content, and noice keeps the
 -- real box border on the active Nui view. Reading that border window directly
 -- keeps the edges tied to the expanded box instead of inferring them from the
 -- command text width.
-local function cmdline_box_rect()
+local function cmdline_box_rect(use_expected)
+  local live
   local ok, cmdline = pcall(require, "noice.ui.cmdline")
   if not ok or type(cmdline.win) ~= "function" then
-    return nil
+    return use_expected and expected_cmdline_box_rect() or nil
   end
 
   local content = cmdline.win()
   if not valid_win(content) then
-    return nil
+    return use_expected and expected_cmdline_box_rect() or nil
   end
 
   local router_ok, router = pcall(require, "noice.message.router")
@@ -98,23 +242,26 @@ local function cmdline_box_rect()
       if nui ~= nil and nui.winid == content then
         local border = nui.border
         if border ~= nil and valid_win(border.winid) then
-          return win_rect(border.winid)
+          live = win_rect(border.winid)
+          return use_expected and merge_rects(live, expected_cmdline_box_rect()) or live
         end
 
-        return win_rect(content)
+        live = win_rect(content)
+        return use_expected and merge_rects(live, expected_cmdline_box_rect()) or live
       end
     end
   end
 
-  return win_rect(content)
+  live = win_rect(content)
+  return use_expected and merge_rects(live, expected_cmdline_box_rect()) or live
 end
 
 -- Screen columns (0-indexed) of the cmdline box's left and right borders. The
 -- right value is the column the menu's right border should land on to merge;
 -- the left value is the lowest column the menu may be pulled to. Returns
 -- nil, nil when the box window can't be read.
-local function cmdline_box_edges()
-  local box = cmdline_box_rect()
+local function cmdline_box_edges(use_expected)
+  local box = cmdline_box_rect(use_expected)
   if box == nil then
     return nil, nil
   end
@@ -170,6 +317,33 @@ local function update_cmdline_menu_position()
   pcall(menu.update_position)
 end
 
+local function redraw_cmdline()
+  local ok, util = pcall(require, "noice.util")
+  if ok and type(util.redraw) == "function" then
+    pcall(util.redraw, { flush = true })
+  elseif vim.api.nvim__redraw then
+    pcall(vim.api.nvim__redraw, { flush = true })
+  else
+    pcall(vim.cmd.redraw)
+  end
+end
+
+local cmdline_accept_reflow_pending = false
+
+local function mark_cmdline_accept_reflow()
+  cmdline_accept_reflow_pending = true
+end
+
+local function flush_cmdline_accept_reflow()
+  if not cmdline_accept_reflow_pending or vim.api.nvim_get_mode().mode ~= "c" then
+    return false
+  end
+
+  cmdline_accept_reflow_pending = false
+  redraw_cmdline()
+  return true
+end
+
 local cmdline_menu_reflow_pending = false
 
 local function schedule_cmdline_menu_reflow()
@@ -193,6 +367,16 @@ local function schedule_cmdline_menu_reflow()
   end
 end
 
+local function schedule_cmdline_accept_reflow()
+  mark_cmdline_accept_reflow()
+  vim.schedule(update_cmdline_menu_position)
+
+  local delay = cmdline_reflow_delay()
+  if delay > 0 then
+    vim.defer_fn(update_cmdline_menu_position, delay)
+  end
+end
+
 return {
   {
     "saghen/blink.cmp",
@@ -200,9 +384,20 @@ return {
       "giuxtaposition/blink-cmp-copilot",
     },
     init = function()
+      local group = vim.api.nvim_create_augroup("DotfilesBlinkCmdlineMenu", { clear = true })
       vim.api.nvim_create_autocmd("User", {
-        group = vim.api.nvim_create_augroup("DotfilesBlinkCmdlineMenu", { clear = true }),
+        group = group,
         pattern = "BlinkCmpShow",
+        callback = schedule_cmdline_menu_reflow,
+      })
+      -- Accepting a cmdline completion inserts the item text without re-firing
+      -- BlinkCmpShow, so the menu keeps its pre-accept position while the noice
+      -- cmdline box grows around the longer text and the merged right border
+      -- drifts a column off. Reflow on CmdlineChanged as well so the menu
+      -- re-merges with the box's new edge (this also covers the cmdline keymap
+      -- preset, whose <Tab> never runs the custom accept-reflow keymap).
+      vim.api.nvim_create_autocmd("CmdlineChanged", {
+        group = group,
         callback = schedule_cmdline_menu_reflow,
       })
     end,
@@ -261,6 +456,8 @@ return {
           border = "rounded",
           scrollbar = false,
           cmdline_position = function()
+            local use_expected_box = flush_cmdline_accept_reflow()
+
             if vim.g.ui_cmdline_pos ~= nil then
               local pos = vim.g.ui_cmdline_pos
               local col = math.max(pos[2] - cmdline_range_prefix_width(), 0)
@@ -275,7 +472,6 @@ return {
                   start_col = nil
                 end
                 local keyword_offset = start_col and (start_col - 1 - cmdline_range_prefix_width()) or nil
-
                 local align_ok, align = pcall(function()
                   return menu.renderer:get_alignment_start_col()
                 end)
@@ -288,7 +484,7 @@ return {
                 local border = cmdline_menu_border(merge_left, merge_right)
 
                 if start_col ~= nil then
-                  local box_left, box_right = cmdline_box_edges()
+                  local box_left, box_right = cmdline_box_edges(use_expected_box)
                   local content_width = vim.api.nvim_win_get_width(win)
                   local outer_width = content_width + border_width(border)
                   local left = math.max(col + start_col - align, 0)
@@ -373,7 +569,13 @@ return {
             end
 
             if cmp.is_menu_visible() then
-              return cmp.select_and_accept()
+              if vim.api.nvim_get_mode().mode == "c" then
+                mark_cmdline_accept_reflow()
+              end
+
+              return cmp.select_and_accept({
+                callback = schedule_cmdline_accept_reflow,
+              })
             end
           end,
           "fallback",
