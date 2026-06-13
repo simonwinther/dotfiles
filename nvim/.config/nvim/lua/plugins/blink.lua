@@ -40,7 +40,7 @@ return {
       -- Appearance & Icons
       appearance = {
         kind_icons = {
-          Copilot = "",
+          Copilot = "",
         },
       },
 
@@ -70,8 +70,29 @@ return {
               local pos = vim.g.ui_cmdline_pos
               local ok, menu = pcall(require, "blink.cmp.completion.windows.menu")
               if ok and menu.win and menu.win:is_open() then
+                -- The menu only sits flush against the cmdline box's left edge,
+                -- and should merge into it, when the keyword starts at the very
+                -- beginning of the line (ignoring any range prefix like '<,'>).
+                -- The moment leading whitespace or argument text pushes the
+                -- keyword right, the menu floats and its left corner must curve.
+                -- Use the keyword offset directly: a fixed column threshold was
+                -- wrong (it only began curving once 4+ columns preceded it).
+                local ctx = menu.context
+                local start_col = ctx ~= nil and ctx.bounds ~= nil and ctx.bounds.start_col or nil
+                if type(start_col) ~= "number" then
+                  start_col = nil
+                end
+                local keyword_offset = start_col and (start_col - 1 - cmdline_range_prefix_width()) or nil
+                local floats_right = keyword_offset ~= nil and keyword_offset > 0
+                -- A blank-but-non-empty (" ") top edge is required for Neovim
+                -- to render the top-left corner; with "" it drops the whole top
+                -- row and the left corner disappears. When anchored at the
+                -- start, keep "" so the menu merges into the cmdline box above.
+                local border = floats_right
+                    and { "╮", " ", "╭", "│", "╯", "─", "╰", "│" }
+                  or { "", "", "╭", "│", "╯", "─", "╰", "│" }
                 pcall(vim.api.nvim_win_set_config, menu.win:get_win(), {
-                  border = { "", "", "╭", "│", "╯", "─", "╰", "│" },
+                  border = border,
                 })
               end
 
