@@ -49,6 +49,12 @@ BARS = 42
 WAV_HEADER_BYTES = 44
 TRANSCRIBE_SWEEP_SPEED = 44.0
 PREPROCESS_TIMEOUT_S = 15
+SEGMENT_FRAME_MS = 50
+SEGMENT_GAP_CLOSE_S = 0.3
+SEGMENT_MIN_SPEECH_S = 0.15
+CUT_FADE_MS = 10
+TRIM_MIN_REMOVED_MS = 250
+TRIM_MIN_KEPT_MS = 300
 DEBUG_COLOR_INFO = "rgb(18d5ff)"
 DEBUG_COLOR_SKIP = "rgb(b7bede)"
 DEBUG_COLOR_FAIL = "rgb(f4304e)"
@@ -1457,55 +1463,218 @@ def remove_file(path):
         Path(path).unlink()
 
 
-def frame_levels_db(audio_file, frame_ms=50, stride_ms=200):
-    levels = []
+def read_wav_samples(audio_file):
     try:
         with wave.open(str(audio_file), "rb") as audio:
             if audio.getsampwidth() != 2 or audio.getnchannels() != 1:
-                return []
+                return None, 0
             rate = audio.getframerate()
             if rate <= 0:
-                return []
-            frame_count = max(1, int(rate * frame_ms / 1000))
-            stride_count = max(frame_count, int(rate * stride_ms / 1000))
-            total_frames = audio.getnframes()
-            position = 0
-            while position < total_frames:
-                audio.setpos(position)
-                data = audio.readframes(frame_count)
-                if not data:
-                    break
-                samples = array.array("h")
-                samples.frombytes(data[: (len(data) // 2) * 2])
-                if not samples:
-                    break
-                acc = 0
-                for sample in samples:
-                    acc += sample * sample
-                rms = math.sqrt(acc / len(samples)) / 32768.0
-                levels.append(20 * math.log10(rms) if rms > 0 else -120.0)
-                position += stride_count
+                return None, 0
+            samples = array.array("h")
+            samples.frombytes(audio.readframes(audio.getnframes()))
+            return samples, rate
     except (EOFError, OSError, wave.Error):
-        return []
+        return None, 0
+
+
+def write_wav(path, samples, rate):
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(rate)
+        audio.writeframes(samples.tobytes())
+
+
+def frame_rms_levels_db(samples, rate, frame_ms=SEGMENT_FRAME_MS):
+    frame_samples = max(1, int(rate * frame_ms / 1000))
+    levels = []
+    for start in range(0, len(samples), frame_samples):
+        frame = samples[start : start + frame_samples]
+        if not frame:
+            break
+        acc = 0
+        for sample in frame:
+            acc += sample * sample
+        rms = math.sqrt(acc / len(frame)) / 32768.0
+        levels.append(20 * math.log10(rms) if rms > 0 else -120.0)
     return levels
 
 
-def auto_silence_threshold(audio_file):
-    levels = sorted(frame_levels_db(audio_file))
-    if len(levels) < 10:
+def auto_silence_threshold(levels):
+    ordered = sorted(levels)
+    if len(ordered) < 10:
         return None
 
-    floor_db = levels[min(len(levels) - 1, int(len(levels) * 0.2))]
-    speech_db = levels[min(len(levels) - 1, int(len(levels) * 0.95))]
+    floor_db = ordered[min(len(ordered) - 1, int(len(ordered) * 0.2))]
+    speech_db = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
     if speech_db - floor_db < 10.0:
         return None
 
     # Anchor on the speech level, not the noise floor: breaths and key
     # clicks sit well above the floor and would otherwise count as speech.
+    # The floor guard wins over the speech cap so the threshold can never
+    # end up inside the noise where every pause looks loud.
     margin_db = cfg_float("SILENCE_SPEECH_MARGIN_DB", 12)
-    threshold_db = max(speech_db - margin_db, floor_db + 8.0)
-    threshold_db = min(threshold_db, speech_db - 6.0)
-    return clamp(threshold_db, -60.0, -25.0), floor_db, speech_db
+    threshold_db = max(speech_db - margin_db, floor_db + 6.0)
+    threshold_db = min(threshold_db, speech_db - 4.0)
+    threshold_db = clamp(threshold_db, -60.0, -20.0)
+    if threshold_db - floor_db < 3.0:
+        return None
+    return threshold_db, floor_db, speech_db
+
+
+def value_runs(mask):
+    runs = []
+    start = 0
+    for index in range(1, len(mask) + 1):
+        if index == len(mask) or mask[index] != mask[start]:
+            runs.append((mask[start], start, index))
+            start = index
+    return runs
+
+
+def speech_frame_mask(levels, threshold_db, frame_s):
+    mask = [level > threshold_db for level in levels]
+
+    # Word gaps: interior quiet runs shorter than the close window stay
+    # speech, so one sentence stays one segment.
+    close_frames = max(1, round(SEGMENT_GAP_CLOSE_S / frame_s))
+    runs = value_runs(mask)
+    for index, (value, start, end) in enumerate(runs):
+        if value or index == 0 or index == len(runs) - 1:
+            continue
+        if end - start <= close_frames:
+            mask[start:end] = [True] * (end - start)
+
+    # Noise blips: isolated loud runs too short to be a word are not
+    # speech, so a breath or key click cannot veto trimming the pause
+    # around it. This is what ffmpeg silenceremove could not do.
+    min_speech_frames = max(1, round(SEGMENT_MIN_SPEECH_S / frame_s))
+    for value, start, end in value_runs(mask):
+        if value and end - start < min_speech_frames:
+            mask[start:end] = [False] * (end - start)
+    return mask
+
+
+def keep_sample_ranges(segments, total_samples, frame_samples, rate):
+    keep = max(0, int(rate * cfg_float("SILENCE_KEEP", 0.25)))
+    min_pause = max(1, int(rate * cfg_float("SILENCE_MIN_PAUSE", 0.45)))
+
+    merged = []
+    for start_frame, end_frame in segments:
+        start = start_frame * frame_samples
+        end = min(total_samples, end_frame * frame_samples)
+        if merged and start - merged[-1][1] < min_pause:
+            merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    ranges = []
+    for start, end in merged:
+        start = max(0, start - keep)
+        end = min(total_samples, end + keep)
+        if ranges and start <= ranges[-1][1]:
+            ranges[-1][1] = max(ranges[-1][1], end)
+        else:
+            ranges.append([start, end])
+    return ranges
+
+
+def cut_ranges(samples, rate, ranges):
+    fade = max(1, int(rate * CUT_FADE_MS / 1000))
+    out = array.array("h")
+    for start, end in ranges:
+        segment = samples[start:end]
+        ramp = min(fade, len(segment) // 2)
+        for index in range(ramp):
+            segment[index] = segment[index] * index // ramp
+            segment[-1 - index] = segment[-1 - index] * index // ramp
+        out.extend(segment)
+    return out
+
+
+def trim_silence(in_path, out_path=None):
+    """Cut long pauses with frame-level segmentation instead of ffmpeg
+    silenceremove, which requires a pause to stay below the threshold
+    continuously and therefore trims nothing when breaths, hiss spikes,
+    or ducked playback blip above it every few hundred milliseconds.
+
+    Returns (trimmed_path_or_None, stats)."""
+    stats = {
+        "threshold_db": None,
+        "floor_db": None,
+        "speech_db": None,
+        "pauses": 0,
+        "removed_ms": 0,
+    }
+
+    samples, rate = read_wav_samples(in_path)
+    if samples is None or not len(samples):
+        log("event=trim_skipped reason=unreadable_wav")
+        debug_notify("trim skipped: unreadable wav", DEBUG_COLOR_SKIP)
+        return None, stats
+
+    frame_samples = max(1, int(rate * SEGMENT_FRAME_MS / 1000))
+    levels = frame_rms_levels_db(samples, rate)
+
+    if cfg_bool("SILENCE_AUTO_THRESHOLD", "1"):
+        calibration = auto_silence_threshold(levels)
+        if not calibration:
+            log("event=trim_skipped reason=calibration_failed")
+            debug_notify(
+                "trim skipped: speech too close to noise floor", DEBUG_COLOR_SKIP
+            )
+            return None, stats
+        threshold_db, floor_db, speech_db = calibration
+        stats.update(
+            threshold_db=threshold_db, floor_db=floor_db, speech_db=speech_db
+        )
+        log(
+            f"event=silence_calibration floor_db={floor_db:.1f} "
+            f"speech_db={speech_db:.1f} threshold_db={threshold_db:.1f}"
+        )
+    else:
+        threshold_db = cfg_float("SILENCE_THRESHOLD_DB", -45)
+        stats["threshold_db"] = threshold_db
+
+    mask = speech_frame_mask(levels, threshold_db, frame_samples / rate)
+    segments = [(start, end) for value, start, end in value_runs(mask) if value]
+    if not segments:
+        log(f"event=trim_skipped reason=no_speech threshold_db={threshold_db:.1f}")
+        debug_notify("trim skipped: no speech above threshold", DEBUG_COLOR_SKIP)
+        return None, stats
+
+    ranges = keep_sample_ranges(segments, len(samples), frame_samples, rate)
+    kept = sum(end - start for start, end in ranges)
+    removed_ms = (len(samples) - kept) * 1000 // rate
+    if kept * 1000 // rate < TRIM_MIN_KEPT_MS:
+        log(f"event=trim_skipped reason=suspicious_short kept_samples={kept}")
+        debug_notify("trim skipped: would cut almost everything", DEBUG_COLOR_SKIP)
+        return None, stats
+    if removed_ms < TRIM_MIN_REMOVED_MS:
+        log(
+            f"event=trim_noop removed_ms={removed_ms} "
+            f"threshold_db={threshold_db:.1f}"
+        )
+        return None, stats
+
+    pauses = len(ranges) - 1
+    if ranges[0][0] > 0:
+        pauses += 1
+    if ranges[-1][1] < len(samples):
+        pauses += 1
+    stats["pauses"] = pauses
+    stats["removed_ms"] = removed_ms
+
+    if out_path is None:
+        out_path = in_path.with_name(f"{in_path.stem}.trim.wav")
+    write_wav(out_path, cut_ranges(samples, rate, ranges), rate)
+    log(
+        f"event=silence_trim pauses={pauses} removed_ms={removed_ms} "
+        f"kept_ms={kept * 1000 // rate} threshold_db={threshold_db:.1f}"
+    )
+    return out_path, stats
 
 
 def upload_codec_args():
@@ -1514,32 +1683,11 @@ def upload_codec_args():
     return ".wav", ["-c:a", "pcm_s16le"]
 
 
-def preprocess_filters(trim=None, speedup=None, threshold_db=None):
-    if trim is None:
-        trim = cfg_bool("TRIM_SILENCE", "1")
-    if speedup is None:
-        speedup = cfg_float("SPEEDUP_FACTOR", 1.5)
-
-    filters = []
-    if trim:
-        threshold = (
-            threshold_db
-            if threshold_db is not None
-            else cfg_float("SILENCE_THRESHOLD_DB", -45)
-        )
-        min_pause = cfg_float("SILENCE_MIN_PAUSE", 0.45)
-        keep = cfg_float("SILENCE_KEEP", 0.25)
-        filters.append(
-            "silenceremove="
-            f"start_periods=1:start_threshold={threshold:.1f}dB:start_silence={keep:g}:"
-            f"stop_periods=-1:stop_duration={min_pause:g}:"
-            f"stop_threshold={threshold:.1f}dB:stop_silence={keep:g}:window=0.05"
-        )
-
+def atempo_filters(speedup):
     speedup = clamp(parse_float(speedup, 1.0), 0.5, 4.0)
     if abs(speedup - 1.0) >= 0.01:
-        filters.append(f"atempo={speedup:g}")
-    return filters
+        return [f"atempo={speedup:g}"]
+    return []
 
 
 def run_ffmpeg_filter(in_path, out_path, filters, codec_args):
@@ -1569,16 +1717,21 @@ def run_ffmpeg_filter(in_path, out_path, filters, codec_args):
         return None
 
 
-def preprocess_summary(
-    in_ms, out_ms, speedup, elapsed_ms, threshold_db=None, floor_db=None, speech_db=None
-):
+def preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, trim_stats=None):
+    trim_stats = trim_stats or {}
     parts = [f"{in_ms / 1000:.1f}s"]
     sped = abs(speedup - 1.0) >= 0.01
-    if cfg_bool("TRIM_SILENCE", "1"):
-        if sped and out_ms:
-            parts.append(f"trim {out_ms * speedup / 1000:.1f}s")
+    threshold_db = trim_stats.get("threshold_db")
+    if threshold_db is not None:
+        removed_ms = trim_stats.get("removed_ms", 0)
+        pauses = trim_stats.get("pauses", 0)
+        if removed_ms:
+            plural = "s" if pauses != 1 else ""
+            parts.append(
+                f"trim {(in_ms - removed_ms) / 1000:.1f}s ({pauses} pause{plural})"
+            )
         else:
-            parts.append("trim")
+            parts.append("trim: nothing cut")
     if sped:
         parts.append(f"{speedup:g}x")
     if out_ms:
@@ -1586,6 +1739,8 @@ def preprocess_summary(
         detail = f"-{saved:.0f}%"
         if threshold_db is not None:
             detail += f", thr {threshold_db:.0f}dB"
+            floor_db = trim_stats.get("floor_db")
+            speech_db = trim_stats.get("speech_db")
             if floor_db is not None and speech_db is not None:
                 detail += f" (fl {floor_db:.0f} sp {speech_db:.0f})"
         detail += f", ffmpeg {elapsed_ms / 1000:.2f}s"
@@ -1611,34 +1766,36 @@ def preprocess_audio(audio_file, recording_ms):
         debug_notify("no preprocess: ffmpeg missing, raw upload", DEBUG_COLOR_FAIL)
         return str(audio_file), 0
 
-    trim = cfg_bool("TRIM_SILENCE", "1")
-    threshold_db = floor_db = speech_db = None
-    if trim and cfg_bool("SILENCE_AUTO_THRESHOLD", "1"):
-        calibration = auto_silence_threshold(audio_file)
-        if calibration:
-            threshold_db, floor_db, speech_db = calibration
-            log(
-                f"event=silence_calibration floor_db={floor_db:.1f} "
-                f"speech_db={speech_db:.1f} threshold_db={threshold_db:.1f}"
-            )
-        else:
-            log(
-                f"event=silence_calibration_failed fallback_db={cfg('SILENCE_THRESHOLD_DB', '-45')}"
-            )
+    in_path = Path(audio_file)
+    started_ms = now_ms()
+
+    trim_path = trim_stats = None
+    if cfg_bool("TRIM_SILENCE", "1"):
+        trim_path, trim_stats = trim_silence(in_path)
 
     speedup = clamp(cfg_float("SPEEDUP_FACTOR", 1.5), 0.5, 4.0)
-    filters = preprocess_filters(trim=trim, speedup=speedup, threshold_db=threshold_db)
-    if not filters:
-        log("event=preprocess_skipped reason=no_filters")
-        debug_notify("no preprocess: trim and speedup disabled", DEBUG_COLOR_SKIP)
-        return str(audio_file), 0
-
-    in_path = Path(audio_file)
+    filters = atempo_filters(speedup)
     extension, codec_args = upload_codec_args()
-    out_path = in_path.with_name(f"{in_path.stem}.proc{extension}")
+    in_ms = wav_duration_ms(in_path) or recording_ms
 
-    started_ms = now_ms()
-    result = run_ffmpeg_filter(in_path, out_path, filters, codec_args)
+    if not filters and extension == in_path.suffix:
+        elapsed_ms = now_ms() - started_ms
+        if trim_path is None:
+            log("event=preprocess_skipped reason=nothing_to_do")
+            debug_notify("no preprocess: no trim, no speedup", DEBUG_COLOR_SKIP)
+            return str(in_path), elapsed_ms
+        out_ms = wav_duration_ms(trim_path)
+        ratio = (out_ms / in_ms) if out_ms and in_ms else 0.0
+        log(
+            f"event=preprocess in_ms={in_ms} out_ms={out_ms if out_ms is not None else 'unknown'} "
+            f"ratio={ratio:.2f} elapsed_ms={elapsed_ms} file={trim_path}"
+        )
+        debug_notify(preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, trim_stats))
+        return str(trim_path), elapsed_ms
+
+    source_path = trim_path or in_path
+    out_path = in_path.with_name(f"{in_path.stem}.proc{extension}")
+    result = run_ffmpeg_filter(source_path, out_path, filters or ["anull"], codec_args)
     elapsed_ms = now_ms() - started_ms
 
     if result is None or result.returncode != 0:
@@ -1647,10 +1804,13 @@ def preprocess_audio(audio_file, recording_ms):
         log(
             f"event=preprocess_failed reason={reason} elapsed_ms={elapsed_ms} detail={detail}"
         )
+        fallback = "trimmed" if trim_path is not None else "raw"
         debug_notify(
-            f"preprocess FAILED ({reason}), raw upload", DEBUG_COLOR_FAIL, 8000
+            f"preprocess FAILED ({reason}), {fallback} upload", DEBUG_COLOR_FAIL, 8000
         )
         remove_file(out_path)
+        if trim_path is not None:
+            return str(trim_path), elapsed_ms
         return str(in_path), elapsed_ms
 
     out_ms = audio_duration_ms(out_path)
@@ -1669,30 +1829,19 @@ def preprocess_audio(audio_file, recording_ms):
             f"preprocess suspicious ({out_label}), raw upload", DEBUG_COLOR_FAIL, 8000
         )
         remove_file(out_path)
+        if trim_path is not None:
+            remove_file(trim_path)
         return str(in_path), elapsed_ms
 
-    in_ms = wav_duration_ms(in_path) or recording_ms
+    if trim_path is not None:
+        remove_file(trim_path)
+
     ratio = (out_ms / in_ms) if out_ms and in_ms else 0.0
     log(
         f"event=preprocess in_ms={in_ms} out_ms={out_ms if out_ms is not None else 'unknown'} "
         f"ratio={ratio:.2f} elapsed_ms={elapsed_ms} file={out_path}"
     )
-    effective_db = (
-        threshold_db
-        if threshold_db is not None
-        else cfg_float("SILENCE_THRESHOLD_DB", -45)
-    )
-    debug_notify(
-        preprocess_summary(
-            in_ms,
-            out_ms,
-            speedup,
-            elapsed_ms,
-            effective_db if trim else None,
-            floor_db,
-            speech_db,
-        )
-    )
+    debug_notify(preprocess_summary(in_ms, out_ms, speedup, elapsed_ms, trim_stats))
     return str(out_path), elapsed_ms
 
 
@@ -2170,18 +2319,22 @@ def bench_transcriptions(source, factors, language):
     variants = [("original", None), ("trim", 1.0)]
     variants.extend((f"trim+{factor:g}x", factor) for factor in factors)
 
-    threshold_db = None
-    calibration = (
-        auto_silence_threshold(source_path)
-        if cfg_bool("SILENCE_AUTO_THRESHOLD", "1")
-        else None
+    canonical_path = bench_dir / "source.wav"
+    converted = run_ffmpeg_filter(
+        source_path, canonical_path, ["anull"], ["-c:a", "pcm_s16le"]
     )
-    if calibration:
-        threshold_db = calibration[0]
+    if converted is None or converted.returncode != 0:
+        print("Could not convert source to wav for trimming.", file=sys.stderr)
+        shutil.rmtree(bench_dir, ignore_errors=True)
+        return 1
+
+    trim_path, trim_stats = trim_silence(canonical_path, bench_dir / "trim.wav")
+    if trim_stats.get("floor_db") is not None:
         print(
-            f"auto threshold: {calibration[0]:.1f}dB "
-            f"(floor {calibration[1]:.1f}dB, speech {calibration[2]:.1f}dB)"
+            f"trim threshold: {trim_stats['threshold_db']:.1f}dB "
+            f"(floor {trim_stats['floor_db']:.1f}dB, speech {trim_stats['speech_db']:.1f}dB)"
         )
+    trim_base = trim_path or canonical_path
 
     usd_per_minute = model_usd_per_minute()
     print(
@@ -2195,10 +2348,8 @@ def bench_transcriptions(source, factors, language):
         else:
             extension, codec_args = upload_codec_args()
             variant_path = bench_dir / f"{name.replace('+', '-')}{extension}"
-            filters = preprocess_filters(
-                trim=True, speedup=speedup, threshold_db=threshold_db
-            )
-            result = run_ffmpeg_filter(source_path, variant_path, filters, codec_args)
+            filters = atempo_filters(speedup) or ["anull"]
+            result = run_ffmpeg_filter(trim_base, variant_path, filters, codec_args)
             if result is None or result.returncode != 0:
                 print(f"{name}: ffmpeg failed, skipped", file=sys.stderr)
                 continue
