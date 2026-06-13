@@ -304,16 +304,17 @@ local function cmdline_reflow_delay()
   return throttle and math.ceil(throttle) or 0
 end
 
-local function update_cmdline_menu_position()
-  if vim.api.nvim_get_mode().mode ~= "c" then
-    return
-  end
-
+local function cmdline_menu_is_open()
   local ok, menu = pcall(require, "blink.cmp.completion.windows.menu")
-  if not ok or not menu.win or not menu.win:is_open() then
+  return ok and menu.win ~= nil and menu.win:is_open() or false
+end
+
+local function update_cmdline_menu_position()
+  if vim.api.nvim_get_mode().mode ~= "c" or not cmdline_menu_is_open() then
     return
   end
 
+  local menu = require("blink.cmp.completion.windows.menu")
   pcall(menu.update_position)
 end
 
@@ -352,8 +353,10 @@ local function schedule_cmdline_menu_reflow()
   end
 
   cmdline_menu_reflow_pending = true
-  vim.schedule(update_cmdline_menu_position)
 
+  -- Reposition once, on the trailing edge, so the menu reflows in lockstep with
+  -- noice's throttled box render instead of an eager leading pass that races
+  -- ahead of it (which makes the merged right border jitter while typing).
   local delay = cmdline_reflow_delay()
   if delay > 0 then
     vim.defer_fn(function()
@@ -363,6 +366,7 @@ local function schedule_cmdline_menu_reflow()
   else
     vim.schedule(function()
       cmdline_menu_reflow_pending = false
+      update_cmdline_menu_position()
     end)
   end
 end
@@ -395,10 +399,15 @@ return {
       -- cmdline box grows around the longer text and the merged right border
       -- drifts a column off. Reflow on CmdlineChanged as well so the menu
       -- re-merges with the box's new edge (this also covers the cmdline keymap
-      -- preset, whose <Tab> never runs the custom accept-reflow keymap).
+      -- preset, whose <Tab> never runs the custom accept-reflow keymap). Only
+      -- when a menu is actually open, so plain commands and searches stay free.
       vim.api.nvim_create_autocmd("CmdlineChanged", {
         group = group,
-        callback = schedule_cmdline_menu_reflow,
+        callback = function()
+          if cmdline_menu_is_open() then
+            schedule_cmdline_menu_reflow()
+          end
+        end,
       })
     end,
     opts = {
