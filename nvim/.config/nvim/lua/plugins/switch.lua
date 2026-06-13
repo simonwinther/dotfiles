@@ -4,12 +4,87 @@ return {
     { "gs", "<Plug>(Switch)", desc = "Switch case/bool/item" },
     { "GS", "<Plug>(SwitchReverse)", desc = "Switch item reverse" },
   },
+
+  -- init() runs at startup, before the plugin is lazy-loaded. The FileType
+  -- autocmds below only assign the buffer-local b:switch_custom_definitions
+  -- variable, which switch.vim reads lazily when `gs` is pressed. So opening a
+  -- tex/c/cpp buffer costs a single table assignment and does NOT load the
+  -- plugin, and unrelated filetypes (java, python, ...) get no buffer-local
+  -- definitions at all. This is switch.vim's documented pattern for
+  -- filetype-specific definitions (:h b:switch_custom_definitions).
+  init = function()
+    -- Thin wrapper matching switch#Words(); inlined so the definition tables
+    -- can be built without the plugin being loaded yet.
+    local function words(def)
+      return { _type = "words", _definition = def }
+    end
+
+    -------------------------------------------------------------------------
+    -- LaTeX
+    -------------------------------------------------------------------------
+    -- Allow one level of nested braces in the captured body/label via
+    -- \%([^{}]\|{[^{}]*}\)* so e.g. \underbrace{x_{1}}_{\text{sum}} matches.
+    -- A plain [^{}]* only matches brace-free content and silently fails on
+    -- the common case of subscripts or \text{} labels.
+    local brace = [[\%([^{}]\|{[^{}]*}\)*]]
+    local latex_switches = {
+      { "mathcal", "mathbb", "mathfrak", "mathbf", "mathrm", "mathsf", "mathtt" },
+      { [[\\begin{itemize}]], [[\\begin{enumerate}]], [[\\begin{description}]] },
+      { [[\\end{itemize}]], [[\\end{enumerate}]], [[\\end{description}]] },
+
+      { [[\\section]], [[\\subsection]], [[\\subsubsection]] },
+      { [[\\section*]], [[\\subsection*]], [[\\subsubsection*]] },
+
+      { [[\\begin{equation}]], [[\\begin{align}]], [[\\begin{gather}]] },
+      { [[\\end{equation}]], [[\\end{align}]], [[\\end{gather}]] },
+
+      { [[\\begin{equation*}]], [[\\begin{align*}]], [[\\begin{gather*}]] },
+      { [[\\end{equation*}]], [[\\end{align*}]], [[\\end{gather*}]] },
+
+      -- Underbrace | Overbrace
+      {
+        [[[\\underbrace{\(]] .. brace .. [[\)}_{\(]] .. brace .. [[\)}]]] = [[\\overbrace{\1}^{\2}]],
+        [[[\\overbrace{\(]] .. brace .. [[\)}\^{\(]] .. brace .. [[\)}]]] = [[\\underbrace{\1}_{\2}]],
+      },
+    }
+
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "tex",
+      callback = function()
+        vim.b.switch_custom_definitions = latex_switches
+      end,
+    })
+
+    -------------------------------------------------------------------------
+    -- C / C++
+    -------------------------------------------------------------------------
+    local cpp_switches = {
+      words({ "int8_t", "int16_t", "int32_t", "int64_t", "__int128" }),
+      words({ "uint8_t", "uint16_t", "uint32_t", "uint64_t", "__uint128_t" }),
+      words({ "__int128", "__int256", "__int512", "__int1024" }),
+      words({ "__uint128_t", "__uint256", "__uint512", "__uint1024" }),
+
+      {
+        ["\\<char\\>"] = "short",
+        ["\\<short\\>"] = "int",
+        ["\\<int\\>"] = "long",
+        ["\\<long\\>\\s\\+\\<long\\>"] = "float",
+        ["\\<long\\>"] = "long long",
+        ["\\<float\\>"] = "double",
+        ["\\<double\\>"] = "char",
+      },
+    }
+
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = { "c", "cpp" },
+      callback = function()
+        vim.b.switch_custom_definitions = cpp_switches
+      end,
+    })
+  end,
+
   config = function()
     local S = vim.fn["switch#NormalizedCaseWords"]
-    local W = vim.fn["switch#Words"]
-
-    local danish_lower = vim.fn.split("abcdefghijklmnopqrstuvwxyzæøå", "\\zs")
-    local danish_upper = vim.fn.split("ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ", "\\zs")
 
     ---------------------------------------------------------------------------
     -- Global definitions
@@ -80,53 +155,6 @@ return {
         ["`\\(\\k\\+\\)`"] = [=['\1']=],
         ["'\\(\\k\\+\\)'"] = [["\1"]],
       },
-
-      -- danish_lower,
-      -- danish_upper,
     }
-
-    ---------------------------------------------------------------------------
-    -- Filetype Specific definitions (C / C++)
-    ---------------------------------------------------------------------------
-    local function setup_cpp_switch()
-      if vim.b.switch_cpp_loaded then
-        return
-      end
-      vim.b.switch_cpp_loaded = true
-
-      local cpp_defs = {
-        W({ "int8_t", "int16_t", "int32_t", "int64_t", "__int128" }),
-        W({ "uint8_t", "uint16_t", "uint32_t", "uint64_t", "__uint128_t" }),
-        W({ "__int128", "__int256", "__int512", "__int1024" }),
-        W({ "__uint128_t", "__uint256", "__uint512", "__uint1024" }),
-
-        {
-          ["\\<char\\>"] = "short",
-          ["\\<short\\>"] = "int",
-          ["\\<int\\>"] = "long",
-          ["\\<long\\>\\s\\+\\<long\\>"] = "float",
-          ["\\<long\\>"] = "long long",
-          ["\\<float\\>"] = "double",
-          ["\\<double\\>"] = "char",
-        },
-      }
-
-      local current = vim.b.switch_custom_definitions or {}
-      for _, def in ipairs(cpp_defs) do
-        table.insert(current, def)
-      end
-      vim.b.switch_custom_definitions = current
-    end
-
-    -- Apply immediately if the buffer that triggered the lazy-load is C/C++
-    if vim.bo.filetype == "cpp" or vim.bo.filetype == "c" then
-      setup_cpp_switch()
-    end
-
-    -- Create an autocommand for any new C/C++ files opened later in the session
-    vim.api.nvim_create_autocmd("FileType", {
-      pattern = { "cpp", "c" },
-      callback = setup_cpp_switch,
-    })
   end,
 }

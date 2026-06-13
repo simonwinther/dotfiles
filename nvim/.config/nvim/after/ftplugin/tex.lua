@@ -80,39 +80,3 @@ if surround_available then
     },
   })
 end
-
---------------------------------------------------------------------------------
--- SWITCH.NVIM CONFIGURATION
---------------------------------------------------------------------------------
--- Define custom toggle pairs for LaTeX
-local latex_switches = {
-  { "mathcal", "mathbb", "mathfrak", "mathbf", "mathrm", "mathsf", "mathtt" },
-  { [[\\begin{itemize}]], [[\\begin{enumerate}]], [[\\begin{description}]] },
-  { [[\\end{itemize}]], [[\\end{enumerate}]], [[\\end{description}]] },
-
-  { [[\\section]], [[\\subsection]], [[\\subsubsection]] },
-  { [[\\section*]], [[\\subsection*]], [[\\subsubsection*]] },
-
-  { [[\\begin{equation}]], [[\\begin{align}]], [[\\begin{gather}]] },
-  { [[\\end{equation}]], [[\\end{align}]], [[\\end{gather}]] },
-
-  { [[\\begin{equation*}]], [[\\begin{align*}]], [[\\begin{gather*}]] },
-  { [[\\end{equation*}]], [[\\end{align*}]], [[\\end{gather*}]] },
-}
-
-local global_defs = vim.g.switch_custom_definitions or {}
-
-local master_list = {}
-
--- Insert LaTeX rules first (High Priority)
-for _, def in ipairs(latex_switches) do
-  table.insert(master_list, def)
-end
-
--- Insert Global rules second (Low Priority)
-for _, def in ipairs(global_defs) do
-  table.insert(master_list, def)
-end
-
--- Apply to the buffer
-vim.b.switch_custom_definitions = master_list
