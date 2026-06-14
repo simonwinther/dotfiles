@@ -5,6 +5,9 @@ set selection-clipboard clipboard
 set adjust-open width
 set scroll-step 50
 
+# Do not horizontally pan to center search matches it's annoying in slides, etc.
+set search-hadjust false
+
 # --- Interface 
 set default-bg                  "#000000"
 set default-fg                  "#FFFFFF"
