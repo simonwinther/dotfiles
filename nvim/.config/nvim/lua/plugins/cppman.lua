@@ -1,4 +1,4 @@
-local dev_mode = true
+local dev_mode = vim.env.CPPMAN_DEV == "1"
 
 return {
   "simonwinther/cppman.nvim",
@@ -7,7 +7,7 @@ return {
   cmd = "CPPMan",
   opts = {
     viewer = {
-      border = "single",
+      border = "solid",
     },
   },
   init = function()
