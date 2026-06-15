@@ -7,7 +7,7 @@ return {
   cmd = "CPPMan",
   opts = {
     viewer = {
-      border = "solid",
+      border = "rounded",
     },
   },
   init = function()
