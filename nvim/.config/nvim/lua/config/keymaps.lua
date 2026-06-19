@@ -149,7 +149,7 @@ vim.keymap.set({ "x" }, "<leader>d", '"+d', { desc = "Delete to system clipboard
 
 -- Yank to system clipboard
 vim.keymap.set({ "n", "x" }, "<leader>y", '"+y', { desc = "Yank to system clipboard" })
-vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipboard (line)" })
+vim.keymap.set({ "n", "x" }, "<leader>Y", '"+Y', { desc = "Yank to system clipboard (to end of line)", remap = true })
 
 -- Paste from system clipboard
 vim.keymap.set({ "n", "x" }, "<leader>p", '"+p', { desc = "Paste from system clipboard" })
