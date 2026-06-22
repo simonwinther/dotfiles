@@ -214,6 +214,10 @@ vim.keymap.set("n", "<A-S-l>", "<cmd>BufferLineMoveNext<cr>", { desc = "Move buf
 ----------------------------------------
 --- Window management keymaps
 ----------------------------------------
+-- Remove q: (which opens command history) and replace it with q to quit the window
+-- I have <leader>: to open command history, so I don't need q: for that
+vim.keymap.set("n", "q:", "<cmd>q<cr>", { desc = "Quit window" })
+
 -- Save and quit window with <leader>ww if not already mapped
 local exists = is_mapped("n", "<leader>ww")
 if not exists then
