@@ -8,6 +8,8 @@ return {
   opts = {
     viewer = {
       border = "rounded",
+      width = 0.95,
+      height = 0.90,
     },
   },
   init = function()
