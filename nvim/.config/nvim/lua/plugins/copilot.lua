@@ -18,7 +18,9 @@ return {
         auto_trigger = false,
         trigger_on_accept = false,
         keymap = {
-          accept = "<Tab>",
+          -- The blink <Tab> keymap accepts Copilot suggestions itself, so
+          -- disable Copilot's own <Tab> map to avoid two handlers on one key.
+          accept = false,
           accept_word = "<M-l>",
           next = "<M-]>",
           prev = "<M-[>",

@@ -384,9 +384,6 @@ end
 return {
   {
     "saghen/blink.cmp",
-    dependencies = {
-      "giuxtaposition/blink-cmp-copilot",
-    },
     init = function()
       local group = vim.api.nvim_create_augroup("DotfilesBlinkCmdlineMenu", { clear = true })
       vim.api.nvim_create_autocmd("User", {
@@ -416,31 +413,7 @@ return {
 
       -- Define Sources
       sources = {
-        default = { "lsp", "path", "snippets", "buffer", "copilot" },
-        providers = {
-          copilot = {
-            name = "copilot",
-            module = "blink-cmp-copilot",
-            score_offset = 100,
-            async = true,
-            transform_items = function(_, items)
-              local CompletionItemKind = require("blink.cmp.types").CompletionItemKind
-              local kind_idx = CompletionItemKind.Copilot
-              items = items or {}
-              for _, item in ipairs(items) do
-                item.kind = kind_idx
-              end
-              return items
-            end,
-          },
-        },
-      },
-
-      -- Appearance & Icons
-      appearance = {
-        kind_icons = {
-          Copilot = "",
-        },
+        default = { "lsp", "path", "snippets", "buffer" },
       },
 
       -- Menu Customization (Right column for source name)
@@ -571,28 +544,116 @@ return {
         ["<C-k>"] = { "show_signature", "hide_signature", "fallback" },
         ["<Tab>"] = {
           function(cmp)
+            -- Command-line mode has no snippets, so <Tab> accepts the completion
+            -- and keeps the noice cmdline reflow. In insert mode (below) <Tab> is
+            -- a snippet-jump key; accepting is on <C-y>.
+            if vim.api.nvim_get_mode().mode == "c" then
+              if cmp.is_menu_visible() then
+                mark_cmdline_accept_reflow()
+                return cmp.select_and_accept({
+                  callback = schedule_cmdline_accept_reflow,
+                })
+              end
+              return
+            end
+
+            -- LuaSnip jumps 1 -> 2 -> ... -> 0, so on the highest-numbered stop
+            -- the only target left is the exit ($0), which clangd places just
+            -- inside the closing bracket. When that is all that remains, hop
+            -- outside in one <Tab> instead of landing on it.
+            local lok, ls = pcall(require, "luasnip")
+            local closers =
+              { [")"] = true, ["]"] = true, ["}"] = true, [">"] = true, ['"'] = true, ["'"] = true, ["`"] = true }
+            local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+            local after = vim.api.nvim_get_current_line():sub(col + 1, col + 1)
+            local in_insert = vim.api.nvim_get_mode().mode == "i"
+            local jumpable = lok and ls.locally_jumpable(1)
+
+            local only_exit_ahead = false
+            if lok then
+              pcall(function()
+                local cur = ls.session.current_nodes[vim.api.nvim_get_current_buf()]
+                local snip = cur and cur.parent and cur.parent.snippet
+                if cur and snip and snip.insert_nodes then
+                  if cur.pos == 0 then
+                    only_exit_ahead = true
+                  else
+                    local maxpos = 0
+                    for k in pairs(snip.insert_nodes) do
+                      if type(k) == "number" and k > maxpos then
+                        maxpos = k
+                      end
+                    end
+                    only_exit_ahead = cur.pos == maxpos
+                  end
+                end
+              end)
+            end
+
+            -- 1) Jump to the next real placeholder.
+            if jumpable and not only_exit_ahead then
+              return ls.jump(1)
+            end
+
+            -- 2) Nothing real to jump to: if the cursor sits before a closing
+            --    delimiter, hop past it to leave the snippet. blink maps <Tab>
+            --    as an <expr> (textlock), so dismiss the menu and move the
+            --    cursor in a deferred callback.
+            if in_insert and closers[after] then
+              vim.schedule(function()
+                cmp.hide()
+                -- Advance the session onto the exit stop ($0) so LuaSnip's
+                -- position matches where the cursor ends up. Without this it
+                -- stays on the last placeholder and a later <S-Tab> jumps back
+                -- from there, skipping it.
+                pcall(function()
+                  if ls.locally_jumpable(1) then
+                    ls.jump(1)
+                  end
+                end)
+                local r, c = unpack(vim.api.nvim_win_get_cursor(0))
+                if closers[vim.api.nvim_get_current_line():sub(c + 1, c + 1)] then
+                  pcall(vim.api.nvim_win_set_cursor, 0, { r, c + 1 })
+                end
+              end)
+              return ""
+            end
+
+            -- 3) Only the exit stop is left and there is nothing to hop: jump.
+            if jumpable then
+              return ls.jump(1)
+            end
+
+            -- Nothing to jump: accept Copilot ghost text if it is showing. This
+            -- is the only key that accepts a full suggestion; it never touches
+            -- the completion menu.
             local ok, suggestion = pcall(require, "copilot.suggestion")
             if ok and suggestion.is_visible() then
               suggestion.accept()
               return true
-            end
-
-            if cmp.is_menu_visible() then
-              if vim.api.nvim_get_mode().mode == "c" then
-                mark_cmdline_accept_reflow()
-              end
-
-              return cmp.select_and_accept({
-                callback = schedule_cmdline_accept_reflow,
-              })
             end
           end,
           "fallback",
         },
         ["<S-Tab>"] = {
           function()
-            return vim.api.nvim_replace_termcodes("<C-d>", true, true, true)
+            local lok, ls = pcall(require, "luasnip")
+            if lok and ls.locally_jumpable(-1) then
+              return ls.jump(-1)
+            end
+
+            -- Outdent in insert mode. blink's <expr> mapping does not feed a
+            -- returned string, so send <C-d> through feedkeys.
+            if vim.api.nvim_get_mode().mode == "i" then
+              vim.api.nvim_feedkeys(
+                vim.api.nvim_replace_termcodes("<C-d>", true, true, true),
+                "n",
+                false
+              )
+              return true
+            end
           end,
+          "fallback",
         },
       },
     },
