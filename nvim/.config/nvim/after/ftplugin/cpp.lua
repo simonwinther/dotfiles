@@ -1,3 +1,11 @@
+-- ==============================
+-- C++ folding
+-- ==============================
+vim.opt_local.foldmethod = "marker"
+vim.opt_local.foldmarker = "{{{,}}}"
+vim.opt_local.foldenable = true
+vim.opt_local.foldlevel = 0
+
 --- ====================================
 --- C++ codeforces move to solutions keybind
 --- ====================================
@@ -132,7 +140,7 @@ local function switch_header_source()
 end
 
 vim.keymap.set("n", "gm", switch_header_source, {
+  buffer = true,
   desc = "Open or create matching header/source from cwd",
-  cpp,
 })
 -- === End of header/source switch logic ===
