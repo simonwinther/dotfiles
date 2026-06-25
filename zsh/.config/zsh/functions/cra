@@ -1,4 +1,5 @@
-cra() {
-  codex resume --all "$@"
+cora() {
+  codex resume --last --all "$@"
 }
+
 
