@@ -73,7 +73,7 @@ for _, pair in ipairs(math_auto) do
     s(
       { trig = pair[1], snippetType = "autosnippet" },
       { f(helpers.smart_space(pair[2])) },
-      { condition = cond.in_mathzone }
+      { condition = cond.in_plain_mathzone }
     )
   )
 end
