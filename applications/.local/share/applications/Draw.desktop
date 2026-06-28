@@ -2,7 +2,7 @@
 Version=1.0
 Name=Draw
 Comment=Draw
-Exec=omarchy-launch-webapp https://draw.wintherne.dk
+Exec=omarchy-launch-webapp https://draw.wintherne.dk/shared
 Terminal=false
 Type=Application
 Icon=/home/simon/.local/share/applications/icons/Draw.png
