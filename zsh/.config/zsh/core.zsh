@@ -77,6 +77,12 @@ source ~/.config/zsh/aliases.zsh
 # Load local secrets if present
 [[ -f ~/.config/zsh/secrets.zsh ]] && source ~/.config/zsh/secrets.zsh
 
+# Shift-Tab cycles completions backwards (Tab goes forwards) — both when
+# starting completion and while moving through the highlighted menu.
+zmodload -i zsh/complist
+bindkey '^[[Z' reverse-menu-complete
+bindkey -M menuselect '^[[Z' reverse-menu-complete
+
 # ──────────────────────────── ZSH PLUGINS ────────────────────────────
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
