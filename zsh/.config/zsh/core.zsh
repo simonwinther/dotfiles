@@ -54,13 +54,9 @@ sdk() {
   command sdk "$@"
 }
 
-#  ──────────────────────────── CURSOR FIX (Allow zsh to draw cursor in tmux) ────────────────────────────
-_fix_cursor() {
-  [[ -n "$TMUX" ]] || return
-  echo -ne '\033[6 q'
-}
-typeset -ga precmd_functions
-precmd_functions+=(_fix_cursor)
+# ──────────────────────────── ZLE VI MODE ────────────────────────────
+bindkey -v
+KEYTIMEOUT=1   # 10ms: snappy Esc; multi-key vi seqs still work (burst input)
 
 # ───────── My overrides ─────────
 source ~/.config/zsh/functions/init.zsh
@@ -77,6 +73,21 @@ source ~/.config/zsh/aliases.zsh
 # Load local secrets if present
 [[ -f ~/.config/zsh/secrets.zsh ]] && source ~/.config/zsh/secrets.zsh
 
+# ──────────────────────────── COMPLETION ────────────────────────────
+autoload -Uz compinit
+() {
+  emulate -L zsh
+  local dump=${ZDOTDIR:-$HOME}/.zcompdump
+  local -a old=( $dump(N.mh+24) )    # non-empty if the dump exists and is >24h old
+  if [[ -f $dump ]] && (( ! $#old )); then
+    compinit -C -d $dump             # fresh (<24h): skip the security scan, fast
+  else
+    compinit -d $dump                # missing or stale: full init + regenerate
+  fi
+}
+zstyle ':completion:*' menu select                          # arrow-key menu
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
+
 # Shift-Tab cycles completions backwards (Tab goes forwards) — both when
 # starting completion and while moving through the highlighted menu.
 zmodload -i zsh/complist
@@ -84,6 +95,12 @@ bindkey '^[[Z' reverse-menu-complete
 bindkey -M menuselect '^[[Z' reverse-menu-complete
 
 # ──────────────────────────── ZSH PLUGINS ────────────────────────────
+# Source order matters: vi-mode defines its widgets first, then
+# zsh-autosuggestions wraps them (MANUAL_REBIND binds once instead of on every
+# prompt), and zsh-syntax-highlighting must come last so it wraps everything.
+ZSH_AUTOSUGGEST_USE_ASYNC=1
+ZSH_AUTOSUGGEST_MANUAL_REBIND=1
+
+source ~/.config/zsh/vi-mode.zsh
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
-
