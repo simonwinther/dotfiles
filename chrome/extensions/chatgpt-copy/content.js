@@ -70,12 +70,34 @@
   ]);
   let internalCopy = false;
   let toastTimer = null;
+  let enabled = true;
+
+  initEnabledState();
 
   document.addEventListener("copy", handleCopy, true);
   document.addEventListener("click", handleCopyButtonClick, true);
 
+  function initEnabledState() {
+    try {
+      chrome.storage.local.get({ enabled: true }, (items) => {
+        if (!chrome.runtime.lastError) {
+          enabled = items.enabled !== false;
+        }
+      });
+
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "local" && changes.enabled) {
+          enabled = changes.enabled.newValue !== false;
+        }
+      });
+    } catch {
+      // chrome.storage is unavailable (e.g. orphaned script after an
+      // extension reload); keep the last known state.
+    }
+  }
+
   function handleCopy(event) {
-    if (internalCopy || !event.clipboardData) {
+    if (!enabled || internalCopy || !event.clipboardData) {
       return;
     }
 
@@ -101,6 +123,10 @@
   }
 
   function handleCopyButtonClick(event) {
+    if (!enabled) {
+      return;
+    }
+
     const target = event.target instanceof Element ? event.target : null;
     const button = target?.closest(COPY_BUTTON_SELECTOR);
     if (!button) {

@@ -9,6 +9,13 @@ A small Chrome extension that rewrites ChatGPT clipboard output so rendered KaTe
 3. Choose Load unpacked.
 4. Select this directory: `/home/simon/dotfiles/chrome/extensions/chatgpt-copy`.
 
+## Enable / disable
+
+- Click the extension's toolbar icon (pin it via the puzzle-piece menu) and flip the switch.
+- The setting applies immediately to open ChatGPT tabs — no reload needed.
+- While disabled, the toolbar icon shows an `OFF` badge and copying behaves as if the extension were not installed.
+- The setting persists across browser restarts.
+
 ## Behavior
 
 - Selecting text in ChatGPT and copying it writes readable text with raw LaTeX equations to the clipboard.

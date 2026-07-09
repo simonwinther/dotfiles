@@ -2,10 +2,18 @@
   "manifest_version": 3,
   "name": "ChatGPT LaTeX Copy",
   "description": "Copies ChatGPT selections and messages with KaTeX equations preserved as raw LaTeX.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "permissions": [
-    "clipboardWrite"
+    "clipboardWrite",
+    "storage"
   ],
+  "action": {
+    "default_title": "ChatGPT LaTeX Copy",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [
