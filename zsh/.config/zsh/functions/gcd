@@ -1,11 +1,29 @@
 # Global fuzzy CD from $HOME
+#
+# NOTE: no --follow. In Wine/Proton prefixes the `z:` drive symlinks to `/`,
+# so following symlinks makes fd re-walk the whole filesystem (~1M dirs).
+#
+# The prune list drops caches and build/tool junk you'd never `cd` into.
+# Add a dir name here to hide it; use `fd -I` / drop the arg to see everything.
 gcd() {
     local dir
-    dir=$(fd --base-directory "$HOME" --type d --hidden --follow --exclude .git \
+    local -a prune=(
+        .git node_modules __pycache__ .venv venv
+        .cache .local/share .local/state .var
+        .steam Steam steamapps compatdata .wine
+        .cargo .rustup .npm .pnpm-store .bun .gradle .m2 .nuget .pub-cache go/pkg
+        .nvm .vscode .cursor
+        .mozilla .thunderbird
+        .codex .copilot .dartServer .gemini .claude
+        Android sdk Trash
+    )
+    local -a ex=(); local p
+    for p in $prune; do ex+=(--exclude $p); done
+
+    dir=$(fd --base-directory "$HOME" --type d --hidden $ex \
         | fzf --height=60% --layout=reverse --border \
-              --prompt="   gcd> " \
+              --prompt="   gcd> " \
               --preview "eza --color=always --icons --group-directories-first -1 $HOME/{}" \
               --preview-window="right,50%")
     [[ -n "$dir" ]] && cd "$HOME/$dir"
 }
-

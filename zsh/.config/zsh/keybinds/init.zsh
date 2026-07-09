@@ -9,8 +9,11 @@ bindkey " " expand_fzf_space
 bindkey "^M" expand_fzf_enter
 
 # ───────────────── Grouping by Alt ───────────────── 
-# <Alt + [g]o>: Trigger fuzzy `cd`
-bindkey -s '^[g' 'gcd\n'
+# <Alt + [f]ind>: Trigger fuzzy `cd` within the current git repo
+bindkey -s '^[f' 'rcd\n'
+
+# <Alt + Shift + [F]ind>: Trigger fuzzy `cd` from $HOME
+bindkey -s '^[F' 'gcd\n'
 
 # <Alt + [r]un>: Search and run command from history
 bindkey '^[r' fzf-history-logic

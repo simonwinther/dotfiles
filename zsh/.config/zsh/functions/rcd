@@ -1,0 +1,14 @@
+# Fuzzy CD within the current git repo
+rcd() {
+    local root dir
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        print -u2 "rcd: not inside a git repository"
+        return 1
+    }
+    dir=$(fd --base-directory "$root" --type d --hidden --follow --exclude .git \
+        | fzf --height=60% --layout=reverse --border \
+              --prompt="   rcd> " \
+              --preview "eza --color=always --icons --group-directories-first -1 $root/{}" \
+              --preview-window="right,50%")
+    [[ -n "$dir" ]] && cd "$root/$dir"
+}
