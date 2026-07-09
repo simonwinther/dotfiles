@@ -3,6 +3,10 @@
 
 # --- Theme & colors ---
 # Font
+# Omarchy will literally overwrite anything that I put here. 
+# They have a file where they strictly overwrite any color in any 
+# app if you don't use their set font command in the terminal. 
+# This is also why I want to switch to nix. I'll keep it here tho for nix.
 font-family = "JetBrainsMono Nerd Font Mono"
 font-style = "Regular"
 font-style-bold = "Bold"
@@ -15,17 +19,16 @@ font-feature = "liga"
 
 # Window
 window-theme = ghostty
-window-padding-balance = true   
+window-padding-x = 6, 6 
+window-padding-y = 0, 6
+window-padding-balance = false
 window-padding-color = extend
-window-padding-y = 0
-window-padding-x = 0
+window-decoration = none
 confirm-close-surface=false
 resize-overlay = never
 gtk-toolbar-style = flat
+background-opacity = 1
 
-# Cursor styling
-cursor-style = "block"
-cursor-style-blink = false
 
 # Theme
 background = #1e1e2e
@@ -48,26 +51,22 @@ palette = 13=#f5c2e7
 palette = 14=#94e2d5
 palette = 15=#cdd6f4
 
-# Selection & cursor
+# Selection & cursor styling
 selection-background = #89b4fa
 selection-foreground = #1e1e2e
+cursor-style = block
+cursor-style-blink = false
 cursor-color         = #cdd6f4
 cursor-text          = #1e1e2e
-cursor-style = bar
-
-# background-opacity = 0.7
-background-opacity = 1
-
-# Window decorations 
-window-decoration = none
+# ? do i need this lmao below:
+shell-integration-features = no-cursor 
 
 # Custom cursor shader (keep if you want it)
 #custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
 #custom-shader-animation = true
 
-# Don't do this!! super enter to open terminal then uses the same tmuxes....
-# command = tmux attach -t main || tmux new -s main
-
+# btw: If I do this, I can't use V-BLOCK in Neovim
+#
 # # Use Ctrl+V to paste
 # keybind = ctrl+v=paste_from_clipboard
 # keybind = performable:ctrl+c=copy_to_clipboard
