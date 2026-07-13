@@ -100,6 +100,59 @@ vim.keymap.set("n", "<leader>se", function()
 end, { desc = "Smart Find Files" })
 
 -----------------------------------------
+--- Project-wide fuzzy grep
+-----------------------------------------
+
+-- Snacks version (comment out the fzf mapping below before restoring):
+-- And delete ~/dotfiles/nvim/.config/nvim/lua/plugins/fzf.lua file.
+
+-- vim.keymap.set(
+--   "n",
+--   "<leader>sf",
+--   LazyVim.pick("live_grep", {
+--     live = false,
+--     need_search = false,
+--     hidden = true,
+--     args = { "--replace", "$0", "--max-filesize", "5M" },
+--     title = "Fuzzy Grep (Root Dir)",
+--   }),
+--   { desc = "Fuzzy Grep (Root Dir)" }
+-- )
+
+vim.keymap.set("n", "<leader>sf", function()
+  local cwd = LazyVim.root()
+  local rg_opts = {
+    "--column",
+    "--line-number",
+    "--no-heading",
+    "--color=always",
+    "--smart-case",
+    "--max-columns=500",
+    "--max-columns-preview",
+    "--max-filesize=5M",
+  }
+  local ignore = cwd .. "/.grepignore"
+
+  if vim.fn.filereadable(ignore) == 1 then
+    vim.list_extend(rg_opts, { "--ignore-file", vim.fn.shellescape(ignore) })
+  end
+
+  table.insert(rg_opts, "-e")
+
+  require("fzf-lua").grep_project({
+    cwd = cwd,
+    hidden = true,
+    prompt = "Fuzzy Grep> ",
+    rg_opts = table.concat(rg_opts, " "),
+    fzf_opts = {
+      ["--delimiter"] = ":",
+      ["--nth"] = "1..",
+    },
+    winopts = { title = " Fuzzy Grep (fzf) " },
+  })
+end, { desc = "Fuzzy Grep (fzf)" })
+
+-----------------------------------------
 --- Overwriting LazyVim's default <leader>sw and <leader>sW keymaps for Snacks grep_word with hidden files enabled
 -----------------------------------------
 vim.keymap.set({ "n", "x" }, "<leader>sw", function()
