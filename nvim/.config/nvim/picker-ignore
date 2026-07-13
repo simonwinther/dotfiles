@@ -1,0 +1,54 @@
+# Version-control metadata
+.git/
+.jj/
+.bare/
+.hg/
+.svn/
+
+# Dependencies and environments
+node_modules/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.venv/
+venv/
+.dart_tool/
+Pods/
+
+# Language and tool caches
+.cache/
+.npm/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.ipynb_checkpoints/
+.gradle/
+.turbo/
+.parcel-cache/
+.vite/
+.terraform/
+CMakeFiles/
+cmake-build-*/
+
+# Generated framework state
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.angular/cache/
+.docusaurus/
+
+# Home package stores and environments
+/.cargo/registry/
+/.cargo/git/
+/.pub-cache/
+/.nuget/packages/
+/go/pkg/mod/
+/go/pkg/sumdb/
+/.local/share/pnpm/store/
+/.local/share/micromamba/

@@ -121,6 +121,7 @@ end, { desc = "Smart Find Files" })
 
 vim.keymap.set("n", "<leader>sf", function()
   local cwd = LazyVim.root()
+  local picker_ignore = require("config.picker_ignore")
   local rg_opts = {
     "--column",
     "--line-number",
@@ -131,12 +132,8 @@ vim.keymap.set("n", "<leader>sf", function()
     "--max-columns-preview",
     "--max-filesize=5M",
   }
-  local ignore = cwd .. "/.grepignore"
 
-  if vim.fn.filereadable(ignore) == 1 then
-    vim.list_extend(rg_opts, { "--ignore-file", vim.fn.shellescape(ignore) })
-  end
-
+  vim.list_extend(rg_opts, picker_ignore.shell_argv(cwd))
   table.insert(rg_opts, "-e")
 
   require("fzf-lua").grep_project({

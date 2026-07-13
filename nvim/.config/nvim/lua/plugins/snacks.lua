@@ -212,20 +212,27 @@ return {
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
         sources = (function()
-          local function with_grepignore(opts)
-            local cwd = (opts.cwd or vim.uv.cwd()):gsub("/+$", "")
-            local ignore = cwd .. "/.grepignore"
-            if vim.fn.filereadable(ignore) == 1 then
-              opts.args = opts.args or {}
-              table.insert(opts.args, "--ignore-file")
-              table.insert(opts.args, ignore)
+          local picker_ignore = require("config.picker_ignore")
+
+          local function with_picker_ignores(opts)
+            opts.args = opts.args or {}
+            picker_ignore.extend(opts.args, opts.cwd)
+            return opts
+          end
+
+          local function with_picker_ignores_and_size_limit(opts)
+            opts = with_picker_ignores(opts)
+            if not vim.tbl_contains(opts.args, "--max-filesize=5M") then
+              table.insert(opts.args, "--max-filesize=5M")
             end
             return opts
           end
+
           return {
-            grep = { config = with_grepignore, regex = false },
-            grep_word = { config = with_grepignore, regex = false },
-            files = { config = with_grepignore, regex = false },
+            grep = { config = with_picker_ignores_and_size_limit, regex = false },
+            grep_word = { config = with_picker_ignores_and_size_limit, regex = false },
+            files = { config = with_picker_ignores, regex = false },
+            smart = { config = with_picker_ignores },
           }
         end)(),
         actions = {
