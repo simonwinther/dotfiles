@@ -52,3 +52,87 @@ cmake-build-*/
 /go/pkg/sumdb/
 /.local/share/pnpm/store/
 /.local/share/micromamba/
+
+# Editor and IDE metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Coverage, test, and analysis output
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+.nyc_output/
+junit.xml
+test-results/
+playwright-report/
+blob-report/
+
+# Build and distribution output
+dist/
+build/
+out/
+target/
+bin/
+obj/
+*.egg-info/
+.eggs/
+site/
+public/build/
+
+# Temporary and generated files
+tmp/
+temp/
+.cache-loader/
+.eslintcache
+.stylelintcache
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Additional language caches
+.pyright/
+.dmypy.json
+.pyre/
+.pytype/
+.scala-build/
+.metals/
+.bloop/
+.ccls-cache/
+.clangd/
+.zig-cache/
+zig-out/
+.swiftpm/
+DerivedData/
+
+# Infrastructure and tooling state
+.terragrunt-cache/
+.serverless/
+.aws-sam/
+.vercel/
+.netlify/
+.firebase/
+wrangler/
+.sst/
+cdk.out/
+
+# Documentation generators
+.mkdocs/
+_book/
+docs/_build/
+
+# Local databases and runtime state
+*.sqlite
+*.sqlite3
+*.db
+*.pid
+*.sock
+
+
