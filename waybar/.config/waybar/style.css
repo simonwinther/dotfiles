@@ -44,7 +44,6 @@ tooltip {
 #pulseaudio.microphone,
 #custom-hyprwhspr,
 #battery,
-#custom-worktimer,
 #clock,
 #tray,
 #workspaces {
@@ -89,7 +88,7 @@ tooltip {
 
 /* -----------------------------------------------------
  * RIGHT PILL
- * Structure: [ Audio | Mic | Whisper | Bat | Timer | Clock ]  |  [ Tray ]
+ * Structure: [ Audio | Mic | Whisper | Bat | Clock ]  |  [ Tray ]
  * ----------------------------------------------------- */
 
 /* 1. Group 1 Start (Left Rounded) */
@@ -102,8 +101,7 @@ tooltip {
 /* 2. Group 1 Middle (Square) */
 #pulseaudio.microphone,
 #custom-hyprwhspr,
-#battery,
-#custom-worktimer {
+#battery {
     border-radius: 0px;
     margin-left: 0px;
     margin-right: 0px;
@@ -184,7 +182,6 @@ tooltip {
 #pulseaudio.microphone:hover,
 #custom-hyprwhspr:hover,
 #battery:hover,
-#custom-worktimer:hover,
 #clock:hover,
 #tray:hover {
     background: @surface0;
@@ -201,14 +198,6 @@ tooltip {
 #custom-hyprwhspr.active,
 #custom-hyprwhspr.transcribing {
     color: @blue;
-}
-
-#custom-worktimer.running {
-    color: @blue;
-}
-
-#custom-worktimer.done {
-    color: @green;
 }
 
 /* -----------------------------------------------------

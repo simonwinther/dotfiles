@@ -24,7 +24,6 @@
     "pulseaudio",
     "pulseaudio#microphone",
     "battery",
-    "custom/worktimer",
     "clock",
     "custom/separator",
     "tray"
@@ -100,14 +99,6 @@
     "return-type": "json",
     "interval": 600,
     "format": "{text}"
-  },
-  "custom/worktimer": {
-    "exec": "~/.config/waybar/scripts/worktimer",
-    "return-type": "json",
-    "interval": 1,
-    "format": "{text}",
-    "on-click": "~/.config/waybar/scripts/worktimer menu",
-    "tooltip": true
   },
   "pulseaudio": {
     "format": "<span color='#a6e3a1'>{icon}  </span><span color='#cdd6f4'>{volume}%</span>",
