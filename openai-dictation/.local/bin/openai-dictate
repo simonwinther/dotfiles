@@ -1291,9 +1291,12 @@ def active_window_is_ghostty():
 def dispatch_shortcut(shortcut):
     if not need_cmds("hyprctl"):
         return False
+    # Hyprland 0.55 requires an explicit target window; without it sendshortcut
+    # silently no-ops (still returns 0). The shortcut strings end in a trailing
+    # comma (empty window slot), so append the target here.
     return (
         subprocess.run(
-            ["hyprctl", "dispatch", "sendshortcut", shortcut],
+            ["hyprctl", "dispatch", "sendshortcut", f"{shortcut} activewindow"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -1398,9 +1401,12 @@ def silence_max_volume(audio_file):
                     break
 
                 data = data[: len(data) - (len(data) % 2)]
-                for (sample,) in struct.iter_unpack("<h", data):
-                    peak = max(peak, abs(sample))
-    except (EOFError, OSError, struct.error, wave.Error):
+                if not data:
+                    continue
+                chunk = array.array("h")
+                chunk.frombytes(data)
+                peak = max(peak, max(chunk), -min(chunk))
+    except (EOFError, OSError, ValueError, wave.Error):
         return None
 
     if peak <= 0:
@@ -1493,9 +1499,7 @@ def frame_rms_levels_db(samples, rate, frame_ms=SEGMENT_FRAME_MS):
         frame = samples[start : start + frame_samples]
         if not frame:
             break
-        acc = 0
-        for sample in frame:
-            acc += sample * sample
+        acc = math.sumprod(frame, frame)
         rms = math.sqrt(acc / len(frame)) / 32768.0
         levels.append(20 * math.log10(rms) if rms > 0 else -120.0)
     return levels

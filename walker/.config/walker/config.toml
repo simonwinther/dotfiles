@@ -8,6 +8,10 @@ hide_action_hints = true                                                    # gl
 "default" = { input = " Search...", list = "No Results" } # placeholders for input and empty list, key is the providers name, so f.e. "desktopapplications" or "menus:other"
 
 [keybinds]
+next = ["Down", "ctrl j"]
+previous = ["Up", "ctrl k"]
+down = ["Down", "ctrl j"]
+up = ["Up", "ctrl k"]
 quick_activate = []
 
 [columns]
@@ -18,6 +22,44 @@ max_results = 256 # 256 should be enough for everyone
 default = [
   "desktopapplications",
   "websearch",
+]
+
+[providers.actions]
+dmenu = [
+  { action = "select:ctrl_y:keep", bind = "ctrl y" },
+]
+
+providerlist = [
+  { action = "activate:ctrl_y:keep", bind = "ctrl y", after = "ClearReload" },
+]
+
+calc = [
+  { action = "copy:ctrl_y:keep", bind = "ctrl y" },
+]
+
+websearch = [
+  { action = "search:ctrl_y:keep", bind = "ctrl y" },
+  { action = "open_url:ctrl_y:keep", bind = "ctrl y" },
+]
+
+desktopapplications = [
+  { action = "start:ctrl_y:keep", bind = "ctrl y" },
+]
+
+files = [
+  { action = "open:ctrl_y:keep", bind = "ctrl y" },
+]
+
+runner = [
+  { action = "run:ctrl_y:keep", bind = "ctrl y" },
+]
+
+symbols = [
+  { action = "run_cmd:ctrl_y:keep", bind = "ctrl y" },
+]
+
+clipboard = [
+  { action = "copy:ctrl_y:keep", bind = "ctrl y" },
 ]
 
 [[providers.prefixes]]
