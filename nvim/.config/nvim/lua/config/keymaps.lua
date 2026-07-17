@@ -139,13 +139,28 @@ vim.keymap.set("n", "<leader>sf", function()
   require("fzf-lua").grep_project({
     cwd = cwd,
     hidden = true,
-    prompt = "Fuzzy Grep> ",
+    prompt = "Fuzzy Grep [content]> ",
     rg_opts = table.concat(rg_opts, " "),
     fzf_opts = {
       ["--delimiter"] = ":",
-      ["--nth"] = "1..",
+      ["--nth"] = "3..",
     },
-    winopts = { title = " Fuzzy Grep (fzf) " },
+    actions = {
+      ["alt-f"] = false,
+    },
+    keymap = {
+      fzf = {
+        ["alt-f"] = [[change-nth(1..|3..)+transform-prompt(if [ "$FZF_NTH" = ".." ]; then printf "Fuzzy Grep [with files]> "; else printf "Fuzzy Grep [content]> "; fi)]],
+      },
+    },
+    winopts = {
+      title = " Fuzzy Grep (fzf) ",
+      width = 0.95,
+      preview = {
+        layout = "horizontal",
+        horizontal = "right:50%",
+      },
+    },
   })
 end, { desc = "Fuzzy Grep (fzf)" })
 
