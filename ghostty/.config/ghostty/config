@@ -7,7 +7,7 @@
 # They have a file where they strictly overwrite any color in any 
 # app if you don't use their set font command in the terminal. 
 # This is also why I want to switch to nix. I'll keep it here tho for nix.
-font-family = "JetBrainsMono Nerd Font Mono"
+font-family = "JetBrainsMono Nerd Font"
 font-style = "Regular"
 font-style-bold = "Bold"
 font-style-italic = "Italic"
@@ -31,7 +31,8 @@ background-opacity = 1
 
 
 # Theme
-background = #1e1e2e
+#background = #1e1e2e
+background = #11111b
 foreground = #cdd6f4
 
 palette = 0=#45475a
