@@ -2,12 +2,27 @@ return {
   {
     "L3MON4D3/LuaSnip",
     -- event = "InsertEnter",
-    ft = "tex", -- Currently only load for LaTeX, but can be extended to other filetypes as needed
+    ft = { "tex", "typst" },
     dependencies = {
       "rafamadriz/friendly-snippets",
       config = function()
+        local ls = require("luasnip")
+
         require("luasnip.loaders.from_vscode").lazy_load()
         require("luasnip.loaders.from_lua").lazy_load({ paths = { vim.fn.stdpath("config") .. "/snippets" } })
+
+        -- Prefer the local math template over friendly-snippets' template.
+        for _, snippet in ipairs(ls.get_snippets("tex")) do
+          local is_legacy_template = snippet.name == "Template"
+            and (snippet.trigger == "template" or snippet.trigger == "\\template")
+
+          if is_legacy_template then
+            snippet:invalidate()
+          end
+        end
+
+        ls.refresh_notify("tex")
+
         -- Hot Reload on Save
         vim.api.nvim_create_autocmd("BufWritePost", {
           pattern = "*/snippets/**/*.lua",

@@ -7,6 +7,7 @@ local helpers = loadfile(dir .. "helpers.lua")("_load")
 local snippets = {}
 local ctx = { P = P, cond = cond, helpers = helpers, snippets = snippets }
 
+loadfile(dir .. "templates.lua")(ctx)
 loadfile(dir .. "sections.lua")(ctx)
 loadfile(dir .. "lists.lua")(ctx)
 loadfile(dir .. "environments.lua")(ctx)
