@@ -31,7 +31,7 @@ background-opacity = 1
 
 
 # Theme
-#background = #1e1e2e
+# background = #1e1e2e
 background = #11111b
 foreground = #cdd6f4
 
