@@ -74,17 +74,19 @@ source ~/.config/zsh/aliases.zsh
 [[ -f ~/.config/zsh/secrets.zsh ]] && source ~/.config/zsh/secrets.zsh
 
 # ──────────────────────────── COMPLETION ────────────────────────────
-autoload -Uz compinit
-() {
-  emulate -L zsh
-  local dump=${ZDOTDIR:-$HOME}/.zcompdump
-  local -a old=( $dump(N.mh+24) )    # non-empty if the dump exists and is >24h old
-  if [[ -f $dump ]] && (( ! $#old )); then
-    compinit -C -d $dump             # fresh (<24h): skip the security scan, fast
-  else
-    compinit -d $dump                # missing or stale: full init + regenerate
-  fi
-}
+if (( ! $+functions[compdef] )); then
+  autoload -Uz compinit
+  () {
+    emulate -L zsh
+    local dump=${ZDOTDIR:-$HOME}/.zcompdump
+    local -a old=( $dump(N.mh+24) )    # non-empty if the dump exists and is >24h old
+    if [[ -f $dump ]] && (( ! $#old )); then
+      compinit -C -d $dump             # fresh (<24h): skip the security scan, fast
+    else
+      compinit -d $dump                # missing or stale: full init + regenerate
+    fi
+  }
+fi
 zstyle ':completion:*' menu select                          # arrow-key menu
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
 

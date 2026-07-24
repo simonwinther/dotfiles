@@ -27,6 +27,3 @@ alias oc='opencode'
 alias lg='lazygit'
 alias lzg='lazygit'
 alias lzd='lazydocker'
-
-# ─────────── Nordtui ─────────────
-alias nui='nordvpn-tui'
