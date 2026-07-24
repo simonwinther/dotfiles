@@ -19,6 +19,7 @@ alias ff="fastfetch"
 
 # ─────────── Git Shortcuts ─────────────
 alias g='git'
+alias 'ga.'='git add .'
 
 # ─────────── OpenCode Shortcuts ─────────────
 alias oc='opencode'
@@ -27,3 +28,8 @@ alias oc='opencode'
 alias lg='lazygit'
 alias lzg='lazygit'
 alias lzd='lazydocker'
+
+# ─────────── Directory Navigation Shortcuts ─────────────
+alias ..='cd ..'
+alias ....='cd ../..'
+alias ......='cd ../../..'
