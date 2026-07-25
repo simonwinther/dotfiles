@@ -116,3 +116,43 @@ child:selected .item-box * {
 
 .preview {
 }
+
+/* Only the notification provider gets multi-line cards. */
+.notification-card {
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+child:hover .notification-card {
+  background: alpha(@border, 0.1);
+}
+
+child:selected .notification-card {
+  background: alpha(@border, 0.18);
+}
+
+.notification-card .item-text-box {
+  padding: 0;
+}
+
+.notification-card .item-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.notification-card .item-subtext {
+  font-size: 14px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  opacity: 0.72;
+}
+
+.notification-card .item-image {
+  margin-right: 4px;
+}
+
+.notification-card .item-image-text {
+  opacity: 0.8;
+}
