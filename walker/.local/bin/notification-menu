@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+exec omarchy-launch-walker \
+  -m menus:notifications \
+  -p "Search notifications…"
