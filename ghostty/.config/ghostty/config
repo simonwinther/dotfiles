@@ -12,7 +12,7 @@ font-style = "Regular"
 font-style-bold = "Bold"
 font-style-italic = "Italic"
 font-style-bold-italic = "Bold Italic"
-font-size = 16
+font-size = 14
 
 font-feature = "calt"
 font-feature = "liga"
