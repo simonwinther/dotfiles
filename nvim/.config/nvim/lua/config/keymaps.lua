@@ -93,6 +93,13 @@ end, {
 })
 
 -----------------------------------------
+--- Terminal mode keymap
+-----------------------------------------
+vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], {
+  desc = "Exit terminal mode",
+})
+
+-----------------------------------------
 --- Smart Leader just to try
 -----------------------------------------
 vim.keymap.set("n", "<leader>se", function()
