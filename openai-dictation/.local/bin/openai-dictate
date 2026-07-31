@@ -61,9 +61,11 @@ DEBUG_COLOR_FAIL = "rgb(f4304e)"
 
 DEFAULTS = {
     "OPENAI_API_URL": "https://api.openai.com/v1/audio/transcriptions",
-    "OPENAI_MODEL": "gpt-4o-transcribe",
+    "OPENAI_MODEL": "gpt-transcribe",
+    "OPENAI_LANGUAGES": "en,da",
     "OPENAI_LANGUAGE": "",
     "OPENAI_PROMPT": "",
+    "OPENAI_KEYWORDS": "",
     "RECORD_RATE": "16000",
     "RECORD_CHANNELS": "1",
     "RECORD_FORMAT": "s16",
@@ -107,12 +109,57 @@ DEFAULTS = {
 TRUE_VALUES = {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
 FALSE_VALUES = {"", "0", "false", "FALSE", "off", "OFF", "no", "NO"}
 
+TRANSCRIPTION_MODELS = {
+    "gpt-transcribe": {
+        "multiple_languages": True,
+        "keywords": True,
+        "usd_per_minute": 0.0045,
+    },
+    "gpt-4o-transcribe": {
+        "multiple_languages": False,
+        "keywords": False,
+        "usd_per_minute": 0.006,
+    },
+    "gpt-4o-mini-transcribe": {
+        "multiple_languages": False,
+        "keywords": False,
+        "usd_per_minute": 0.003,
+    },
+    "gpt-4o-mini-transcribe-2025-12-15": {
+        "multiple_languages": False,
+        "keywords": False,
+        "usd_per_minute": 0.003,
+    },
+    "whisper-1": {
+        "multiple_languages": False,
+        "keywords": False,
+        "usd_per_minute": 0.006,
+    },
+}
+SUPPORTED_AUDIO_EXTENSIONS = {
+    ".flac",
+    ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
+    ".m4a",
+    ".ogg",
+    ".wav",
+    ".webm",
+}
+GPT_LANGUAGE_CODE_RE = re.compile(r"(?:[a-z]{2,3}|zh-(?:cn|tw|hk))")
+LEGACY_LANGUAGE_CODE_RE = re.compile(r"[a-z]{2}")
+
 
 class OpenAIRequestError(Exception):
     def __init__(self, message, status=None, body=""):
         super().__init__(message)
         self.status = status
         self.body = body
+
+
+class DictationConfigError(OpenAIRequestError):
+    pass
 
 
 def parse_env_line(line):
@@ -179,6 +226,111 @@ def cfg_float(name, default):
         return float(cfg(name, str(default)).replace(",", "."))
     except ValueError:
         return float(default)
+
+
+def parse_config_list(name):
+    values = []
+    for item in cfg(name).split(","):
+        item = item.strip()
+        if item and item not in values:
+            values.append(item)
+    return values
+
+
+def language_hints(language_override=""):
+    if language_override:
+        return [language_override.lower()]
+
+    languages = []
+    for value in parse_config_list("OPENAI_LANGUAGES"):
+        value = value.lower()
+        if value not in languages:
+            languages.append(value)
+    legacy_language = cfg("OPENAI_LANGUAGE").strip().lower()
+    if languages and legacy_language:
+        raise DictationConfigError(
+            "OPENAI_LANGUAGES and legacy OPENAI_LANGUAGE cannot both be set."
+        )
+    return languages or ([legacy_language] if legacy_language else [])
+
+
+def language_hint_label(language_override=""):
+    return ",".join(language_hints(language_override)) or "auto"
+
+
+def transcription_request_fields(language_override=""):
+    model = cfg("OPENAI_MODEL").strip()
+    capabilities = TRANSCRIPTION_MODELS.get(model)
+    if capabilities is None:
+        if model == "gpt-4o-transcribe-diarize":
+            detail = (
+                "speaker diarization is outside this plain-text dictation workflow; "
+                "use gpt-transcribe"
+            )
+        else:
+            supported = ", ".join(TRANSCRIPTION_MODELS)
+            detail = f"supported models are: {supported}"
+        raise DictationConfigError(f"unsupported OPENAI_MODEL {model!r}; {detail}.")
+
+    languages = language_hints(language_override)
+    keywords = parse_config_list("OPENAI_KEYWORDS")
+    prompt = cfg("OPENAI_PROMPT")
+
+    if capabilities["multiple_languages"]:
+        invalid = [
+            language
+            for language in languages
+            if not GPT_LANGUAGE_CODE_RE.fullmatch(language)
+        ]
+        if invalid:
+            raise DictationConfigError(
+                "OPENAI_LANGUAGES contains an invalid language-code format: "
+                + ", ".join(invalid)
+            )
+    else:
+        if len(languages) > 1:
+            raise DictationConfigError(
+                f"{model} accepts only one language hint; "
+                "use gpt-transcribe for multilingual audio."
+            )
+        if languages and not LEGACY_LANGUAGE_CODE_RE.fullmatch(languages[0]):
+            raise DictationConfigError(
+                f"{model} requires a two-letter ISO-639-1 language hint."
+            )
+
+    if keywords and not capabilities["keywords"]:
+        raise DictationConfigError(
+            f"OPENAI_KEYWORDS is supported by gpt-transcribe, not {model}."
+        )
+    for keyword in keywords:
+        if any(character in keyword for character in "<>\r\n"):
+            raise DictationConfigError(
+                "OPENAI_KEYWORDS entries must be one line and cannot contain "
+                "'<', '>', carriage returns, or line feeds."
+            )
+
+    fields = [
+        ("model", model),
+        ("response_format", "json"),
+    ]
+    if prompt:
+        fields.append(("prompt", prompt))
+    if capabilities["keywords"]:
+        fields.extend(("keywords[]", keyword) for keyword in keywords)
+        fields.extend(("languages[]", language) for language in languages)
+    elif languages:
+        fields.append(("language", languages[0]))
+    return fields
+
+
+def check_transcription_config(language_override=""):
+    try:
+        transcription_request_fields(language_override)
+        upload_codec_args()
+    except DictationConfigError as exc:
+        print(f"Invalid OpenAI dictation configuration: {exc}", file=sys.stderr)
+        return False
+    return True
 
 
 def now_ms():
@@ -784,12 +936,8 @@ def read_levels(audio_file):
 
 
 def model_usd_per_minute():
-    model = cfg("OPENAI_MODEL")
-    if model.startswith("gpt-4o-mini-transcribe"):
-        return 0.003
-    if model.startswith("gpt-4o-transcribe") or model == "whisper-1":
-        return 0.006
-    return 0.0
+    capabilities = TRANSCRIPTION_MODELS.get(cfg("OPENAI_MODEL").strip())
+    return capabilities["usd_per_minute"] if capabilities else 0.0
 
 
 def format_usd_dkk(usd):
@@ -1209,6 +1357,8 @@ def start_recording(language=""):
     init_runtime()
     if not need_cmds("pw-record"):
         return 1
+    if not check_transcription_config(language):
+        return 1
     if not check_api_key():
         return 1
 
@@ -1257,7 +1407,7 @@ def start_recording(language=""):
     write_state(process.pid, audio_file, start_ms, language)
     log(
         f"event=start pid={process.pid} audio_file={audio_file} "
-        f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} "
+        f"model={cfg('OPENAI_MODEL')} language={language_hint_label(language)} "
         f"rate_hz={cfg('RECORD_RATE')} "
         f"channels={cfg('RECORD_CHANNELS')} latency={cfg('RECORD_LATENCY')}"
     )
@@ -1682,9 +1832,14 @@ def trim_silence(in_path, out_path=None):
 
 
 def upload_codec_args():
-    if cfg("UPLOAD_CODEC", "wav").strip().lower() == "mp3":
+    codec = cfg("UPLOAD_CODEC", "wav").strip().lower()
+    if codec == "mp3":
         return ".mp3", ["-c:a", "libmp3lame", "-b:a", "48k"]
-    return ".wav", ["-c:a", "pcm_s16le"]
+    if codec == "wav":
+        return ".wav", ["-c:a", "pcm_s16le"]
+    raise DictationConfigError(
+        f"unsupported UPLOAD_CODEC {codec!r}; supported values are 'mp3' and 'wav'."
+    )
 
 
 def atempo_filters(speedup):
@@ -1879,15 +2034,14 @@ def build_multipart_body(fields, audio_file):
 
 
 def transcribe_request(audio_file, language=""):
-    fields = [
-        ("model", cfg("OPENAI_MODEL")),
-        ("response_format", "text"),
-    ]
-    language = language or cfg("OPENAI_LANGUAGE")
-    if language:
-        fields.append(("language", language))
-    if cfg("OPENAI_PROMPT"):
-        fields.append(("prompt", cfg("OPENAI_PROMPT")))
+    audio_path = Path(audio_file)
+    if audio_path.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
+        supported = ", ".join(sorted(SUPPORTED_AUDIO_EXTENSIONS))
+        raise DictationConfigError(
+            f"unsupported audio format {audio_path.suffix or '<none>'!r}; "
+            f"supported extensions are: {supported}."
+        )
+    fields = transcription_request_fields(language)
 
     boundary, body = build_multipart_body(fields, audio_file)
     request = urllib.request.Request(
@@ -1909,25 +2063,39 @@ def transcribe_request(audio_file, language=""):
             return response.read().decode("utf-8"), content_type
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode("utf-8", errors="replace")
+        detail = ""
+        try:
+            error_data = json.loads(body_text)
+            error = error_data.get("error") if isinstance(error_data, dict) else None
+            if isinstance(error, dict) and error.get("message"):
+                detail = f": {error['message']}"
+        except json.JSONDecodeError:
+            pass
         raise OpenAIRequestError(
-            f"OpenAI request failed with HTTP {exc.code}", exc.code, body_text
+            f"OpenAI request failed with HTTP {exc.code}{detail}", exc.code, body_text
         ) from exc
     except urllib.error.URLError as exc:
         raise OpenAIRequestError(f"OpenAI request failed: {exc}") from exc
 
 
 def parse_transcript(response_text, content_type=""):
-    if "json" not in (content_type or "").lower():
-        return response_text.strip()
-
     try:
         data = json.loads(response_text)
     except json.JSONDecodeError as exc:
+        content_type_detail = (
+            f" (Content-Type: {content_type})" if content_type else ""
+        )
         raise OpenAIRequestError(
-            f"Could not parse OpenAI response as JSON: {exc}", body=response_text
+            f"OpenAI returned malformed JSON{content_type_detail}: {exc}",
+            body=response_text,
         ) from exc
 
-    error = data.get("error") if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        raise OpenAIRequestError(
+            "OpenAI response was not a JSON object.", body=response_text
+        )
+
+    error = data.get("error")
     if error:
         if isinstance(error, dict):
             message = error.get("message") or error
@@ -1935,10 +2103,24 @@ def parse_transcript(response_text, content_type=""):
             message = error
         raise OpenAIRequestError(f"OpenAI API error: {message}", body=response_text)
 
-    text = data.get("text") if isinstance(data, dict) else None
+    text = data.get("text")
     if not isinstance(text, str):
         raise OpenAIRequestError(
-            "OpenAI response did not contain a text field.", body=response_text
+            "OpenAI response did not contain a string text field.", body=response_text
+        )
+
+    languages = data.get("languages")
+    if languages is not None and (
+        not isinstance(languages, list)
+        or any(
+            not isinstance(language, dict)
+            or not isinstance(language.get("code"), str)
+            for language in languages
+        )
+    ):
+        raise OpenAIRequestError(
+            "OpenAI response contained a malformed languages field.",
+            body=response_text,
         )
     return text.strip()
 
@@ -2032,7 +2214,7 @@ def transcribe_audio(audio_file, release_ms, recording_ms, stop_done_ms, languag
     upload_start_ms = now_ms()
     log(
         f"event=transcribe_start audio_file={upload_file} bytes={upload_bytes} "
-        f"preprocess_ms={preprocess_ms} language={language or 'auto'}"
+        f"preprocess_ms={preprocess_ms} language={language_hint_label(language)}"
     )
 
     try:
@@ -2298,6 +2480,8 @@ def check_setup():
         commands.append("hyprctl")
     if not need_cmds(*commands):
         return 1
+    if not check_transcription_config():
+        return 1
     if shutil.which("ffmpeg"):
         print("ffmpeg: found, preprocessing available")
     else:
@@ -2307,6 +2491,8 @@ def check_setup():
 
 def bench_transcriptions(source, factors, language):
     if not need_cmds("ffmpeg"):
+        return 1
+    if not check_transcription_config(language):
         return 1
     if not check_api_key():
         return 1
@@ -2342,7 +2528,8 @@ def bench_transcriptions(source, factors, language):
 
     usd_per_minute = model_usd_per_minute()
     print(
-        f"model={cfg('OPENAI_MODEL')} language={language or 'auto'} source={source_path}"
+        f"model={cfg('OPENAI_MODEL')} "
+        f"language={language_hint_label(language)} source={source_path}"
     )
 
     results = []
@@ -2436,10 +2623,15 @@ def parse_language_args(args):
         rest.append(arg)
         index += 1
 
-    if language and not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z]{2,8})?", language):
-        print(f"Invalid language code: {language}", file=sys.stderr)
+    language = language.lower()
+    if language and not GPT_LANGUAGE_CODE_RE.fullmatch(language):
+        print(
+            f"Invalid language code: {language}. Use a two-letter code, a "
+            "documented three-letter code, or zh-cn/zh-tw/zh-hk.",
+            file=sys.stderr,
+        )
         return None, args
-    return language.lower(), rest
+    return language, rest
 
 
 def show_help(stream=sys.stdout):
@@ -2459,10 +2651,13 @@ Commands:
 
 Options:
   --language xx  Pin the transcription language for this recording
-                 (for example en or da). Default: auto-detect.
+                 (for example en or da). Default: OPENAI_LANGUAGES.
 
 Config:
   {CONFIG_FILE}
+  OPENAI_LANGUAGES is a comma-separated list (default: en,da).
+  OPENAI_KEYWORDS is a comma-separated list of preferred spellings.
+  OPENAI_LANGUAGE remains a single-language legacy-model fallback.
 
 Benchmark output:
   {LAST_TXT}
