@@ -1,4 +1,5 @@
 # ───────────── Eza (better ls) ─────────────
+alias l="eza -l --icons=always"
 alias ls="eza --icons=always"
 alias ll="eza -la --icons=always"
 
