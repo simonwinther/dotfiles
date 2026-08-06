@@ -22,7 +22,7 @@
                 ),
             ),
             key: "Super_L",
-            top_offset: 430,
+            top_offset: 350,
             modifier: "super",
             filter_by: [],
             exclude_workspaces: "special:.*",
