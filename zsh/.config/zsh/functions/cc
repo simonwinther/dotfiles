@@ -5,6 +5,16 @@ cc() {
     case "$1" in
       -a|--append) append=1 ;;
       -v|--verbose) verbose=1 ;;
+      -h|--help)
+        echo "Usage: cc [options]"
+        echo "Copy standard input to the clipboard (using wl-copy)."
+        echo ""
+        echo "Options:"
+        echo "  -a, --append   Append to the current clipboard content"
+        echo "  -v, --verbose  Include system specs in the copied content"
+        echo "  -h, --help     Show this help message"
+        return 0
+        ;;
       *)
         echo "cc: unknown option: $1" >&2
         return 1
@@ -56,5 +66,14 @@ cc() {
   fi
 
   printf '%s' "$final" | wl-copy
-  echo "󰅍 Copied to clipboard"
+  
+  if (( append && verbose )); then
+    echo "󰅍 Verbose message appended to clipboard"
+  elif (( append )); then
+    echo "󰅍 Appended to clipboard"
+  elif (( verbose )); then
+    echo "󰅍 Verbose message copied to clipboard"
+  else
+    echo "󰅍 Copied to clipboard"
+  fi
 }
