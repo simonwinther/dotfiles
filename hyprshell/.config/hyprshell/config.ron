@@ -1,0 +1,42 @@
+// Edit with `hyprshell config edit`
+(
+    version: 4,
+    windows: (
+        scale: 8.5,
+        items_per_row: 5,
+        overview: (
+            launcher: (
+                default_terminal: None,
+                launch_modifier: "ctrl",
+                width: 650,
+                max_items: 5,
+                show_when_empty: true,
+                plugins: (
+                    applications: None,
+                    terminal: None,
+                    shell: None,
+                    websearch: None,
+                    calc: None,
+                    path: None,
+                    actions: None,
+                ),
+            ),
+            key: "Super_L",
+            top_offset: 430,
+            modifier: "super",
+            filter_by: [],
+            exclude_workspaces: "special:.*",
+        ),
+        switch: (
+            modifier: "alt",
+            key: "Tab",
+            filter_by: [
+                current_workspace,
+            ],
+            switch_workspaces: false,
+            exclude_workspaces: "",
+            kill_key: 'q',
+        ),
+        switch_2: None,
+    ),
+)
