@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -euo pipefail
+
+state_file="${XDG_RUNTIME_DIR:-/tmp}/hypr-global-opacity-disabled"
+rule="windowrule[global-opaque]:enable"
+
+set_all_windows_opaque() {
+  local value="$1"
+
+  while IFS= read -r address; do
+    hyprctl dispatch setprop "address:$address" opaque "$value" >/dev/null
+  done < <(hyprctl clients -j | jq -r '.[].address')
+}
+
+if [[ -e "$state_file" ]]; then
+  hyprctl keyword "$rule" false >/dev/null
+  set_all_windows_opaque unset
+  rm -f -- "$state_file"
+  notify-send "Transparency enabled globally"
+else
+  hyprctl keyword "$rule" true >/dev/null
+  set_all_windows_opaque 1
+  touch "$state_file"
+  notify-send "Transparency disabled globally"
+fi
