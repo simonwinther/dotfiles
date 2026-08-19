@@ -1,0 +1,204 @@
+# Run Codex with a named, isolated login and the main configuration.
+# "me" remains the normal ~/.codex profile.
+emulate -L zsh
+setopt local_options no_aliases
+
+local canonical_home="$HOME/.codex"
+local accounts_root="$HOME/.codex-accounts"
+local -a shared_names
+shared_names=(config.toml)
+
+if (( $# == 0 )) || [[ $1 == --help || $1 == -h ]]; then
+  print -r -- 'Usage: cx <account> [codex arguments...]'
+  print -r -- '       cx --list'
+  print -r -- ''
+  print -r -- 'Examples:'
+  print -r -- '  cx me'
+  print -r -- '  cx djafar resume --last --all'
+  print -r -- '  cx mom login --device-auth'
+  return $(( $# == 0 ? 2 : 0 ))
+fi
+
+if [[ $1 == --list || $1 == -l ]]; then
+  local profile_home login_state profile_dir
+  local -a profile_dirs
+
+  profile_home=$canonical_home
+  login_state='not logged in'
+  if [[ -f $profile_home/auth.json && ! -L $profile_home/auth.json && -s $profile_home/auth.json ]]; then
+    login_state='login cached'
+  fi
+  printf '%-16s %s\n' me "$login_state"
+
+  if [[ -d $accounts_root && ! -L $accounts_root ]]; then
+    profile_dirs=("$accounts_root"/*(N/))
+    for profile_dir in "${profile_dirs[@]}"; do
+      profile_home=$profile_dir
+      login_state='not logged in'
+      if [[ -f $profile_home/auth.json && ! -L $profile_home/auth.json && -s $profile_home/auth.json ]]; then
+        login_state='login cached'
+      fi
+      printf '%-16s %s\n' "${profile_dir:t}" "$login_state"
+    done
+  fi
+  return 0
+fi
+
+local account=$1
+shift
+
+case $account in
+  ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_-]*)
+    print -u2 -r -- "cx: invalid account name: $account"
+    print -u2 -r -- 'cx: use letters, numbers, underscores, or hyphens; start with a letter or number'
+    return 2
+    ;;
+esac
+
+if [[ $account == me ]]; then
+  CODEX_HOME=$canonical_home command codex "$@"
+  return $?
+fi
+
+if [[ ! -d $canonical_home || -L $canonical_home || ! -O $canonical_home ]]; then
+  print -u2 -r -- "cx: refusing unsafe canonical home: $canonical_home"
+  return 1
+fi
+
+local old_umask
+old_umask=$(umask)
+umask 077
+
+if [[ -L $accounts_root ]]; then
+  print -u2 -r -- "cx: refusing symlinked accounts directory: $accounts_root"
+  umask "$old_umask"
+  return 1
+fi
+command mkdir -p -- "$accounts_root" || {
+  umask "$old_umask"
+  return 1
+}
+command chmod 700 -- "$accounts_root" || {
+  umask "$old_umask"
+  return 1
+}
+
+local profile_home="$accounts_root/$account"
+if [[ -L $profile_home ]]; then
+  print -u2 -r -- "cx: refusing symlinked profile home: $profile_home"
+  umask "$old_umask"
+  return 1
+fi
+command mkdir -p -- "$profile_home" || {
+  umask "$old_umask"
+  return 1
+}
+command chmod 700 -- "$profile_home" || {
+  umask "$old_umask"
+  return 1
+}
+umask "$old_umask"
+
+if [[ ! -O $accounts_root || ! -O $profile_home ]]; then
+  print -u2 -r -- "cx: refusing a profile directory not owned by the current user: $profile_home"
+  return 1
+fi
+
+if [[ -L $profile_home/auth.json ]]; then
+  print -u2 -r -- "cx: refusing symlinked credentials: $profile_home/auth.json"
+  return 1
+fi
+if [[ -e $profile_home/auth.json && ( ! -f $profile_home/auth.json || ! -O $profile_home/auth.json ) ]]; then
+  print -u2 -r -- "cx: refusing unsafe credentials file: $profile_home/auth.json"
+  return 1
+fi
+
+local shared_name source_path target_path
+local need_stow=0
+for shared_name in "${shared_names[@]}"; do
+  source_path="$canonical_home/$shared_name"
+  target_path="$profile_home/$shared_name"
+
+  if [[ ! -e $source_path ]]; then
+    print -u2 -r -- "cx: missing shared source: $source_path"
+    return 1
+  fi
+
+  if [[ -e $target_path || -L $target_path ]]; then
+    if [[ ${target_path:A} != ${source_path:A} ]]; then
+      print -u2 -r -- "cx: refusing conflicting profile path: $target_path"
+      return 1
+    fi
+  else
+    need_stow=1
+  fi
+done
+
+if (( need_stow )); then
+  local entry name pattern
+  local -a ignore_args
+
+  for entry in "$canonical_home"/*(DN); do
+    name=${entry:t}
+    case $name in
+      config.toml)
+        ;;
+      *)
+        if [[ $name == *[^A-Za-z0-9._-]* ]]; then
+          print -u2 -r -- "cx: cannot safely exclude unexpected entry: $entry"
+          return 1
+        fi
+        pattern=${name//./[.]}
+        ignore_args+=("--ignore=^${pattern}$")
+        ;;
+    esac
+  done
+
+  command stow -d "$HOME" -t "$profile_home" "${ignore_args[@]}" .codex || return 1
+fi
+
+for shared_name in "${shared_names[@]}"; do
+  source_path="$canonical_home/$shared_name"
+  target_path="$profile_home/$shared_name"
+  if [[ ! -L $target_path || ${target_path:A} != ${source_path:A} ]]; then
+    print -u2 -r -- "cx: shared path was not linked safely: $target_path"
+    return 1
+  fi
+done
+
+if [[ -L $profile_home/auth.json ]]; then
+  print -u2 -r -- "cx: refusing symlinked credentials: $profile_home/auth.json"
+  return 1
+fi
+
+local sqlite_home="$profile_home/sqlite"
+local private_path
+local -a private_dirs
+private_dirs=(sessions archived_sessions thread-writer-locks sqlite)
+
+old_umask=$(umask)
+umask 077
+for private_path in "${private_dirs[@]}"; do
+  target_path="$profile_home/$private_path"
+  if [[ -L $target_path ]]; then
+    print -u2 -r -- "cx: refusing symlinked private path: $target_path"
+    umask "$old_umask"
+    return 1
+  fi
+  command mkdir -p -- "$target_path" || {
+    umask "$old_umask"
+    return 1
+  }
+  command chmod 700 -- "$target_path" || {
+    umask "$old_umask"
+    return 1
+  }
+done
+umask "$old_umask"
+
+if [[ -L $profile_home/history.jsonl ]]; then
+  print -u2 -r -- "cx: refusing symlinked private history: $profile_home/history.jsonl"
+  return 1
+fi
+
+CODEX_HOME=$profile_home CODEX_SQLITE_HOME=$sqlite_home command codex "$@"
