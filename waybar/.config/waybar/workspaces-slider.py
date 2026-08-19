@@ -29,11 +29,11 @@ SLOT_WIDTH = 28
 FIRST_CENTER = 20
 INDICATOR_RADIUS = 13
 
-BASE = (0x1E / 255, 0x1E / 255, 0x2E / 255)
-TEXT = (0xCD / 255, 0xD6 / 255, 0xF4 / 255)
-YELLOW = (0xF9 / 255, 0xE2 / 255, 0xAF / 255)
-BLUE = (0x89 / 255, 0xB4 / 255, 0xFA / 255)
-SURFACE2 = (0x58 / 255, 0x5B / 255, 0x70 / 255)
+BASE = (0x12 / 255, 0x12 / 255, 0x14 / 255)
+TEXT = (0xF4 / 255, 0xF4 / 255, 0xF5 / 255)
+BLUE = (0x60 / 255, 0xA5 / 255, 0xFA / 255)
+MAUVE = (0xA7 / 255, 0x78 / 255, 0xFA / 255)
+SURFACE2 = (0x52 / 255, 0x52 / 255, 0x5B / 255)
 
 
 def hypr_json(*arguments):
@@ -76,6 +76,29 @@ def rounded_rectangle(context, x, y, width, height, radius):
     context.close_path()
 
 
+FONT = Pango.FontDescription("JetBrainsMono Nerd Font Bold")
+FONT.set_absolute_size(14 * Pango.SCALE)
+
+
+def _measure_labels():
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)
+    context = cairo.Context(surface)
+    layout = PangoCairo.create_layout(context)
+    layout.set_font_description(FONT)
+    positions = {}
+    for workspace in range(1, WORKSPACE_COUNT + 1):
+        label = "0" if workspace == 10 else str(workspace)
+        layout.set_text(label, -1)
+        _, logical = layout.get_pixel_extents()
+        x = FIRST_CENTER + (workspace - 1) * SLOT_WIDTH - logical.width / 2 - logical.x
+        y = PANEL_HEIGHT / 2 - logical.height / 2 - logical.y
+        positions[workspace] = (label, x, y)
+    return positions
+
+
+LABEL_POSITIONS = _measure_labels()
+
+
 class WorkspaceSlider(Gtk.DrawingArea):
     def __init__(self, monitor_name, active, occupied):
         super().__init__()
@@ -92,17 +115,39 @@ class WorkspaceSlider(Gtk.DrawingArea):
         self.target_position = self.position
         self.animation_started = 0.0
         self.animation_duration = 0.20
+        self.animation_source = None
         self.occupied = occupied
         self.deferred_occupied = None
         self.refresh_source = None
 
-        GLib.timeout_add(16, self.animate)
         GLib.timeout_add_seconds(2, self.fallback_refresh)
         threading.Thread(target=self.listen_to_hyprland, daemon=True).start()
+
+    def _ensure_animating(self):
+        if self.animation_source is None:
+            self.animation_source = GLib.timeout_add(16, self.animate)
 
     @staticmethod
     def center_for(workspace):
         return FIRST_CENTER + (workspace - 1) * SLOT_WIDTH
+
+    def _start_slide(self, workspace):
+        self.deferred_occupied = workspace if workspace not in self.occupied else None
+        self.active = workspace
+        self.start_position = self.position
+        self.target_position = self.center_for(workspace)
+        distance = abs(self.target_position - self.start_position) / SLOT_WIDTH
+        self.animation_duration = min(0.30, 0.17 + distance * 0.018)
+        self.animation_started = time.monotonic()
+        self._ensure_animating()
+
+    def nudge(self, workspace):
+        # Fast path from a raw socket event: move now, let the trailing
+        # schedule_refresh() reconcile occupancy a beat later.
+        if 1 <= workspace <= WORKSPACE_COUNT and workspace != self.active:
+            self._start_slide(workspace)
+            self.queue_draw()
+        return False
 
     def set_state(self, workspace, occupied):
         previous_occupied = self.occupied
@@ -110,13 +155,7 @@ class WorkspaceSlider(Gtk.DrawingArea):
         self.occupied = occupied
 
         if 1 <= workspace <= WORKSPACE_COUNT and workspace != self.active:
-            self.deferred_occupied = workspace if workspace not in previous_occupied else None
-            self.active = workspace
-            self.start_position = self.position
-            self.target_position = self.center_for(workspace)
-            distance = abs(self.target_position - self.start_position) / SLOT_WIDTH
-            self.animation_duration = min(0.30, 0.17 + distance * 0.018)
-            self.animation_started = time.monotonic()
+            self._start_slide(workspace)
             changed = True
 
         if changed:
@@ -151,10 +190,19 @@ class WorkspaceSlider(Gtk.DrawingArea):
                     connection.connect(socket_path)
                     stream = connection.makefile("r", encoding="utf-8")
                     for line in stream:
-                        event, _, _payload = line.strip().partition(">>")
-                        if event in {
+                        event, _, payload = line.strip().partition(">>")
+                        if event == "workspacev2":
+                            # Fast path: the event payload already has the new
+                            # workspace id, so start the slide immediately
+                            # instead of waiting on a round-trip to hyprctl.
+                            # schedule_refresh still follows to correct the
+                            # occupied set and to cover other monitors.
+                            workspace_id, _, _name = payload.partition(",")
+                            if workspace_id.isdigit():
+                                GLib.idle_add(self.nudge, int(workspace_id))
+                            GLib.idle_add(self.schedule_refresh)
+                        elif event in {
                             "workspace",
-                            "workspacev2",
                             "createworkspace",
                             "createworkspacev2",
                             "destroyworkspace",
@@ -172,40 +220,45 @@ class WorkspaceSlider(Gtk.DrawingArea):
                 time.sleep(1)
 
     def animate(self):
-        if self.position == self.target_position:
-            return True
-
         elapsed = time.monotonic() - self.animation_started
         progress = min(1.0, elapsed / self.animation_duration)
         eased = 1 - pow(1 - progress, 3)
         self.position = self.start_position + (self.target_position - self.start_position) * eased
+        self.queue_draw()
+
         if progress >= 1:
             self.position = self.target_position
             self.deferred_occupied = None
-        self.queue_draw()
+            self.animation_source = None
+            return False
         return True
 
     @staticmethod
     def set_source(context, color, alpha=1.0):
         context.set_source_rgba(*color, alpha)
 
-    def draw_labels(self, context, color_override=None):
+    def draw_labels(self, context, color_override=None, workspaces=None):
         layout = PangoCairo.create_layout(context)
-        font = Pango.FontDescription("JetBrainsMono Nerd Font Bold")
-        font.set_absolute_size(14 * Pango.SCALE)
-        layout.set_font_description(font)
+        layout.set_font_description(FONT)
 
-        for workspace in range(1, WORKSPACE_COUNT + 1):
-            label = "0" if workspace == 10 else str(workspace)
+        for workspace in workspaces or range(1, WORKSPACE_COUNT + 1):
+            label, x, y = LABEL_POSITIONS[workspace]
             layout.set_text(label, -1)
-            _, logical = layout.get_pixel_extents()
-            x = self.center_for(workspace) - logical.width / 2 - logical.x
-            y = PANEL_HEIGHT / 2 - logical.height / 2 - logical.y
             occupied = workspace in self.occupied and workspace != self.deferred_occupied
-            color = color_override or (YELLOW if occupied else SURFACE2)
-            self.set_source(context, color)
+            if color_override:
+                self.set_source(context, color_override)
+            elif occupied:
+                self.set_source(context, TEXT)
+            else:
+                self.set_source(context, TEXT, 0.45)
             context.move_to(x, y)
             PangoCairo.show_layout(context, layout)
+
+    def labels_near(self, position):
+        reach = INDICATOR_RADIUS + SLOT_WIDTH / 2
+        lo = max(1, math.ceil((position - reach - FIRST_CENTER) / SLOT_WIDTH) + 1)
+        hi = min(WORKSPACE_COUNT, math.floor((position + reach - FIRST_CENTER) / SLOT_WIDTH) + 1)
+        return range(lo, hi + 1)
 
     def draw(self, _widget, context):
         context.set_operator(cairo.OPERATOR_SOURCE)
@@ -230,7 +283,13 @@ class WorkspaceSlider(Gtk.DrawingArea):
             context.fill()
 
         context.arc(self.position, PANEL_HEIGHT / 2, INDICATOR_RADIUS, 0, 2 * math.pi)
-        self.set_source(context, BLUE)
+        gradient = cairo.LinearGradient(
+            self.position - INDICATOR_RADIUS, PANEL_HEIGHT / 2 - INDICATOR_RADIUS,
+            self.position + INDICATOR_RADIUS, PANEL_HEIGHT / 2 + INDICATOR_RADIUS,
+        )
+        gradient.add_color_stop_rgb(0, *BLUE)
+        gradient.add_color_stop_rgb(1, *MAUVE)
+        context.set_source(gradient)
         context.fill()
         context.arc(self.position, PANEL_HEIGHT / 2, INDICATOR_RADIUS - 0.5, 0, 2 * math.pi)
         self.set_source(context, TEXT, 0.20)
@@ -240,7 +299,7 @@ class WorkspaceSlider(Gtk.DrawingArea):
         context.save()
         context.arc(self.position, PANEL_HEIGHT / 2, INDICATOR_RADIUS - 0.5, 0, 2 * math.pi)
         context.clip()
-        self.draw_labels(context, BASE)
+        self.draw_labels(context, BASE, self.labels_near(self.position))
         context.restore()
         return False
 
