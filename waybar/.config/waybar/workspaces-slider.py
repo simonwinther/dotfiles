@@ -28,6 +28,16 @@ PANEL_TOP = 14
 SLOT_WIDTH = 28
 FIRST_CENTER = 20
 INDICATOR_RADIUS = 13
+# The socket2 listener drives every normal update; this poll only exists to
+# recover if that stream ever stalls, so it can stay infrequent.
+FALLBACK_REFRESH_SECONDS = 15
+# One switch can emit workspace/create/destroy together; this window folds the
+# burst into a single hyprctl. The indicator has already moved via nudge(), so
+# the only thing waiting on it is label dimming.
+REFRESH_DEBOUNCE_MS = 40
+# How long to keep retrying Hyprland's IPC at startup before giving up.
+STARTUP_TIMEOUT_SECONDS = 10
+STARTUP_RETRY_SECONDS = 0.25
 
 BASE = (0x12 / 255, 0x12 / 255, 0x14 / 255)
 TEXT = (0xF4 / 255, 0xF4 / 255, 0xF5 / 255)
@@ -50,14 +60,49 @@ def hypr_json(*arguments):
         return None
 
 
+def hypr_json_batch(*commands):
+    # One hyprctl process for several queries; the replies arrive as
+    # back-to-back JSON documents, so decode them positionally.
+    try:
+        result = subprocess.run(
+            ["hyprctl", "-j", "--batch", " ; ".join(commands)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    decoder = json.JSONDecoder()
+    raw = result.stdout
+    documents = []
+    index = 0
+    try:
+        while index < len(raw):
+            while index < len(raw) and raw[index].isspace():
+                index += 1
+            if index >= len(raw):
+                break
+            document, index = decoder.raw_decode(raw, index)
+            documents.append(document)
+    except json.JSONDecodeError:
+        return None
+
+    return documents if len(documents) == len(commands) else None
+
+
 def monitor_snapshot(monitor_name):
-    monitors = hypr_json("monitors") or []
+    documents = hypr_json_batch("monitors", "workspaces")
+    if documents is None:
+        return None
+    monitors, workspaces = documents
+
     monitor = next((item for item in monitors if item.get("name") == monitor_name), None)
     if monitor is None:
         return None
 
     active = monitor.get("activeWorkspace", {}).get("id", 1)
-    workspaces = hypr_json("workspaces") or []
     occupied = {
         workspace.get("id")
         for workspace in workspaces
@@ -80,23 +125,24 @@ FONT = Pango.FontDescription("JetBrainsMono Nerd Font Bold")
 FONT.set_absolute_size(14 * Pango.SCALE)
 
 
-def _measure_labels():
+def _build_labels():
+    # The digits never change, so shape each one once and reuse the layout
+    # for every frame instead of re-shaping text on each draw.
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)
     context = cairo.Context(surface)
-    layout = PangoCairo.create_layout(context)
-    layout.set_font_description(FONT)
-    positions = {}
+    labels = {}
     for workspace in range(1, WORKSPACE_COUNT + 1):
-        label = "0" if workspace == 10 else str(workspace)
-        layout.set_text(label, -1)
+        layout = PangoCairo.create_layout(context)
+        layout.set_font_description(FONT)
+        layout.set_text("0" if workspace == 10 else str(workspace), -1)
         _, logical = layout.get_pixel_extents()
         x = FIRST_CENTER + (workspace - 1) * SLOT_WIDTH - logical.width / 2 - logical.x
         y = PANEL_HEIGHT / 2 - logical.height / 2 - logical.y
-        positions[workspace] = (label, x, y)
-    return positions
+        labels[workspace] = (layout, x, y)
+    return labels
 
 
-LABEL_POSITIONS = _measure_labels()
+LABELS = _build_labels()
 
 
 class WorkspaceSlider(Gtk.DrawingArea):
@@ -119,13 +165,21 @@ class WorkspaceSlider(Gtk.DrawingArea):
         self.occupied = occupied
         self.deferred_occupied = None
         self.refresh_source = None
+        self.refresh_running = False
+        self.refresh_pending = False
 
-        GLib.timeout_add_seconds(2, self.fallback_refresh)
+        GLib.timeout_add_seconds(FALLBACK_REFRESH_SECONDS, self.fallback_refresh)
         threading.Thread(target=self.listen_to_hyprland, daemon=True).start()
 
     def _ensure_animating(self):
         if self.animation_source is None:
-            self.animation_source = GLib.timeout_add(16, self.animate)
+            # Drive the slide from the compositor's frame clock rather than a
+            # 16ms timer. A fixed timer ticks at 62.5Hz against a 60Hz output,
+            # so a few percent of the positions it computes are coalesced away
+            # unseen, which shows up as the occasional skipped step. The frame
+            # clock also matches whatever an external monitor runs at and stops
+            # entirely while the bar is occluded.
+            self.animation_source = self.add_tick_callback(self.animate)
 
     @staticmethod
     def center_for(workspace):
@@ -163,20 +217,46 @@ class WorkspaceSlider(Gtk.DrawingArea):
         return False
 
     def refresh_state(self):
+        # hyprctl costs ~10ms and can stall for up to its timeout, so it runs
+        # off the main loop; a slide is usually animating when this fires.
         self.refresh_source = None
-        snapshot = monitor_snapshot(self.monitor_name)
+        if self.refresh_running:
+            self.refresh_pending = True
+            return False
+        self.refresh_running = True
+        threading.Thread(target=self._fetch_state, daemon=True).start()
+        return False
+
+    def _fetch_state(self):
+        try:
+            snapshot = monitor_snapshot(self.monitor_name)
+        except Exception:
+            # Never leave refresh_running latched on; that would wedge every
+            # later refresh.
+            snapshot = None
+        GLib.idle_add(self._apply_state, snapshot)
+
+    def _apply_state(self, snapshot):
+        self.refresh_running = False
         if snapshot is not None:
             _monitor, active, occupied = snapshot
             self.set_state(active, occupied)
+        if self.refresh_pending:
+            # State changed while that fetch was in flight; go around again.
+            self.refresh_pending = False
+            self.schedule_refresh()
         return False
 
     def schedule_refresh(self):
         if self.refresh_source is None:
-            self.refresh_source = GLib.timeout_add(8, self.refresh_state)
+            self.refresh_source = GLib.timeout_add(REFRESH_DEBOUNCE_MS, self.refresh_state)
         return False
 
     def fallback_refresh(self):
-        self.refresh_state()
+        # Going through the debounce keeps refresh_source the single owner of
+        # the timer; calling refresh_state() directly would clear it while the
+        # pending timer stayed queued, leaving two of them running.
+        self.schedule_refresh()
         return True
 
     def listen_to_hyprland(self):
@@ -188,7 +268,14 @@ class WorkspaceSlider(Gtk.DrawingArea):
             try:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                     connection.connect(socket_path)
-                    stream = connection.makefile("r", encoding="utf-8")
+                    # Events between the startup snapshot and this connect (or
+                    # during a drop) were missed, so resync instead of waiting
+                    # on the fallback poll to notice.
+                    GLib.idle_add(self.schedule_refresh)
+                    # Event lines carry window titles, which can hold invalid
+                    # UTF-8. A strict decode raises past the OSError guard below
+                    # and kills this thread for the rest of the session.
+                    stream = connection.makefile("r", encoding="utf-8", errors="replace")
                     for line in stream:
                         event, _, payload = line.strip().partition(">>")
                         if event == "workspacev2":
@@ -217,9 +304,12 @@ class WorkspaceSlider(Gtk.DrawingArea):
                         }:
                             GLib.idle_add(self.schedule_refresh)
             except OSError:
-                time.sleep(1)
+                pass
+            # Also covers a clean EOF (Hyprland restarting), which would
+            # otherwise spin this loop on immediate reconnects.
+            time.sleep(1)
 
-    def animate(self):
+    def animate(self, _widget, _frame_clock):
         elapsed = time.monotonic() - self.animation_started
         progress = min(1.0, elapsed / self.animation_duration)
         eased = 1 - pow(1 - progress, 3)
@@ -238,12 +328,8 @@ class WorkspaceSlider(Gtk.DrawingArea):
         context.set_source_rgba(*color, alpha)
 
     def draw_labels(self, context, color_override=None, workspaces=None):
-        layout = PangoCairo.create_layout(context)
-        layout.set_font_description(FONT)
-
         for workspace in workspaces or range(1, WORKSPACE_COUNT + 1):
-            label, x, y = LABEL_POSITIONS[workspace]
-            layout.set_text(label, -1)
+            layout, x, y = LABELS[workspace]
             occupied = workspace in self.occupied and workspace != self.deferred_occupied
             if color_override:
                 self.set_source(context, color_override)
@@ -334,14 +420,32 @@ class WorkspaceSlider(Gtk.DrawingArea):
         return True
 
 
-def main():
-    monitors = hypr_json("monitors") or []
+def resolve_monitor_name():
     monitor_name = os.environ.get("WAYBAR_OUTPUT_NAME")
-    if not monitor_name:
-        focused = next((monitor for monitor in monitors if monitor.get("focused")), None)
-        monitor_name = focused.get("name") if focused else None
+    if monitor_name:
+        return monitor_name
+    monitors = hypr_json("monitors") or []
+    focused = next((monitor for monitor in monitors if monitor.get("focused")), None)
+    return focused.get("name") if focused else None
 
-    snapshot = monitor_snapshot(monitor_name) if monitor_name else None
+
+def initial_snapshot():
+    # exec-once can win the race against Hyprland's IPC being ready. Giving up
+    # on the first miss would leave the bar without its pill for the whole
+    # session, so keep asking for a short while before conceding.
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    while True:
+        monitor_name = resolve_monitor_name()
+        snapshot = monitor_snapshot(monitor_name) if monitor_name else None
+        if snapshot is not None:
+            return monitor_name, snapshot
+        if time.monotonic() >= deadline:
+            return None, None
+        time.sleep(STARTUP_RETRY_SECONDS)
+
+
+def main():
+    monitor_name, snapshot = initial_snapshot()
     if snapshot is None:
         return
     monitor, active, occupied = snapshot
