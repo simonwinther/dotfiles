@@ -33,7 +33,7 @@ window#waybar {
 tooltip {
     background: @mantle;
     border: 1px solid @surface1;
-    border-radius: 12px;
+    border-radius: 6px;
     padding: 6px 10px;
 }
 
@@ -70,7 +70,7 @@ tooltip label {
  * ----------------------------------------------------- */
 
 #custom-weather {
-    border-radius: 16px 0px 0px 16px;
+    border-radius: 8px 0px 0px 8px;
     margin-right: 0px;
     padding-right: 14px;
 }
@@ -86,7 +86,7 @@ tooltip label {
 }
 
 #disk {
-    border-radius: 0px 16px 16px 0px;
+    border-radius: 0px 8px 8px 0px;
     padding-left: 14px;
     padding-right: 16px;
     border-left: 1px solid alpha(@surface1, 0.6);
@@ -99,7 +99,7 @@ tooltip label {
  * ----------------------------------------------------- */
 
 #pulseaudio {
-    border-radius: 16px 0px 0px 16px;
+    border-radius: 8px 0px 0px 8px;
     margin-right: 0px;
     padding-right: 14px;
 }
@@ -116,7 +116,7 @@ tooltip label {
 }
 
 #clock {
-    border-radius: 0px 16px 16px 0px;
+    border-radius: 0px 8px 8px 0px;
     margin-left: 0px;
     margin-right: 6px;
     border-left: 1px solid alpha(@surface1, 0.6);
@@ -134,7 +134,7 @@ tooltip label {
 }
 
 #tray {
-    border-radius: 16px;
+    border-radius: 8px;
     margin-left: 6px;
     padding-left: 14px;
     padding-right: 14px;
@@ -144,7 +144,7 @@ tooltip label {
  * WORKSPACES
  * ----------------------------------------------------- */
 #workspaces {
-    border-radius: 16px;
+    border-radius: 0px;
     margin-left: 10px;
     margin-right: 10px;
     padding: 0px 8px;
@@ -182,7 +182,7 @@ tooltip label {
     min-width: 30px;
     color: @base;
     background: linear-gradient(135deg, @blue, @mauve);
-    border-radius: 14px;
+    border-radius: 7px;
     box-shadow: 0 2px 8px alpha(@blue, 0.4);
 }
 
@@ -205,7 +205,7 @@ tooltip label {
 }
 
 #workspaces button.active:hover {
-    border-radius: 14px;
+    border-radius: 7px;
     background: linear-gradient(135deg, @blue, @mauve);
 }
 
