@@ -530,11 +530,13 @@ return {
       },
 
       signature = {
+        enabled = true,
         window = {
           border = "rounded",
           max_width = 100,
-          max_height = 12,
+          max_height = 8,
           scrollbar = false,
+          show_documentation = false,
         },
       },
 
@@ -555,6 +557,15 @@ return {
                 })
               end
               return
+            end
+
+            -- A visible Copilot suggestion is the most specific meaning of
+            -- <Tab>. Accept it before LuaSnip gets a chance to jump out of a
+            -- pair such as `(<cursor>)` and discard the inline suggestion.
+            local cok, suggestion = pcall(require, "copilot.suggestion")
+            if cok and suggestion.is_visible() then
+              suggestion.accept()
+              return true
             end
 
             -- LuaSnip jumps 1 -> 2 -> ... -> 0, so on the highest-numbered stop
@@ -622,15 +633,6 @@ return {
             -- 3) Only the exit stop is left and there is nothing to hop: jump.
             if jumpable then
               return ls.jump(1)
-            end
-
-            -- Nothing to jump: accept Copilot ghost text if it is showing. This
-            -- is the only key that accepts a full suggestion; it never touches
-            -- the completion menu.
-            local ok, suggestion = pcall(require, "copilot.suggestion")
-            if ok and suggestion.is_visible() then
-              suggestion.accept()
-              return true
             end
           end,
           "fallback",
