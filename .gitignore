@@ -1,7 +1,7 @@
 /usr-shell-scripts/.local/bin/claude
 /usr-shell-scripts/.local/bin/inferencesh
 /usr-shell-scripts/.local/bin/infsh
-/openai-dictation/.config/openai-dictation/secrets.env
+/dictate/.config/dictate/secrets.env
 
 .codex
 .gemini
