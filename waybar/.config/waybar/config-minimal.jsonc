@@ -1,14 +1,19 @@
 {
     "output": ["DVI-D-1", "HDMI-A-1"],
     "position": "top",
-    "layer": "top",
+    // Bottom layer (waybar's default, and what config.jsonc uses) so the
+    // workspaces-slider pill sits above the bar and receives its own clicks.
+    // The exclusive zone still keeps windows off the bar.
+    "layer": "bottom",
     "height": 41,
     "margin-top": 10,
     "margin-left": 10,
     "margin-right": 10,
 
     "modules-left": [],
-    "modules-center": ["hyprland/workspaces"],
+    // Workspaces come from the workspaces-slider pill, which draws its own
+    // layer surface over this bar on every output.
+    "modules-center": [],
     "modules-right": ["clock"],
 
     "hyprland/workspaces": {

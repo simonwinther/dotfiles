@@ -1,9 +1,13 @@
 //! Animated Hyprland workspace pill, drawn straight onto a layer-shell surface.
+//!
+//! One surface per output, each tracking its own monitor's workspaces, all
+//! driven by a single Hyprland connection and a single event loop.
 
 mod hypr;
 mod render;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::reexports::calloop::{
@@ -62,10 +66,12 @@ fn main() {
         return;
     }
 
-    let preset = std::env::var("WAYBAR_OUTPUT_NAME").ok().filter(|name| !name.is_empty());
-    let Some((name, snapshot)) = initial_snapshot(preset.as_deref()) else {
+    // Every output gets a pill unless this pins us to one.
+    let only = std::env::var("WAYBAR_OUTPUT_NAME").ok().filter(|name| !name.is_empty());
+
+    if !wait_for_hyprland() {
         return;
-    };
+    }
 
     let connection = match Connection::connect_to_env() {
         Ok(connection) => connection,
@@ -80,6 +86,10 @@ fn main() {
     let compositor = CompositorState::bind(&globals, &qh).expect("wl_compositor unavailable");
     let layer_shell = LayerShell::bind(&globals, &qh).expect("wlr-layer-shell unavailable");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm unavailable");
+    // Room for a few panels; the pool grows itself if the outputs need more.
+    let Ok(pool) = SlotPool::new((PANEL_WIDTH * PANEL_HEIGHT * 4.0) as usize * 4, &shm) else {
+        return;
+    };
 
     let mut event_loop = EventLoop::<App>::try_new().expect("event loop");
     let handle = event_loop.handle();
@@ -89,75 +99,27 @@ fn main() {
         seat_state: SeatState::new(&globals, &qh),
         output_state: OutputState::new(&globals, &qh),
         shm,
-        pool: None,
-        layer: None,
+        pool,
+        compositor,
+        layer_shell,
+        renderers: HashMap::new(),
+        monitors: Vec::new(),
         pointer: None,
-        renderer: None,
-        pixmap: None,
         qh: qh.clone(),
-        monitor: name,
-        scale: 1,
-        configured: false,
-        frame_pending: false,
-        active: snapshot.active.clamp(1, WORKSPACE_COUNT),
-        occupied: snapshot.occupied,
-        deferred_occupied: None,
-        position: 0.0,
-        start_position: 0.0,
-        target_position: 0.0,
-        animation_started: Instant::now(),
-        animation_duration: 0.20,
-        animating: false,
-        pointer_position: (0.0, 0.0),
-        scroll_accumulator: 0.0,
-        exit: false,
+        only,
+        focused: None,
     };
-    app.position = center_for(app.active);
-    app.start_position = app.position;
-    app.target_position = app.position;
 
     let mut queue = event_queue;
-    // One roundtrip so the outputs are known before we pick one.
+    // One roundtrip so the outputs are known before we place surfaces on them.
     if queue.roundtrip(&mut app).is_err() {
         return;
     }
 
-    let output = app.output_state.outputs().find(|output| {
-        app.output_state.info(output).and_then(|info| info.name) == Some(app.monitor.clone())
-    });
-    let Some(output) = output else {
-        return;
-    };
-    app.scale = app.output_state.info(&output).map(|info| info.scale_factor).unwrap_or(1).max(1);
-
-    let Some(renderer) = Renderer::new(app.scale as f32) else {
-        return;
-    };
-    let buffer_bytes = (renderer.width() * renderer.height() * 4) as usize;
-    app.pixmap = Pixmap::new(renderer.width(), renderer.height());
-    app.renderer = Some(renderer);
-    app.pool = SlotPool::new(buffer_bytes, &app.shm).ok();
-    if app.pixmap.is_none() || app.pool.is_none() {
-        return;
+    for output in app.output_state.outputs().collect::<Vec<_>>() {
+        app.add_monitor(output);
     }
-
-    let surface = compositor.create_surface(&qh);
-    surface.set_buffer_scale(app.scale);
-    let layer = layer_shell.create_layer_surface(
-        &qh,
-        surface,
-        Layer::Bottom,
-        Some(format!("waybar-workspace-slider-{}", app.monitor)),
-        Some(&output),
-    );
-    layer.set_size(PANEL_WIDTH as u32, PANEL_HEIGHT as u32);
-    layer.set_anchor(Anchor::TOP);
-    layer.set_margin(PANEL_TOP, 0, 0, 0);
-    // Draw over Waybar's reserved strip instead of below it.
-    layer.set_exclusive_zone(-1);
-    layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-    layer.commit();
-    app.layer = Some(layer);
+    app.refresh();
 
     let (sender, receiver) = channel::channel();
     hypr::listen(move |event| {
@@ -183,7 +145,7 @@ fn main() {
         .expect("wayland source");
 
     loop {
-        if event_loop.dispatch(None, &mut app).is_err() || app.exit {
+        if event_loop.dispatch(None, &mut app).is_err() {
             break;
         }
     }
@@ -197,8 +159,15 @@ fn dump_frame(path: &str, scale: f32) {
     let Some(mut pixmap) = Pixmap::new(renderer.width(), renderer.height()) else {
         return;
     };
-    let occupied: HashSet<i32> = [2, 3, 7].into_iter().collect();
-    renderer.draw(&mut pixmap, center_for(3), &occupied, None);
+    let occupied: HashSet<i32> = [2, 8].into_iter().collect();
+    let occupied_elsewhere: HashSet<i32> = [1, 3, 6, 9, 10].into_iter().collect();
+    renderer.draw(
+        &mut pixmap,
+        center_for(8),
+        &occupied,
+        &occupied_elsewhere,
+        None,
+    );
     if let Err(error) = pixmap.save_png(path) {
         eprintln!("save failed: {error}");
     }
@@ -206,44 +175,41 @@ fn dump_frame(path: &str, scale: f32) {
 
 /// Keep asking until Hyprland's IPC answers; giving up on the first miss would
 /// leave the bar without its pill for the whole session.
-fn initial_snapshot(preset: Option<&str>) -> Option<(String, hypr::Snapshot)> {
+fn wait_for_hyprland() -> bool {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     loop {
-        let name = match preset {
-            Some(name) => Some(name.to_owned()),
-            None => hypr::focused_monitor(),
-        };
-        if let Some(name) = name {
-            if let Some(snapshot) = hypr::snapshot(&name, WORKSPACE_COUNT) {
-                return Some((name, snapshot));
-            }
+        if hypr::snapshot_all(WORKSPACE_COUNT).is_some_and(|monitors| !monitors.is_empty()) {
+            return true;
         }
         if Instant::now() >= deadline {
-            return None;
+            return false;
         }
         std::thread::sleep(STARTUP_RETRY);
     }
 }
 
-struct App {
-    registry_state: RegistryState,
-    seat_state: SeatState,
-    output_state: OutputState,
-    shm: Shm,
-    pool: Option<SlotPool>,
-    layer: Option<LayerSurface>,
-    pointer: Option<wl_pointer::WlPointer>,
-    renderer: Option<Renderer>,
-    pixmap: Option<Pixmap>,
-    qh: QueueHandle<App>,
+fn workspace_at(x: f64) -> i32 {
+    let workspace = ((x as f32 - FIRST_CENTER) / SLOT_WIDTH).round() as i32 + 1;
+    workspace.clamp(1, WORKSPACE_COUNT)
+}
 
-    monitor: String,
+/// One output's pill: its own surface, its own animation, its own workspaces.
+struct Monitor {
+    output: wl_output::WlOutput,
+    name: String,
+    layer: LayerSurface,
     scale: i32,
+    renderer: Rc<Renderer>,
+    pixmap: Pixmap,
     configured: bool,
     frame_pending: bool,
+    /// Cleared until the first state read lands, so the pill appears already at
+    /// the right workspace instead of sliding there from 1 at login.
+    initialized: bool,
 
     active: i32,
     occupied: HashSet<i32>,
+    occupied_elsewhere: HashSet<i32>,
     deferred_occupied: Option<i32>,
     position: f32,
     start_position: f32,
@@ -251,41 +217,35 @@ struct App {
     animation_started: Instant,
     animation_duration: f32,
     animating: bool,
-
-    pointer_position: (f64, f64),
     scroll_accumulator: f64,
-    exit: bool,
 }
 
-impl App {
-    fn handle_hypr_event(&mut self, event: hypr::Event) {
-        match event {
-            // The payload already carries the new id, so start moving without
-            // waiting for the state read that follows.
-            hypr::Event::Switched(workspace) => {
-                if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
-                    self.start_slide(workspace);
-                    self.request_frame();
-                }
-            }
-            hypr::Event::Changed => self.refresh(),
-        }
-    }
-
-    fn refresh(&mut self) {
-        let Some(snapshot) = hypr::snapshot(&self.monitor, WORKSPACE_COUNT) else {
-            return;
-        };
-        let mut changed = snapshot.occupied != self.occupied;
-        self.occupied = snapshot.occupied;
-        let workspace = snapshot.active;
-        if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
+impl Monitor {
+    /// Take one monitor's slice of a state read. Returns whether anything moved.
+    fn apply(&mut self, snapshot: &hypr::Snapshot, occupied_elsewhere: HashSet<i32>) -> bool {
+        let mut changed =
+            snapshot.occupied != self.occupied || occupied_elsewhere != self.occupied_elsewhere;
+        self.occupied = snapshot.occupied.clone();
+        self.occupied_elsewhere = occupied_elsewhere;
+        let workspace = snapshot.active.clamp(1, WORKSPACE_COUNT);
+        if !self.initialized {
+            self.snap_to(workspace);
+            self.initialized = true;
+            changed = true;
+        } else if workspace != self.active {
             self.start_slide(workspace);
             changed = true;
         }
-        if changed {
-            self.request_frame();
-        }
+        changed
+    }
+
+    fn snap_to(&mut self, workspace: i32) {
+        self.active = workspace;
+        self.deferred_occupied = None;
+        self.position = center_for(workspace);
+        self.start_position = self.position;
+        self.target_position = self.position;
+        self.animating = false;
     }
 
     fn start_slide(&mut self, workspace: i32) {
@@ -303,24 +263,17 @@ impl App {
     /// Ask for one frame callback; the compositor decides when, so this is the
     /// native equivalent of driving the animation off a frame clock. Nothing is
     /// drawn until it fires, so an idle pill costs no wakeups at all.
-    fn request_frame(&mut self) {
+    fn request_frame(&mut self, qh: &QueueHandle<App>) {
         if self.frame_pending || !self.configured {
             return;
         }
-        if let Some(layer) = &self.layer {
-            self.frame_pending = true;
-            let surface = layer.wl_surface();
-            surface.frame(&self.qh, FrameCallbackData(surface.clone()));
-            surface.commit();
-        }
+        self.frame_pending = true;
+        let surface = self.layer.wl_surface();
+        surface.frame(qh, FrameCallbackData(surface.clone()));
+        surface.commit();
     }
 
-    fn workspace_at(&self, x: f64) -> i32 {
-        let workspace = ((x as f32 - FIRST_CENTER) / SLOT_WIDTH).round() as i32 + 1;
-        workspace.clamp(1, WORKSPACE_COUNT)
-    }
-
-    fn draw(&mut self, qh: &QueueHandle<Self>) {
+    fn draw(&mut self, pool: &mut SlotPool, qh: &QueueHandle<App>) {
         if self.animating {
             let elapsed = self.animation_started.elapsed().as_secs_f32();
             let progress = (elapsed / self.animation_duration).min(1.0);
@@ -334,16 +287,16 @@ impl App {
             }
         }
 
-        let (Some(renderer), Some(pixmap), Some(pool), Some(layer)) =
-            (&self.renderer, &mut self.pixmap, &mut self.pool, &self.layer)
-        else {
-            return;
-        };
+        self.renderer.draw(
+            &mut self.pixmap,
+            self.position,
+            &self.occupied,
+            &self.occupied_elsewhere,
+            self.deferred_occupied,
+        );
 
-        renderer.draw(pixmap, self.position, &self.occupied, self.deferred_occupied);
-
-        let width = renderer.width() as i32;
-        let height = renderer.height() as i32;
+        let width = self.renderer.width() as i32;
+        let height = self.renderer.height() as i32;
         let Ok((buffer, canvas)) =
             pool.create_buffer(width, height, width * 4, wl_shm::Format::Argb8888)
         else {
@@ -351,14 +304,14 @@ impl App {
         };
         // tiny-skia is premultiplied RGBA; wl_shm ARGB8888 is premultiplied
         // BGRA in memory on little-endian.
-        for (out, src) in canvas.chunks_exact_mut(4).zip(pixmap.data().chunks_exact(4)) {
+        for (out, src) in canvas.chunks_exact_mut(4).zip(self.pixmap.data().chunks_exact(4)) {
             out[0] = src[2];
             out[1] = src[1];
             out[2] = src[0];
             out[3] = src[3];
         }
 
-        let surface = layer.wl_surface();
+        let surface = self.layer.wl_surface();
         surface.damage_buffer(0, 0, width, height);
         if self.animating {
             self.frame_pending = true;
@@ -371,27 +324,184 @@ impl App {
     }
 }
 
+struct App {
+    registry_state: RegistryState,
+    seat_state: SeatState,
+    output_state: OutputState,
+    shm: Shm,
+    pool: SlotPool,
+    compositor: CompositorState,
+    layer_shell: LayerShell,
+    /// Keyed by buffer scale. Building one costs a full Nerd Font parse, so
+    /// outputs sharing a scale share the glyphs.
+    renderers: HashMap<i32, Rc<Renderer>>,
+    monitors: Vec<Monitor>,
+    pointer: Option<wl_pointer::WlPointer>,
+    qh: QueueHandle<App>,
+
+    only: Option<String>,
+    /// Which monitor Hyprland last reported as focused; `workspacev2` carries no
+    /// monitor of its own, so that is the one its payload applies to.
+    focused: Option<String>,
+}
+
+impl App {
+    fn renderer_for(&mut self, scale: i32) -> Option<Rc<Renderer>> {
+        if let Some(renderer) = self.renderers.get(&scale) {
+            return Some(renderer.clone());
+        }
+        let renderer = Rc::new(Renderer::new(scale as f32)?);
+        self.renderers.insert(scale, renderer.clone());
+        Some(renderer)
+    }
+
+    fn add_monitor(&mut self, output: wl_output::WlOutput) {
+        if self.monitors.iter().any(|monitor| monitor.output == output) {
+            return;
+        }
+        let Some(info) = self.output_state.info(&output) else {
+            return;
+        };
+        let scale = info.scale_factor.max(1);
+        let Some(name) = info.name else {
+            return;
+        };
+        if self.only.as_ref().is_some_and(|only| *only != name) {
+            return;
+        }
+        let Some(renderer) = self.renderer_for(scale) else {
+            return;
+        };
+        let Some(pixmap) = Pixmap::new(renderer.width(), renderer.height()) else {
+            return;
+        };
+
+        let surface = self.compositor.create_surface(&self.qh);
+        surface.set_buffer_scale(scale);
+        let layer = self.layer_shell.create_layer_surface(
+            &self.qh,
+            surface,
+            // Above Waybar, which sits on the bottom layer, so the pill takes
+            // the clicks over its own area. Same-layer stacking would be decided
+            // by whichever process happened to start first.
+            Layer::Top,
+            Some(format!("waybar-workspace-slider-{name}")),
+            Some(&output),
+        );
+        layer.set_size(PANEL_WIDTH as u32, PANEL_HEIGHT as u32);
+        layer.set_anchor(Anchor::TOP);
+        layer.set_margin(PANEL_TOP, 0, 0, 0);
+        // Draw over Waybar's reserved strip instead of below it.
+        layer.set_exclusive_zone(-1);
+        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        layer.commit();
+
+        let start = center_for(1);
+        self.monitors.push(Monitor {
+            output,
+            name,
+            layer,
+            scale,
+            renderer,
+            pixmap,
+            configured: false,
+            frame_pending: false,
+            initialized: false,
+            active: 1,
+            occupied: HashSet::new(),
+            occupied_elsewhere: HashSet::new(),
+            deferred_occupied: None,
+            position: start,
+            start_position: start,
+            target_position: start,
+            animation_started: Instant::now(),
+            animation_duration: 0.20,
+            animating: false,
+            scroll_accumulator: 0.0,
+        });
+    }
+
+    fn refresh(&mut self) {
+        let Some(snapshots) = hypr::snapshot_all(WORKSPACE_COUNT) else {
+            return;
+        };
+        self.focused = snapshots
+            .iter()
+            .find(|(_, snapshot)| snapshot.focused)
+            .map(|(name, _)| name.clone());
+
+        let qh = self.qh.clone();
+        for monitor in &mut self.monitors {
+            let Some(snapshot) = snapshots.get(&monitor.name) else {
+                continue;
+            };
+            let occupied_elsewhere = snapshots
+                .iter()
+                .filter(|(name, _)| name.as_str() != monitor.name)
+                .flat_map(|(_, snapshot)| snapshot.occupied.iter().copied())
+                .collect();
+            if monitor.apply(snapshot, occupied_elsewhere) {
+                monitor.request_frame(&qh);
+            }
+        }
+    }
+
+    fn handle_hypr_event(&mut self, event: hypr::Event) {
+        match event {
+            // The payload already carries the new id, so start moving without
+            // waiting for the state read that follows.
+            hypr::Event::Switched(workspace) => {
+                if !(1..=WORKSPACE_COUNT).contains(&workspace) {
+                    return;
+                }
+                let Some(focused) = self.focused.clone() else {
+                    return;
+                };
+                let qh = self.qh.clone();
+                let Some(monitor) = self.monitors.iter_mut().find(|m| m.name == focused) else {
+                    return;
+                };
+                if monitor.initialized && workspace != monitor.active {
+                    monitor.start_slide(workspace);
+                    monitor.request_frame(&qh);
+                }
+            }
+            hypr::Event::Changed => self.refresh(),
+        }
+    }
+
+    fn index_for_surface(&self, surface: &wl_surface::WlSurface) -> Option<usize> {
+        self.monitors.iter().position(|monitor| monitor.layer.wl_surface() == surface)
+    }
+}
+
 impl CompositorHandler for App {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
         qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         new_factor: i32,
     ) {
         let factor = new_factor.max(1);
-        if factor == self.scale {
+        let Some(index) = self.index_for_surface(surface) else {
+            return;
+        };
+        if self.monitors[index].scale == factor {
             return;
         }
-        self.scale = factor;
-        if let Some(renderer) = Renderer::new(factor as f32) {
-            self.pixmap = Pixmap::new(renderer.width(), renderer.height());
-            self.renderer = Some(renderer);
-        }
-        if let Some(layer) = &self.layer {
-            layer.wl_surface().set_buffer_scale(factor);
-        }
-        self.draw(qh);
+        let Some(renderer) = self.renderer_for(factor) else {
+            return;
+        };
+        let Some(pixmap) = Pixmap::new(renderer.width(), renderer.height()) else {
+            return;
+        };
+        let monitor = &mut self.monitors[index];
+        monitor.scale = factor;
+        monitor.renderer = renderer;
+        monitor.pixmap = pixmap;
+        monitor.layer.wl_surface().set_buffer_scale(factor);
+        monitor.draw(&mut self.pool, qh);
     }
 
     fn transform_changed(
@@ -407,11 +517,15 @@ impl CompositorHandler for App {
         &mut self,
         _conn: &Connection,
         qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        self.frame_pending = false;
-        self.draw(qh);
+        let Some(index) = self.index_for_surface(surface) else {
+            return;
+        };
+        let monitor = &mut self.monitors[index];
+        monitor.frame_pending = false;
+        monitor.draw(&mut self.pool, qh);
     }
 
     fn surface_enter(
@@ -434,21 +548,26 @@ impl CompositorHandler for App {
 }
 
 impl LayerShellHandler for App {
-    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
-        self.exit = true;
+    /// One output going away should not take the other pills with it.
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, layer: &LayerSurface) {
+        self.monitors.retain(|monitor| monitor.layer.wl_surface() != layer.wl_surface());
     }
 
     fn configure(
         &mut self,
         _conn: &Connection,
         qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
+        layer: &LayerSurface,
         _configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        self.configured = true;
-        self.frame_pending = false;
-        self.draw(qh);
+        let Some(index) = self.index_for_surface(layer.wl_surface()) else {
+            return;
+        };
+        let monitor = &mut self.monitors[index];
+        monitor.configured = true;
+        monitor.frame_pending = false;
+        monitor.draw(&mut self.pool, qh);
     }
 }
 
@@ -497,37 +616,35 @@ impl PointerHandler for App {
         _pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
-        let Some(layer) = &self.layer else { return };
         for event in events {
-            if &event.surface != layer.wl_surface() {
+            // The surface says which pill was touched, and so which monitor the
+            // dispatch below should act on.
+            let Some(index) = self.index_for_surface(&event.surface) else {
                 continue;
-            }
+            };
+            let monitor = &mut self.monitors[index];
             match event.kind {
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
-                    self.pointer_position = event.position;
-                }
                 PointerEventKind::Press { .. } => {
-                    self.pointer_position = event.position;
-                    let workspace = self.workspace_at(event.position.0);
+                    let workspace = workspace_at(event.position.0);
                     hypr::dispatch(format!(
                         "dispatch focusmonitor {} ; dispatch workspace {}",
-                        self.monitor, workspace
+                        monitor.name, workspace
                     ));
                 }
                 PointerEventKind::Axis { vertical, .. } => {
                     let notches = if vertical.discrete != 0 {
                         vertical.discrete as f64
                     } else {
-                        self.scroll_accumulator += vertical.absolute;
-                        let whole = (self.scroll_accumulator / SCROLL_NOTCH).trunc();
-                        self.scroll_accumulator -= whole * SCROLL_NOTCH;
+                        monitor.scroll_accumulator += vertical.absolute;
+                        let whole = (monitor.scroll_accumulator / SCROLL_NOTCH).trunc();
+                        monitor.scroll_accumulator -= whole * SCROLL_NOTCH;
                         whole
                     };
                     if notches != 0.0 {
                         let direction = if notches > 0.0 { "e+1" } else { "e-1" };
                         hypr::dispatch(format!(
                             "dispatch focusmonitor {} ; dispatch workspace {}",
-                            self.monitor, direction
+                            monitor.name, direction
                         ));
                     }
                 }
@@ -542,23 +659,29 @@ impl OutputHandler for App {
         &mut self.output_state
     }
 
-    fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _o: wl_output::WlOutput) {
+    fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, o: wl_output::WlOutput) {
+        self.add_monitor(o);
+        self.refresh();
     }
 
+    /// An output whose name only arrives with a later update still gets a pill.
     fn update_output(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _o: wl_output::WlOutput,
+        o: wl_output::WlOutput,
     ) {
+        self.add_monitor(o);
+        self.refresh();
     }
 
     fn output_destroyed(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _o: wl_output::WlOutput,
+        o: wl_output::WlOutput,
     ) {
+        self.monitors.retain(|monitor| monitor.output != o);
     }
 }
 

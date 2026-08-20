@@ -4,7 +4,7 @@
 //! every state read. Talking to `.socket.sock` ourselves turns that into a
 //! sub-millisecond round trip with no process involved.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -16,7 +16,8 @@ const IO_TIMEOUT: Duration = Duration::from_secs(1);
 #[derive(Debug, Clone, Copy)]
 pub enum Event {
     /// A `workspacev2` line, whose payload already carries the new id. Lets the
-    /// indicator start moving without waiting for a state read.
+    /// indicator start moving without waiting for a state read. The line says
+    /// nothing about which monitor, so it applies to the focused one.
     Switched(i32),
     /// Something else changed; re-read state to find out what.
     Changed,
@@ -26,6 +27,7 @@ pub enum Event {
 pub struct Snapshot {
     pub active: i32,
     pub occupied: HashSet<i32>,
+    pub focused: bool,
 }
 
 fn runtime_dir() -> PathBuf {
@@ -62,19 +64,9 @@ pub fn dispatch(command: String) {
     });
 }
 
-pub fn focused_monitor() -> Option<String> {
-    let raw = request("j/monitors")?;
-    let monitors: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    monitors
-        .as_array()?
-        .iter()
-        .find(|monitor| monitor["focused"].as_bool() == Some(true))
-        .and_then(|monitor| monitor["name"].as_str())
-        .map(str::to_owned)
-}
-
-/// Active workspace and occupancy for one monitor, in a single round trip.
-pub fn snapshot(monitor: &str, workspace_count: i32) -> Option<Snapshot> {
+/// Active workspace and occupancy for every monitor, in a single round trip.
+/// One read covers all of them, so a pill per output costs no more IPC than one.
+pub fn snapshot_all(workspace_count: i32) -> Option<HashMap<String, Snapshot>> {
     let raw = request("[[BATCH]]j/monitors ; j/workspaces")?;
     // The replies arrive as back-to-back JSON documents.
     let mut documents =
@@ -82,23 +74,34 @@ pub fn snapshot(monitor: &str, workspace_count: i32) -> Option<Snapshot> {
     let monitors = documents.next()?.ok()?;
     let workspaces = documents.next()?.ok()?;
 
-    let active = monitors
+    let mut snapshots: HashMap<String, Snapshot> = monitors
         .as_array()?
         .iter()
-        .find(|entry| entry["name"].as_str() == Some(monitor))
-        .and_then(|entry| entry["activeWorkspace"]["id"].as_i64())
-        .unwrap_or(1) as i32;
-
-    let occupied = workspaces
-        .as_array()?
-        .iter()
-        .filter(|entry| entry["monitor"].as_str() == Some(monitor))
-        .filter_map(|entry| entry["id"].as_i64())
-        .map(|id| id as i32)
-        .filter(|id| (1..=workspace_count).contains(id))
+        .filter_map(|entry| {
+            let name = entry["name"].as_str()?.to_owned();
+            let snapshot = Snapshot {
+                active: entry["activeWorkspace"]["id"].as_i64().unwrap_or(1) as i32,
+                occupied: HashSet::new(),
+                focused: entry["focused"].as_bool() == Some(true),
+            };
+            Some((name, snapshot))
+        })
         .collect();
 
-    Some(Snapshot { active, occupied })
+    for entry in workspaces.as_array()? {
+        let (Some(monitor), Some(id)) = (entry["monitor"].as_str(), entry["id"].as_i64()) else {
+            continue;
+        };
+        let id = id as i32;
+        if !(1..=workspace_count).contains(&id) {
+            continue;
+        }
+        if let Some(snapshot) = snapshots.get_mut(monitor) {
+            snapshot.occupied.insert(id);
+        }
+    }
+
+    Some(snapshots)
 }
 
 /// Read the event stream forever, reconnecting if it drops.

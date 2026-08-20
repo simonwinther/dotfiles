@@ -19,6 +19,8 @@ const BASE: [f32; 3] = [0x12 as f32 / 255.0, 0x12 as f32 / 255.0, 0x14 as f32 / 
 const TEXT: [f32; 3] = [0xF4 as f32 / 255.0, 0xF4 as f32 / 255.0, 0xF5 as f32 / 255.0];
 const BLUE: [f32; 3] = [0x60 as f32 / 255.0, 0xA5 as f32 / 255.0, 0xFA as f32 / 255.0];
 const MAUVE: [f32; 3] = [0xA7 as f32 / 255.0, 0x78 as f32 / 255.0, 0xFA as f32 / 255.0];
+const ELSEWHERE_TEXT: [f32; 3] =
+    [0xAD as f32 / 255.0, 0x98 as f32 / 255.0, 0xC8 as f32 / 255.0];
 const SURFACE2: [f32; 3] = [0x52 as f32 / 255.0, 0x52 as f32 / 255.0, 0x5B as f32 / 255.0];
 
 const FONT_CANDIDATES: &[&str] = &[
@@ -145,6 +147,7 @@ impl Renderer {
         &self,
         pixmap: &mut Pixmap,
         occupied: &std::collections::HashSet<i32>,
+        occupied_elsewhere: &std::collections::HashSet<i32>,
         deferred: Option<i32>,
         range: std::ops::RangeInclusive<i32>,
         override_color: Option<[f32; 3]>,
@@ -154,6 +157,7 @@ impl Renderer {
             let glyph = &self.glyphs[(workspace - 1) as usize];
             let (color, alpha) = match override_color {
                 Some(color) => (color, 1.0),
+                None if occupied_elsewhere.contains(&workspace) => (ELSEWHERE_TEXT, 1.0),
                 None if occupied.contains(&workspace) && Some(workspace) != deferred => (TEXT, 1.0),
                 None => (TEXT, 0.45),
             };
@@ -166,6 +170,7 @@ impl Renderer {
         pixmap: &mut Pixmap,
         position: f32,
         occupied: &std::collections::HashSet<i32>,
+        occupied_elsewhere: &std::collections::HashSet<i32>,
         deferred: Option<i32>,
     ) {
         let s = self.scale;
@@ -190,7 +195,15 @@ impl Renderer {
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
 
-        self.draw_labels(pixmap, occupied, deferred, 1..=WORKSPACE_COUNT, None, None);
+        self.draw_labels(
+            pixmap,
+            occupied,
+            occupied_elsewhere,
+            deferred,
+            1..=WORKSPACE_COUNT,
+            None,
+            None,
+        );
 
         for (radius, alpha) in [(17.0_f32, 0.035_f32), (15.0, 0.07)] {
             if let Some(path) = PathBuilder::from_circle(position, mid + 2.0, radius) {
@@ -233,7 +246,15 @@ impl Renderer {
             if let Some(mut mask) = Mask::new(self.width, self.height) {
                 mask.fill_path(&path, FillRule::Winding, true, transform);
                 let range = self.labels_near(position);
-                self.draw_labels(pixmap, occupied, deferred, range, Some(BASE), Some(&mask));
+                self.draw_labels(
+                    pixmap,
+                    occupied,
+                    occupied_elsewhere,
+                    deferred,
+                    range,
+                    Some(BASE),
+                    Some(&mask),
+                );
             }
         }
     }
