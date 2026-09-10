@@ -1,0 +1,74 @@
+#!/usr/bin/python
+"""Connect the Stow package to this PC's existing Omarchy configuration."""
+import argparse
+from datetime import datetime
+import difflib
+from pathlib import Path
+import re
+import shutil
+import subprocess
+
+
+def configuration(main, startup):
+    source = 'source = ~/.config/background-grid/hyprland.conf'
+    if source not in main.splitlines():
+        main = main.rstrip() + '\n\n# Personal wallpaper grid\n' + source + '\n'
+    startup = re.sub(
+        r'(?m)^exec-once[ \t]*=[^\n]*(?:\b(?:awww|swww)-daemon\b[^\n]*|\bwaypaper[ \t]+--restore[^\n]*)\n?',
+        '', startup)
+    return main, startup
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--no-reload', action='store_true', help='Prepare settings outside a running Hyprland session')
+    args = parser.parse_args()
+    home = Path.home()
+    for command in ('awww', 'awww-daemon', 'uwsm-app', 'hyprctl'):
+        if not shutil.which(command):
+            raise SystemExit('Install dependencies first: sudo pacman -S --needed awww gtk4 python-gobject python-pillow')
+    import gi
+    gi.require_version('Gtk', '4.0')
+    from gi.repository import Gtk
+    from PIL import Image
+    assert Gtk.get_major_version() == 4 and Image.__version__
+    paths = [home/'.config/hypr/hyprland.conf', home/'.config/hypr/autostart.conf']
+    for path in paths:
+        if path.resolve().is_relative_to(home/'.local/share/omarchy'):
+            raise SystemExit(f'Refusing to edit managed Omarchy source: {path}')
+    if not (home/'.config/background-grid/hyprland.conf').is_file():
+        raise SystemExit('Run stow background-grid from your dotfiles checkout first.')
+    old = [p.read_text() for p in paths]
+    new = configuration(*old)
+    for path, before, after in zip(paths, old, new):
+        print(''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
+                                         fromfile=str(path), tofile=str(path))), end='')
+    if args.dry_run:
+        return
+    if not args.no_reload:
+        errors = subprocess.check_output(['hyprctl', 'configerrors'], text=True).strip()
+        if errors:
+            raise SystemExit(f'Fix existing Hyprland errors first:\n{errors}')
+    if tuple(old) != new:
+        backup = home/'.local/state/wallpaper-grid'/('setup-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+        backup.mkdir(parents=True)
+        for path in paths:
+            shutil.copy2(path, backup/path.name)
+        print(f'Previous settings saved to {backup}')
+        for path, content in zip(paths, new):
+            path.write_text(content)
+    if not args.no_reload:
+        subprocess.run(['hyprctl', 'reload'], check=True)
+        errors = subprocess.check_output(['hyprctl', 'configerrors'], text=True).strip()
+        if errors:
+            for path, content in zip(paths, old):
+                path.write_text(content)
+            subprocess.run(['hyprctl', 'reload'], check=True)
+            raise SystemExit(f'Settings restored after a configuration error:\n{errors}')
+        subprocess.run([str(home/'.local/bin/background-grid'), '--restore'], check=True)
+    print('Ready. Ctrl + Super + Space opens the wallpaper grid.')
+
+
+if __name__ == '__main__':
+    main()

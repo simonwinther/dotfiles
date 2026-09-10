@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keep Omarchy's selected-background symlink and the animated grid in sync.
+if [ "$#" -ne 1 ] || [ "$1" = '--help' ] || [ "$1" = '-h' ]; then
+  exec "$HOME/.local/share/omarchy/bin/omarchy-theme-bg-set" "$@"
+fi
+exec "$HOME/.local/bin/background-grid" --set "$1"

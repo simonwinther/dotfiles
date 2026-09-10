@@ -1,0 +1,9 @@
+#!/bin/bash
+# Send only Omarchy's Background menu to the visual grid.
+# All other Walker calls continue through the current, update-managed launcher.
+for arg in "$@"; do
+  if [[ "$arg" == "menus:omarchyBackgroundSelector" || "$arg" == "--modules=menus:omarchyBackgroundSelector" ]]; then
+    exec "$HOME/.local/bin/background-grid"
+  fi
+done
+exec "$HOME/.local/share/omarchy/bin/omarchy-launch-walker" "$@"

@@ -2,6 +2,10 @@
 
 My personal configuration files for Arch Linux, managed with GNU Stow.
 
+The [wallpaper grid](background-grid/README.md) package includes the visual picker,
+folder categories, keyboard navigation, wallpaper transitions, and setup steps
+for both PCs.
+
 ## Setup
 
 Symlink the configs (using stow)

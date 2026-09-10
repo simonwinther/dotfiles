@@ -1,0 +1,8 @@
+#!/bin/bash
+# Only intercept wallpaper mutations; help and all other commands stay upstream.
+if [[ "$1 $2 $3" == 'theme bg set' && $# == 4 && "$4" != -* ]]; then
+  exec "$HOME/.local/bin/omarchy-theme-bg-set" "$4"
+elif [[ "$1 $2 $3" == 'theme bg next' && $# == 3 ]]; then
+  exec "$HOME/.local/bin/omarchy-theme-bg-next"
+fi
+exec "$HOME/.local/share/omarchy/bin/omarchy" "$@"

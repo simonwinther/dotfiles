@@ -1,0 +1,3 @@
+#!/bin/bash
+# Restore the current wallpaper after Omarchy's startup, then retire swaybg.
+"$HOME/.local/bin/background-grid" --restore
