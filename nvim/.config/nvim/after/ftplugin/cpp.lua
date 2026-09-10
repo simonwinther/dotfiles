@@ -22,7 +22,7 @@ vim.opt_local.foldlevel = 0
 --- ====================================
 --- C++ codeforces move to solutions keybind
 --- ====================================
-local codeforces_repo = vim.fn.expand("~/dev/codeforces-cp")
+local codeforces_repo = vim.fn.expand("~/dev/projects/competitive-programming/codeforces-cp")
 local file = vim.fn.expand("%:p")
 
 if vim.startswith(file, codeforces_repo .. "/") and not vim.startswith(file, codeforces_repo .. "/solutions/") then
