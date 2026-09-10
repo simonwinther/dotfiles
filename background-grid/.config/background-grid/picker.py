@@ -216,7 +216,7 @@ def launch(folders=None):
             self.scroll.set_child(self.sections)
             self.scroll.set_vexpand(True)
             outer.append(self.scroll)
-            self.hint = 'H J K L / arrows  ·  Enter opens / applies  ·  Shift+click / Enter keeps open  ·  Esc closes'
+            self.hint = 'H J K L / arrows  ·  Enter opens / applies  ·  Ctrl+click / Enter keeps open  ·  Esc closes'
             self.status = Gtk.Label(label=self.hint, xalign=0)
             self.status.add_css_class('muted')
             outer.append(self.status)
@@ -271,7 +271,7 @@ def launch(folders=None):
                         index = controls.index(focus) + (1 if direction == 'right' else -1)
                         self.focus_tile(controls[max(0, min(len(controls)-1, index))])
                 else:
-                    self.activation_keep_open = bool(state & Gdk.ModifierType.SHIFT_MASK)
+                    self.activation_keep_open = bool(state & Gdk.ModifierType.CONTROL_MASK)
                     focus.emit('clicked')
                 return True
             return False
@@ -423,7 +423,7 @@ def launch(folders=None):
                 button.set_child(picture)
                 if path == self.active:
                     button.add_css_class('current')
-                button.set_tooltip_text('Shift-click to apply and keep the picker open')
+                button.set_tooltip_text('Ctrl-click to apply and keep the picker open')
                 click = Gtk.GestureClick()
                 click.set_button(1)
                 click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -458,7 +458,7 @@ def launch(folders=None):
             return False
 
         def pointer_modifiers(self, gesture, *_):
-            self.activation_keep_open = bool(gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK)
+            self.activation_keep_open = bool(gesture.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK)
 
         def choose(self, button, path):
             keep_open = self.activation_keep_open

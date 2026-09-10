@@ -8,7 +8,7 @@ Open with **Ctrl + Super + Space** or **Omarchy → Style → Background**.
 - Click a category or press Enter/Space to expand or collapse it.
 - H/J/K/L and arrow keys navigate. Right/L opens a category; Left/H closes it.
 - Enter, Space, or a click applies the highlighted image; Escape closes the picker.
-- Hold Shift while clicking, pressing Enter, or pressing Space to apply without
+- Hold Ctrl while clicking, pressing Enter, or pressing Space to apply without
   closing the picker. Expanded categories and keyboard focus stay in place.
 - A blue border marks the current wallpaper, and an outline marks keyboard focus.
 
@@ -31,7 +31,7 @@ cropped to 16:9. Originals are never resized or rewritten.
 The shared setter uses awww for the original two-second expanding-circle
 transition at 60 fps (a random origin on each selection) and maintains
 Omarchy's `current/background` symlink. Normal selection hides the grid so the
-transition is visible; Shift-selection leaves it open for continued browsing.
+transition is visible; Ctrl-selection leaves it open for continued browsing.
 Local command wrappers route wallpaper changes through
 that setter and forward unrelated Omarchy commands upstream. A post-boot hook
 restores the image and stops the default swaybg once awww is ready, leaving one
