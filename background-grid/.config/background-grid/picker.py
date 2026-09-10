@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent
 HOME_DIR = Path.home()
 CACHE = HOME_DIR / '.cache/background-grid'
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tif', '.tiff', '.avif'}
+COLUMNS = 4
+WINDOW_WIDTH = 900
 
 
 def image_folders():
@@ -184,10 +186,11 @@ def launch(folders=None):
             self.started = time.monotonic()
             self.window = Gtk.ApplicationWindow(application=self, title='Backgrounds')
             self.window.set_decorated(False)
+            self.window.set_resizable(False)
             # File enumeration is cheap; decoding remains in the worker pool.
             # Size to show the current collection, with scrolling for larger libraries.
             collection = catalog(folders)
-            self.window.set_default_size(900, 430)
+            self.window.set_default_size(WINDOW_WIDTH, -1)
             self.window.add_css_class('background-grid')
             css = Gtk.CssProvider()
             css.load_from_path(str(ROOT / 'style.css'))
@@ -206,17 +209,18 @@ def launch(folders=None):
             header.append(self.count)
             close = Gtk.Button.new_from_icon_name('window-close-symbolic')
             close.add_css_class('close-button')
-            close.set_tooltip_text('Close (Esc)')
+            close.set_tooltip_text('Close (q / Esc)')
             close.connect('clicked', lambda *_: self.quit())
             header.append(close)
             outer.append(header)
             self.sections = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.scroll = Gtk.ScrolledWindow()
             self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            self.scroll.set_propagate_natural_height(True)
+            self.scroll.set_max_content_height(550)
             self.scroll.set_child(self.sections)
-            self.scroll.set_vexpand(True)
             outer.append(self.scroll)
-            self.hint = 'H J K L / arrows  ·  Enter opens / applies  ·  Ctrl+click / Enter keeps open  ·  Esc closes'
+            self.hint = 'H J K L / arrows  ·  Enter opens / applies  ·  Ctrl+click / Enter keeps open  ·  q / Esc closes'
             self.status = Gtk.Label(label=self.hint, xalign=0)
             self.status.add_css_class('muted')
             outer.append(self.status)
@@ -237,7 +241,7 @@ def launch(folders=None):
             self.window.present()
 
         def key(self, _, key, _keycode, state):
-            if key == Gdk.KEY_Escape:
+            if key in (Gdk.KEY_q, Gdk.KEY_Escape):
                 self.quit()
                 return True
             rows = self.visible_rows()
@@ -278,7 +282,7 @@ def launch(folders=None):
 
         def visible_rows(self):
             def image_rows(buttons):
-                return [buttons[i:i+4] for i in range(0, len(buttons), 4)]
+                return [buttons[i:i+COLUMNS] for i in range(0, len(buttons), COLUMNS)]
 
             def group_rows(group):
                 result = [[group['header']]]
@@ -319,11 +323,9 @@ def launch(folders=None):
             return False
 
         def resize_to_content(self):
-            rows = self.visible_rows()
-            height = 130 + sum(52 if row[0] in self.category_headers else 148 for row in rows)
-            height = max(240, min(680, height))
-            self.window.set_size_request(-1, height)
-            self.window.set_default_size(900, height)
+            # Reset the previous height so GTK fits the visible content, up to
+            # the scroller's height limit, even after collapsing a tall category.
+            self.window.set_default_size(WINDOW_WIDTH, -1)
 
         def reveal_group(self, header):
             if not self.closed:
@@ -403,8 +405,8 @@ def launch(folders=None):
                 return []
             flow = Gtk.FlowBox()
             flow.set_homogeneous(True)
-            flow.set_min_children_per_line(4)
-            flow.set_max_children_per_line(4)
+            flow.set_min_children_per_line(COLUMNS)
+            flow.set_max_children_per_line(COLUMNS)
             flow.set_row_spacing(12)
             flow.set_column_spacing(12)
             flow.set_selection_mode(Gtk.SelectionMode.NONE)

@@ -6,8 +6,9 @@ Open with **Ctrl + Super + Space** or **Omarchy → Style → Background**.
 - Subfolders become named categories beneath them, collapsed by default on each launch.
 - Nested folders become nested categories. Empty folders are shown with a count of zero.
 - Click a category or press Enter/Space to expand or collapse it.
+- Previews use four columns. The window fits the visible folders and scrolls for larger collections.
 - H/J/K/L and arrow keys navigate. Right/L opens a category; Left/H closes it.
-- Enter, Space, or a click applies the highlighted image; Escape closes the picker.
+- Enter, Space, or a click applies the highlighted image; q or Escape closes the picker.
 - Hold Ctrl while clicking, pressing Enter, or pressing Space to apply without
   closing the picker. Expanded categories and keyboard focus stay in place.
 - A blue border marks the current wallpaper, and an outline marks keyboard focus.
