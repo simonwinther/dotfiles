@@ -1,6 +1,8 @@
 {
   "output": [
-    "eDP-1"
+    "eDP-1",
+    "DP-2",
+    "HDMI-A-1"
   ],
   "position": "top",
   "exclusive": true,
