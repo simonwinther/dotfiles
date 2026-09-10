@@ -187,7 +187,7 @@ def launch(folders=None):
             # File enumeration is cheap; decoding remains in the worker pool.
             # Size to show the current collection, with scrolling for larger libraries.
             collection = catalog(folders)
-            self.window.set_default_size(1012, 430)
+            self.window.set_default_size(900, 430)
             self.window.add_css_class('background-grid')
             css = Gtk.CssProvider()
             css.load_from_path(str(ROOT / 'style.css'))
@@ -323,7 +323,7 @@ def launch(folders=None):
             height = 130 + sum(52 if row[0] in self.category_headers else 148 for row in rows)
             height = max(240, min(680, height))
             self.window.set_size_request(-1, height)
-            self.window.set_default_size(1012, height)
+            self.window.set_default_size(900, height)
 
         def reveal_group(self, header):
             if not self.closed:
@@ -365,7 +365,7 @@ def launch(folders=None):
             line.append(count)
             header.set_child(line)
             header.update_property([Gtk.AccessibleProperty.LABEL], [f'{node.name}, {count.get_label()} images'])
-            header.update_state([Gtk.AccessibleState.EXPANDED], [False])
+            header.update_state([Gtk.AccessibleState.EXPANDED], [0])
             container.append(header)
             body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             body.set_visible(False)
@@ -390,7 +390,7 @@ def launch(folders=None):
                     group['body'].append(empty)
             group['body'].set_visible(group['expanded'])
             group['arrow'].set_from_icon_name('pan-down-symbolic' if group['expanded'] else 'pan-end-symbolic')
-            header.update_state([Gtk.AccessibleState.EXPANDED], [group['expanded']])
+            header.update_state([Gtk.AccessibleState.EXPANDED], [int(group['expanded'])])
             self.resize_to_content()
             self.focus_tile(header)
             if group['expanded']:
@@ -419,7 +419,7 @@ def launch(folders=None):
                 picture = Gtk.Picture()
                 picture.set_content_fit(Gtk.ContentFit.COVER)
                 picture.set_can_shrink(True)
-                picture.set_size_request(224, 126)
+                picture.set_size_request(196, 126)
                 button.set_child(picture)
                 if path == self.active:
                     button.add_css_class('current')
