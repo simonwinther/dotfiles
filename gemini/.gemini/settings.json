@@ -43,5 +43,102 @@
   },
   "model": {
     "name": "gemini-3.1-pro-preview"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'mkdir -p /tmp/vibeyard && echo SessionStart:waiting > /tmp/vibeyard/$VIBEYARD_SESSION_ID.status # vibeyard-hook'",
+            "name": "vibeyard-status"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/session_id_capture.py\" \"VIBEYARD_SESSION_ID\" \"/tmp/vibeyard\" \"# vibeyard-hook\"",
+            "name": "vibeyard-sessionid"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/gemini_event_SessionStart.py\" \"# vibeyard-hook\"",
+            "name": "vibeyard-events"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'mkdir -p /tmp/vibeyard && echo BeforeAgent:working > /tmp/vibeyard/$VIBEYARD_SESSION_ID.status # vibeyard-hook'",
+            "name": "vibeyard-status"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/session_id_capture.py\" \"VIBEYARD_SESSION_ID\" \"/tmp/vibeyard\" \"# vibeyard-hook\"",
+            "name": "vibeyard-sessionid"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/gemini_event_BeforeAgent.py\" \"# vibeyard-hook\"",
+            "name": "vibeyard-events"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'mkdir -p /tmp/vibeyard && echo AfterTool:working > /tmp/vibeyard/$VIBEYARD_SESSION_ID.status # vibeyard-hook'",
+            "name": "vibeyard-status"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/gemini_event_AfterTool.py\" \"# vibeyard-hook\"",
+            "name": "vibeyard-events"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'mkdir -p /tmp/vibeyard && echo AfterAgent:completed > /tmp/vibeyard/$VIBEYARD_SESSION_ID.status # vibeyard-hook'",
+            "name": "vibeyard-status"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/gemini_event_AfterAgent.py\" \"# vibeyard-hook\"",
+            "name": "vibeyard-events"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'mkdir -p /tmp/vibeyard && echo SessionEnd:completed > /tmp/vibeyard/$VIBEYARD_SESSION_ID.status # vibeyard-hook'",
+            "name": "vibeyard-status"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"/home/simon/.vibeyard/run/gemini_event_SessionEnd.py\" \"# vibeyard-hook\"",
+            "name": "vibeyard-events"
+          }
+        ]
+      }
+    ]
   }
 }
