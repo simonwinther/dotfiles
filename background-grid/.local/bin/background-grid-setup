@@ -47,6 +47,8 @@ def main():
     if args.dry_run:
         return
     if not args.no_reload:
+        # Stow can resolve missing sources without triggering a Hyprland reload.
+        subprocess.run(['hyprctl', 'reload'], check=True)
         errors = subprocess.check_output(['hyprctl', 'configerrors'], text=True).strip()
         if errors:
             raise SystemExit(f'Fix existing Hyprland errors first:\n{errors}')
