@@ -6,7 +6,7 @@
   window.__chatgptMarkdownLatexCopyInstalled = true;
 
   const ZERO_WIDTH_RE = /[\u200b\u200c\u200d\ufeff\u2060]/g;
-  const CODE_PLACEHOLDER_PREFIX = "@@CHATGPT_LATEX_COPY_CODE_";
+  const LITERAL_PLACEHOLDER_PREFIX = "@@LATEX_COPY_LITERAL_";
   const COPY_BUTTON_SELECTOR =
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]';
   const TURN_SELECTOR = 'section[data-turn], [data-testid^="conversation-turn"]';
@@ -16,11 +16,12 @@
     ".whitespace-pre-wrap",
     "[data-message-author-role]"
   ];
-  const MATH_WRAPPER_SELECTOR = ".katex-display, .katex";
+  const MATH_SOURCE_SELECTOR = "[data-math-source]";
+  const MATH_WRAPPER_SELECTOR = `${MATH_SOURCE_SELECTOR}, .katex-display, .katex`;
+  const DISPLAY_MATH_SELECTOR = '.katex-display, math[display="block"]';
   const TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
   const EDITABLE_SELECTOR = 'input, textarea, [contenteditable=""], [contenteditable="true"]';
-  const INLINE_MATH_RE = /(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g;
-  const SECTION_COMMANDS = ["section", "subsection", "subsubsection"];
+  const SECTION_COMMANDS = ["section", "subsection", "subsubsection", "paragraph", "subparagraph"];
   const SKIP_TAGS = new Set([
     "script",
     "style",
@@ -71,23 +72,32 @@
   let internalCopy = false;
   let toastTimer = null;
   let enabled = true;
+  let outputFormat = "latex";
 
-  initEnabledState();
+  initSettings();
 
   document.addEventListener("copy", handleCopy, true);
   document.addEventListener("click", handleCopyButtonClick, true);
 
-  function initEnabledState() {
+  function initSettings() {
     try {
-      chrome.storage.local.get({ enabled: true }, (items) => {
+      chrome.storage.local.get({ enabled: true, format: "latex" }, (items) => {
         if (!chrome.runtime.lastError) {
           enabled = items.enabled !== false;
+          outputFormat = items.format === "markdown" ? "markdown" : "latex";
         }
       });
 
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === "local" && changes.enabled) {
+        if (area !== "local") {
+          return;
+        }
+
+        if (changes.enabled) {
           enabled = changes.enabled.newValue !== false;
+        }
+        if (changes.format) {
+          outputFormat = changes.format.newValue === "markdown" ? "markdown" : "latex";
         }
       });
     } catch {
@@ -110,16 +120,18 @@
       return;
     }
 
-    const markdown = markdownFromSelection(selection);
-    if (!markdown) {
+    const context = createCopyContext();
+    const text = textFromSelection(selection, context);
+    if (!text) {
       return;
     }
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    event.clipboardData.setData("text/plain", markdown);
-    event.clipboardData.setData("text/markdown", markdown);
-    showToast("Copied as Markdown + LaTeX");
+    event.clipboardData.clearData();
+    event.clipboardData.setData("text/plain", text);
+    event.clipboardData.setData(context.format === "latex" ? "text/x-tex" : "text/markdown", text);
+    showToast(copySuccessMessage(context));
   }
 
   function handleCopyButtonClick(event) {
@@ -138,19 +150,28 @@
       return;
     }
 
-    const markdown = normalizeMarkdown(nodeToMarkdown(messageRoot));
-    if (!markdown) {
+    const context = createCopyContext();
+    const text = normalizeText(nodeToText(messageRoot, context), context);
+    if (!text) {
       return;
     }
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    writeClipboardText(markdown)
-      .then(() => showToast("Copied as Markdown + LaTeX"))
+    writeClipboardText(text)
+      .then(() => showToast(copySuccessMessage(context)))
       .catch(() => showToast("Could not write clipboard"));
   }
 
-  function markdownFromSelection(selection) {
+  function createCopyContext() {
+    return { format: outputFormat, literals: [] };
+  }
+
+  function copySuccessMessage(context) {
+    return context.format === "latex" ? "Copied as LaTeX" : "Copied as Markdown";
+  }
+
+  function textFromSelection(selection, context) {
     const container = document.createElement("div");
 
     for (let index = 0; index < selection.rangeCount; index += 1) {
@@ -161,13 +182,32 @@
 
       const copyRange = range.cloneRange();
       expandRangeAroundMath(copyRange);
-      container.appendChild(copyRange.cloneContents());
+      container.appendChild(cloneSelectionContents(copyRange));
       if (index < selection.rangeCount - 1) {
         container.appendChild(document.createTextNode("\n\n"));
       }
     }
 
-    return normalizeMarkdown(childrenToMarkdown(container));
+    return normalizeText(childrenToText(container, context), context);
+  }
+
+  function cloneSelectionContents(range) {
+    let contents = range.cloneContents();
+    let ancestor = range.commonAncestorContainer;
+    if (!(ancestor instanceof Element)) {
+      ancestor = ancestor.parentElement;
+    }
+
+    while (ancestor && !ancestor.matches(".markdown, [data-message-author-role], body, html")) {
+      if (ancestor.matches("strong, b, em, i, s, del, sub, sup, a, code, pre")) {
+        const wrapper = ancestor.cloneNode(false);
+        wrapper.appendChild(contents);
+        contents = wrapper;
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    return contents;
   }
 
   function findMessageRoot(button) {
@@ -201,17 +241,23 @@
 
   function closestMathWrapper(node) {
     const element = node instanceof Element ? node : node?.parentElement;
-    const math = element?.closest(MATH_WRAPPER_SELECTOR);
+    let math = element?.closest(MATH_WRAPPER_SELECTOR);
     if (!math) {
       return null;
     }
 
-    return math.closest(".katex-display") || math;
+    let parentMath = math.parentElement?.closest(MATH_WRAPPER_SELECTOR);
+    while (parentMath) {
+      math = parentMath;
+      parentMath = math.parentElement?.closest(MATH_WRAPPER_SELECTOR);
+    }
+
+    return math;
   }
 
-  function nodeToMarkdown(node, context = {}) {
+  function nodeToText(node, context = {}) {
     if (node.nodeType === Node.TEXT_NODE) {
-      return textNodeToMarkdown(node, context);
+      return textNodeToText(node, context);
     }
 
     if (node.nodeType !== Node.ELEMENT_NODE) {
@@ -220,7 +266,7 @@
 
     const element = node;
     if (isMathElement(element)) {
-      return mathToMarkdown(element);
+      return mathToText(element, context);
     }
 
     if (shouldSkipElement(element)) {
@@ -229,78 +275,97 @@
 
     const tag = element.tagName.toLowerCase();
 
-    if (element.classList.contains("whitespace-pre-wrap")) {
-      return asBlock(cleanPlainText(element.textContent, true));
+    if (element.classList.contains("whitespace-pre-wrap") && element.children.length === 0) {
+      return asBlock(formatPlainText(cleanPlainText(element.textContent, true), context));
     }
 
     switch (tag) {
       case "br":
-        return "\n";
+        return context.format === "latex" && !context.inTable ? "\\\\\n" : "\n";
       case "hr":
-        return "\n\n---\n\n";
+        return asBlock(context.format === "latex" ? "\\noindent\\rule{\\linewidth}{0.4pt}" : "---");
       case "p":
-        return asBlock(childrenToMarkdown(element, context));
+        return asBlock(childrenToText(element, context));
       case "h1":
       case "h2":
       case "h3":
       case "h4":
       case "h5":
       case "h6":
-        return headingToMarkdown(element, context);
+        return headingToText(element, context);
       case "strong":
       case "b":
-        return wrapInline("**", childrenToMarkdown(element, context));
+        return formatInline("**", "textbf", childrenToText(element, context), context);
       case "em":
       case "i":
-        return wrapInline("*", childrenToMarkdown(element, context));
+        return formatInline("*", "emph", childrenToText(element, context), context);
       case "s":
       case "del":
-        return wrapInline("~~", childrenToMarkdown(element, context));
+        return context.format === "latex"
+          ? childrenToText(element, context)
+          : wrapInline("~~", childrenToText(element, context));
+      case "sub":
+      case "sup": {
+        const text = childrenToText(element, context);
+        return context.format === "latex"
+          ? `\\text${tag === "sub" ? "subscript" : "superscript"}{${text}}`
+          : `<${tag}>${text}</${tag}>`;
+      }
       case "code":
-        return codeToMarkdown(element);
+        return codeToText(element, context);
       case "pre":
-        return preToMarkdown(element);
+        return preToText(element, context);
       case "ul":
-        return listToMarkdown(element, false, context);
+        return listToText(element, false, context);
       case "ol":
-        return listToMarkdown(element, true, context);
+        return listToText(element, true, context);
       case "blockquote":
-        return blockquoteToMarkdown(element, context);
+        return blockquoteToText(element, context);
       case "a":
-        return linkToMarkdown(element, context);
+        return linkToText(element, context);
       case "table":
-        return tableToMarkdown(element, context);
+        return tableToText(element, context);
       case "img":
-        return imageToMarkdown(element);
+        return imageToText(element, context);
       case "section":
       case "article":
       case "main":
-        return childrenToMarkdown(element, context);
+        return childrenToText(element, context);
       case "div":
-        return divToMarkdown(element, context);
+        return divToText(element, context);
       default:
         if (isBlockTag(tag)) {
-          return asBlock(childrenToMarkdown(element, context));
+          return asBlock(childrenToText(element, context));
         }
-        return childrenToMarkdown(element, context);
+        return childrenToText(element, context);
     }
   }
 
-  function childrenToMarkdown(element, context = {}) {
-    let markdown = "";
+  function childrenToText(element, context = {}) {
+    let text = "";
     for (const child of element.childNodes) {
-      markdown += nodeToMarkdown(child, context);
+      text += nodeToText(child, context);
     }
 
-    return markdown;
+    return text;
   }
 
-  function textNodeToMarkdown(node, context) {
+  function textNodeToText(node, context) {
     if (context.pre) {
       return node.nodeValue || "";
     }
 
-    return cleanPlainText(node.nodeValue || "", false);
+    return formatPlainText(cleanPlainText(node.nodeValue || "", false), context);
+  }
+
+  function formatPlainText(text, context) {
+    return context.format === "latex" ? escapeLatexText(text) : text;
+  }
+
+  function preserveLiteral(text, context) {
+    const placeholder = `${LITERAL_PLACEHOLDER_PREFIX}${context.literals.length}@@`;
+    context.literals.push(text);
+    return placeholder;
   }
 
   function cleanPlainText(text, preserveLineBreaks) {
@@ -317,30 +382,37 @@
   }
 
   function isMathElement(element) {
-    if (element.classList.contains("katex-display") || element.classList.contains("katex")) {
+    if (element.matches(MATH_WRAPPER_SELECTOR)) {
       return true;
     }
 
     return element.tagName.toLowerCase() === "math" && Boolean(findTexAnnotation(element));
   }
 
-  function mathToMarkdown(element) {
-    const annotation = findTexAnnotation(element);
-    const tex = annotation?.textContent?.trim();
+  function mathToText(element, context) {
+    const source = element.matches(MATH_SOURCE_SELECTOR)
+      ? element
+      : element.querySelector(MATH_SOURCE_SELECTOR);
+    const tex =
+      source?.getAttribute("data-math-source")?.trim() ||
+      findTexAnnotation(element)?.textContent?.trim();
     if (!tex) {
-      return cleanPlainText(element.textContent || "", false);
+      return formatPlainText(cleanPlainText(element.textContent || "", false), context);
     }
 
     const isDisplay =
-      element.classList.contains("katex-display") ||
+      element.matches(DISPLAY_MATH_SELECTOR) ||
       element.getAttribute("display") === "block" ||
-      element.querySelector('math[display="block"]') !== null;
+      source?.style.display === "block" ||
+      element.querySelector(DISPLAY_MATH_SELECTOR) !== null;
 
-    if (isDisplay) {
-      return `\n\n\\[\n${tex}\n\\]\n\n`;
+    if (isDisplay && !context.inTable) {
+      const math = context.format === "latex" ? `\\[\n${tex}\n\\]` : `$$\n${tex}\n$$`;
+      return asBlock(preserveLiteral(math, context));
     }
 
-    return `\\(${tex}\\)`;
+    const math = context.format === "latex" ? `\\(${tex}\\)` : `$${tex}$`;
+    return preserveLiteral(math, context);
   }
 
   function findTexAnnotation(element) {
@@ -378,16 +450,16 @@
     return Boolean(element.querySelector?.(`${MATH_WRAPPER_SELECTOR}, ${TEX_ANNOTATION_SELECTOR}`));
   }
 
-  function headingToMarkdown(element, context) {
+  function headingToText(element, context) {
     const level = Number(element.tagName.slice(1));
-    const text = childrenToMarkdown(element, context).trim();
+    const text = childrenToText(element, context).trim();
     if (!text) {
       return "";
     }
 
-    const sectionCommand = SECTION_COMMANDS[level - 1];
-    if (sectionCommand) {
-      return `\n\n\\${sectionCommand}{${escapeLatexSectionTitle(stripHeadingNumber(text))}}\n\n`;
+    if (context.format === "latex") {
+      const sectionCommand = SECTION_COMMANDS[level - 1] || "textbf";
+      return asBlock(`\\${sectionCommand}{${stripHeadingNumber(text)}}`);
     }
 
     return `\n\n${"#".repeat(level)} ${text}\n\n`;
@@ -397,17 +469,8 @@
     return text.replace(/^\s*\d+(?:\.\d+)*[.)]\s*/, "");
   }
 
-  function escapeLatexSectionTitle(text) {
-    return text
-      .split(INLINE_MATH_RE)
-      .map((part) => {
-        if (part.startsWith("\\(") || part.startsWith("\\[")) {
-          return part;
-        }
-
-        return part.replace(/[\\#$%&_{}~^]/g, escapeLatexTextChar);
-      })
-      .join("");
+  function escapeLatexText(text) {
+    return text.replace(/[\\#$%&_{}~^]/g, escapeLatexTextChar);
   }
 
   function escapeLatexTextChar(char) {
@@ -428,12 +491,27 @@
     return text ? `${marker}${text}${marker}` : "";
   }
 
-  function codeToMarkdown(element) {
+  function formatInline(marker, command, value, context) {
+    const text = value.trim();
+    if (!text) {
+      return "";
+    }
+
+    return context.format === "latex" ? `\\${command}{${text}}` : wrapInline(marker, text);
+  }
+
+  function codeToText(element, context) {
     if (element.closest("pre")) {
       return "";
     }
 
-    return inlineCode(cleanPlainText(element.textContent || "", false).trim());
+    const text = cleanPlainText(element.textContent || "", false).trim();
+    if (!text) {
+      return "";
+    }
+
+    const code = context.format === "latex" ? `\\texttt{${escapeLatexText(text)}}` : inlineCode(text);
+    return preserveLiteral(code, context);
   }
 
   function inlineCode(text) {
@@ -448,16 +526,25 @@
     return `${fence}${body}${fence}`;
   }
 
-  function preToMarkdown(element) {
+  function preToText(element, context) {
     const code = element.querySelector("code") || element;
     const text = (code.textContent || "").replace(/\n+$/g, "");
     if (!text) {
       return "";
     }
 
+    if (context.format === "latex") {
+      let block = `\\begin{verbatim}\n${text}\n\\end{verbatim}`;
+      if (context.inTable) {
+        const lines = text.split("\n").map((line) => `\\texttt{${escapeLatexText(line)}}`);
+        block = `\\shortstack[l]{${lines.join(" \\\\ ")}}`;
+      }
+      return asBlock(preserveLiteral(block, context));
+    }
+
     const language = detectLanguage(element, code);
     const fence = "`".repeat(Math.max(3, longestBacktickRun(text) + 1));
-    return `\n\n${fence}${language}\n${text}\n${fence}\n\n`;
+    return asBlock(preserveLiteral(`${fence}${language}\n${text}\n${fence}`, context));
   }
 
   function detectLanguage(pre, code) {
@@ -487,7 +574,7 @@
     return runs.reduce((longest, run) => Math.max(longest, run.length), 0);
   }
 
-  function listToMarkdown(element, ordered, context) {
+  function listToText(element, ordered, context) {
     const items = Array.from(element.children).filter(
       (child) => child.tagName?.toLowerCase() === "li"
     );
@@ -496,13 +583,32 @@
     }
 
     const start = ordered ? Number(element.getAttribute("start") || "1") : 1;
+    if (context.format === "latex") {
+      const environment = ordered ? "enumerate" : "itemize";
+      const depth = context.enumerateDepth || 0;
+      const counter = ["enumi", "enumii", "enumiii", "enumiv"][depth];
+      const numbering = ordered && counter && Number.isInteger(start) && start !== 1
+        ? `\\setcounter{${counter}}{${start - 1}}\n`
+        : "";
+      const lines = items.map((item) => {
+        const content = childrenToText(item, {
+          ...context,
+          inList: true,
+          enumerateDepth: depth + (ordered ? 1 : 0)
+        }).trim();
+        return `\\item ${content.startsWith("[") ? "{}" : ""}${content}`;
+      });
+
+      return asBlock(`\\begin{${environment}}\n${numbering}${lines.join("\n")}\n\\end{${environment}}`);
+    }
+
     const lines = items.map((item, index) => {
       const marker = ordered ? `${start + index}. ` : "- ";
-      const content = childrenToMarkdown(item, { ...context, inList: true }).trim();
+      const content = normalizeText(childrenToText(item, { ...context, inList: true }), context);
       return formatListItem(marker, content);
     });
 
-    return `\n\n${lines.join("\n")}\n\n`;
+    return asBlock(preserveLiteral(lines.join("\n"), context));
   }
 
   function formatListItem(marker, content) {
@@ -517,24 +623,33 @@
     );
   }
 
-  function blockquoteToMarkdown(element, context) {
-    const text = childrenToMarkdown(element, context).trim();
+  function blockquoteToText(element, context) {
+    const text = normalizeText(childrenToText(element, context), context);
     if (!text) {
       return "";
+    }
+
+    if (context.format === "latex") {
+      return asBlock(preserveLiteral(`\\begin{quote}\n${text}\n\\end{quote}`, context));
     }
 
     const quoted = text
       .split("\n")
       .map((line) => (line ? `> ${line}` : ">"))
       .join("\n");
-    return `\n\n${quoted}\n\n`;
+    return asBlock(preserveLiteral(quoted, context));
   }
 
-  function linkToMarkdown(element, context) {
-    const text = childrenToMarkdown(element, context).trim();
+  function linkToText(element, context) {
+    const text = childrenToText(element, context).trim();
     const href = element.href || element.getAttribute("href") || "";
     if (!href || href.startsWith("javascript:")) {
       return text;
+    }
+
+    if (context.format === "latex") {
+      const url = `\\texttt{${escapeLatexText(href)}}`;
+      return !text || text === escapeLatexText(href) ? url : `${text} (${url})`;
     }
 
     if (!text || text === href) {
@@ -544,7 +659,7 @@
     return `[${text.replace(/[[\]]/g, "\\$&")}](${href.replace(/\)/g, "%29")})`;
   }
 
-  function tableToMarkdown(element, context) {
+  function tableToText(element, context) {
     const rows = Array.from(element.querySelectorAll("tr"))
       .map((row) => Array.from(row.children).filter((cell) => /^(td|th)$/i.test(cell.tagName)))
       .filter((cells) => cells.length > 0);
@@ -553,11 +668,20 @@
       return "";
     }
 
-    const markdownRows = rows.map((cells) =>
-      cells.map((cell) => tableCellToMarkdown(cell, context))
+    const textRows = rows.map((cells) =>
+      cells.map((cell) => tableCellToText(cell, context))
     );
-    const columnCount = Math.max(...markdownRows.map((row) => row.length));
-    const normalizedRows = markdownRows.map((row) => padRow(row, columnCount));
+    const columnCount = Math.max(...textRows.map((row) => row.length));
+    const normalizedRows = textRows.map((row) => padRow(row, columnCount));
+    if (context.format === "latex") {
+      const columns = Array.from({ length: columnCount }, () => "l").join(" ");
+      const lines = normalizedRows.map((row) => `${row.join(" & ")} \\\\`);
+      if (rows[0].some((cell) => cell.tagName.toLowerCase() === "th")) {
+        lines.splice(1, 0, "\\hline");
+      }
+      return asBlock(`\\begin{tabular}{${columns}}\n${lines.join("\n")}\n\\end{tabular}`);
+    }
+
     const header = normalizedRows[0];
     const body = normalizedRows.slice(1);
     const separator = Array.from({ length: columnCount }, () => "---");
@@ -566,8 +690,14 @@
     return `\n\n${lines.join("\n")}\n\n`;
   }
 
-  function tableCellToMarkdown(cell, context) {
-    return childrenToMarkdown(cell, context)
+  function tableCellToText(cell, context) {
+    const text = childrenToText(cell, { ...context, inTable: true }).trim();
+    if (context.format === "latex") {
+      const lines = text.split(/\n+/);
+      return lines.length > 1 ? `\\shortstack[l]{${lines.join(" \\\\ ")}}` : text;
+    }
+
+    return normalizeText(text, context)
       .replace(/\n+/g, "<br>")
       .replace(/\|/g, "\\|")
       .trim();
@@ -577,26 +707,30 @@
     return [...row, ...Array.from({ length: Math.max(0, length - row.length) }, () => "")];
   }
 
-  function imageToMarkdown(element) {
+  function imageToText(element, context) {
     const alt = element.getAttribute("alt")?.trim();
-    return alt ? `[image: ${alt}]` : "";
+    if (!alt) {
+      return "";
+    }
+
+    return context.format === "latex" ? `\\textit{Image: ${escapeLatexText(alt)}}` : `[image: ${alt}]`;
   }
 
-  function divToMarkdown(element, context) {
-    const markdown = childrenToMarkdown(element, context);
-    if (!markdown.trim()) {
+  function divToText(element, context) {
+    const text = childrenToText(element, context);
+    if (!text.trim()) {
       return "";
     }
 
     if (element.matches(".markdown, .text-message, [data-message-author-role]")) {
-      return markdown;
+      return text;
     }
 
     if (hasDirectBlockChild(element)) {
-      return markdown;
+      return text;
     }
 
-    return asBlock(markdown);
+    return asBlock(text);
   }
 
   function hasDirectBlockChild(element) {
@@ -618,33 +752,20 @@
     return text ? `\n\n${text}\n\n` : "";
   }
 
-  function normalizeMarkdown(markdown) {
-    const codeBlocks = [];
-    let text = markdown
+  function normalizeText(value, context) {
+    const text = value
       .replace(ZERO_WIDTH_RE, "")
       .replace(/\u00a0/g, " ")
-      .replace(/[ \t]+\n/g, "\n");
-
-    if (text.includes("```")) {
-      text = text.replace(/(`{3,})[^\n]*\n[\s\S]*?\n\1/g, (block) => {
-        const placeholder = `${CODE_PLACEHOLDER_PREFIX}${codeBlocks.length}@@`;
-        codeBlocks.push(block);
-        return placeholder;
-      });
-    }
-
-    text = text
+      .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .split("\n")
       .map((line) => line.replace(/[ \t]+$/g, ""))
       .join("\n")
       .trim();
 
-    codeBlocks.forEach((block, index) => {
-      text = text.replace(`${CODE_PLACEHOLDER_PREFIX}${index}@@`, block);
-    });
-
-    return text;
+    return text.replace(/@@LATEX_COPY_LITERAL_(\d+)@@/g, (placeholder, index) =>
+      context.literals[Number(index)] ?? placeholder
+    );
   }
 
   function isEditableSelection(selection) {

@@ -1,32 +1,50 @@
-# ChatGPT LaTeX Copy
+# Better Copy
 
-A small Chrome extension that rewrites ChatGPT clipboard output so rendered KaTeX equations copy as raw LaTeX.
+A small Chrome extension that copies selected text and complete messages in your chosen format while preserving the original equation source.
 
 ## Install locally
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Choose Load unpacked.
-4. Select this directory: `/home/simon/dotfiles/chrome/extensions/chatgpt-copy`.
+4. Select this `chrome/extensions/chatgpt-copy` directory from your dotfiles checkout.
 
-## Enable / disable
+After updating the files, reload the extension on the extensions page and refresh any open conversation tabs once.
 
-- Click the extension's toolbar icon (pin it via the puzzle-piece menu) and flip the switch.
-- The setting applies immediately to open ChatGPT tabs — no reload needed.
-- While disabled, the toolbar icon shows an `OFF` badge and copying behaves as if the extension were not installed.
-- The setting persists across browser restarts.
+## Enable and choose a format
 
-## Behavior
+Click the extension's toolbar icon to open its settings:
 
-- Selecting text in ChatGPT and copying it writes readable text with raw LaTeX equations to the clipboard.
-- ChatGPT-rendered equations are copied from KaTeX annotations, for example:
+- **Enabled:** choose either LaTeX or Markdown under Copy format.
+- **Disabled:** the extension leaves clipboard handling to the page. The toolbar icon shows an `OFF` badge.
+- Both settings apply immediately to open tabs and persist across browser restarts. Disabling the extension remembers your chosen format.
+
+## LaTeX mode
+
+LaTeX is the default format. Copies are document fragments ready to paste into an existing LaTeX document:
+
+- Bold and italic text become `\textbf{...}` and `\emph{...}`.
+- Headings become section commands; numbered heading prefixes are removed.
+- Lists, quotations, and tables use `itemize` / `enumerate`, `quote`, and `tabular` environments.
+- Inline code uses `\texttt{...}` and code blocks use `verbatim`.
+- Special characters in prose are escaped without changing equation source.
+- Links include their label and URL as text; images include their alternative text. Strikethrough text is retained without its decoration. These fallbacks avoid requiring extra formatting packages.
+- Inline equations use `\(...\)`; display equations use `\[...\]`.
+
+For example:
 
 ```tex
+And \textbf{now} we introduce your Gaussian noise:
+
 \[
-L_T(h) \le \exp(-2\gamma^2 B).
+\epsilon \sim \mathcal N(0,I).
 \]
 ```
 
-- ChatGPT's message copy button is also intercepted and writes the answer with raw LaTeX equations.
-- Code blocks are copied as fenced Markdown code blocks.
-- Headings copy as LaTeX sections: `#` to `\section{}`, `##` to `\subsection{}`, and `###` to `\subsubsection{}`. Deeper headings stay as Markdown hashes.
+The destination document still needs any packages used by the original equations, such as `amsmath`.
+
+## Markdown mode
+
+Markdown mode uses Markdown headings, emphasis, lists, quotations, links, tables, and fenced code blocks. Inline equations use `$...$` and display equations use `$$...$$`, for Markdown editors that support math.
+
+Both formats support selected-text copying and the message copy button. Selecting part of a rendered equation includes its complete source. Source attributes and older KaTeX annotations are both supported.

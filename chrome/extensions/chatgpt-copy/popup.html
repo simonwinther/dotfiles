@@ -1,14 +1,15 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<title>Better Copy settings</title>
 <style>
   :root {
     color-scheme: light dark;
   }
 
   body {
-    width: 232px;
+    width: 248px;
     margin: 0;
     font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     background: #ffffff;
@@ -16,11 +17,14 @@
   }
 
   main {
+    padding: 14px 16px;
+  }
+
+  header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 14px 16px;
   }
 
   .title {
@@ -83,6 +87,77 @@
     outline-offset: 2px;
   }
 
+  fieldset {
+    min-width: 0;
+    margin: 16px 0 0;
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    margin-bottom: 8px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .formats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 8px;
+    background: #f4f4f5;
+  }
+
+  .format {
+    position: relative;
+    cursor: pointer;
+  }
+
+  .format input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+  }
+
+  .format span {
+    display: block;
+    padding: 7px 8px;
+    border-radius: 5px;
+    text-align: center;
+  }
+
+  .format input:checked + span {
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    font-weight: 600;
+  }
+
+  .format input:focus-visible + span {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+
+  fieldset:disabled .formats {
+    opacity: 0.5;
+  }
+
+  fieldset:disabled .format {
+    cursor: default;
+  }
+
+  #format-hint {
+    margin: 10px 0 0;
+  }
+
+  #error {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #b91c1c;
+  }
+
   @media (prefers-color-scheme: dark) {
     body {
       background: #202124;
@@ -96,19 +171,48 @@
     .slider {
       background: #5f6368;
     }
+
+    .formats {
+      background: #303134;
+    }
+
+    .format input:checked + span {
+      background: #4a4b50;
+    }
+
+    #error {
+      color: #fca5a5;
+    }
   }
 </style>
 </head>
 <body>
 <main>
-  <div>
-    <div class="title">LaTeX copy</div>
-    <div class="hint" id="status">Enabled</div>
-  </div>
-  <label class="switch" aria-label="Enable LaTeX copy">
-    <input type="checkbox" id="toggle" checked>
-    <span class="slider"></span>
-  </label>
+  <header>
+    <div>
+      <div class="title">Better Copy</div>
+      <div class="hint" id="status" role="status">Loading settings…</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="toggle" aria-label="Enable copy formatting" checked disabled>
+      <span class="slider" aria-hidden="true"></span>
+    </label>
+  </header>
+  <fieldset id="format-picker" disabled aria-describedby="format-hint">
+    <legend>Copy format</legend>
+    <div class="formats">
+      <label class="format">
+        <input type="radio" name="format" value="latex" checked>
+        <span>LaTeX</span>
+      </label>
+      <label class="format">
+        <input type="radio" name="format" value="markdown">
+        <span>Markdown</span>
+      </label>
+    </div>
+  </fieldset>
+  <p class="hint" id="format-hint">Text and equations for a LaTeX document.</p>
+  <p id="error" role="alert" hidden></p>
 </main>
 <script src="popup.js"></script>
 </body>
