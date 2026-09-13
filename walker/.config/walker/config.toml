@@ -90,6 +90,10 @@ provider = "clipboard"
 provider = "runner"
 prefix = ">"
 
+[[providers.prefixes]]
+prefix = "gh "
+provider = "menus:repositories"
+
 
 [[emergencies]]
 text = "Restart Walker"
