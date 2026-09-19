@@ -30,6 +30,8 @@ set completion-highlight-fg     "#FFFFFF"
 set render-loading false
 set recolor false              
 set recolor-keephue true       
+# Preserve embedded images while recoloring text and page backgrounds.
+set recolor-reverse-video true
 set recolor-lightcolor         "#000000"
 set recolor-darkcolor          "#FFFFFF"
 # set recolor-darkcolor          "#DCDCCC"
