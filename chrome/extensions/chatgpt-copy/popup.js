@@ -44,6 +44,20 @@ toggle.addEventListener("change", () => {
   saveSettings({ enabled: toggle.checked });
 });
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") {
+    return;
+  }
+
+  if (changes.enabled) {
+    settings.enabled = changes.enabled.newValue !== false;
+  }
+  if (changes.format) {
+    settings.format = changes.format.newValue === "markdown" ? "markdown" : "latex";
+  }
+  render();
+});
+
 for (const input of formatInputs) {
   input.addEventListener("change", () => {
     if (input.checked) {

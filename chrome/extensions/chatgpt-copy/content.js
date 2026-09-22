@@ -818,8 +818,8 @@
       toast.id = "chatgpt-markdown-latex-copy-toast";
       toast.setAttribute("data-copy-ignore", "true");
       toast.style.position = "fixed";
-      toast.style.right = "16px";
-      toast.style.bottom = "16px";
+      toast.style.right = "76px";
+      toast.style.bottom = "24px";
       toast.style.zIndex = "2147483647";
       toast.style.padding = "8px 10px";
       toast.style.borderRadius = "8px";

@@ -21,7 +21,8 @@
         "https://chat.openai.com/*"
       ],
       "js": [
-        "content.js"
+        "content.js",
+        "controls.js"
       ],
       "run_at": "document_start"
     }

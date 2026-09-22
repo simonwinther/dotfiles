@@ -13,7 +13,11 @@ After updating the files, reload the extension on the extensions page and refres
 
 ## Enable and choose a format
 
-Click the extension's toolbar icon to open its settings:
+Click the floating copy icon in the bottom-right corner of the conversation page. Its panel opens upward with three choices: **LaTeX**, **Markdown**, and **Off**. Choosing either format enables copy formatting; choosing Off restores the page's normal copy behavior. The icon stays visible while formatting is off, and its small badge shows the current mode.
+
+This control also works in an installed browser web app, appears only on the supported conversation site, and follows the page's light or dark theme. Close it by clicking outside, pressing Escape, or clicking the close button.
+
+The extension's toolbar popup remains available and shares the same settings:
 
 - **Enabled:** choose either LaTeX or Markdown under Copy format.
 - **Disabled:** the extension leaves clipboard handling to the page. The toolbar icon shows an `OFF` badge.
