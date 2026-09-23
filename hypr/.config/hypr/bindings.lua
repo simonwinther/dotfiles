@@ -228,8 +228,9 @@ hl.bind("SUPER + ALT + D", hl.dsp.exec_cmd("flatpak run com.discordapp.Discord")
 -- Override Omarchy's default voxtype toggle.
 hl.unbind("SUPER + CTRL + X")
 
--- hl.bind("SUPER + D", hl.dsp.exec_cmd("fono toggle"), { description = "Fono dictation" })
-hl.bind("SUPER + D", hl.dsp.exec_cmd("~/.local/bin/dictate batch toggle"), { description = "Dictation (batch toggle)" })
+hl.unbind("SUPER + D")
+hl.bind("SUPER + D", hl.dsp.exec_cmd("~/.local/bin/dictate live toggle"), { description = "Dictation (live toggle)" })
+
 hl.bind(
 	"SUPER + CTRL + SHIFT + X",
 	hl.dsp.exec_cmd("~/.local/bin/dictate cancel"),
