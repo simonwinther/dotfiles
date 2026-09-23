@@ -3,6 +3,15 @@ hl.plugin.load(os.getenv("HOME") .. "/.local/share/hyprspace/hyprspace.so")
 hl.bind("SUPER + A", function()
     return hl.plugin.hyprspace.overview()
 end)
+-- Three-finger swipe up opens the workspace overview.
+hl.gesture({
+    fingers = 3,
+    direction = "up",
+    action = function()
+        return hl.plugin.hyprspace.overview("on")
+    end,
+})
+
 hl.unbind("SUPER + L")
 hl.bind("SUPER + L", function()
     return hl.plugin.hyprspace.layoutcycle()
