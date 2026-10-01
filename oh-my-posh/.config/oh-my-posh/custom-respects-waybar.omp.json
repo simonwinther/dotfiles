@@ -2,14 +2,28 @@
   "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
   "version": 3,
   "final_space": true,
-  "palette": {
-    "text": "#cdd6f4",
-    "subtext": "#bac2de",
-    "overlay": "#45475a",
-    "teal": "#94e2d5",
-    "green": "#a6e3a1",
-    "peach": "#fab387",
-    "red": "#f38ba8"
+  "palettes": {
+    "template": "{{ if glob (printf \"%s/omarchy/current/theme/light.mode\" (default (printf \"%s/.config\" .Env.HOME) .Env.XDG_CONFIG_HOME)) }}light{{ else }}dark{{ end }}",
+    "list": {
+      "dark": {
+        "text": "#cdd6f4",
+        "subtext": "#bac2de",
+        "overlay": "#45475a",
+        "teal": "#94e2d5",
+        "green": "#a6e3a1",
+        "peach": "#fab387",
+        "red": "#f38ba8"
+      },
+      "light": {
+        "text": "#4c4f69",
+        "subtext": "#5c5f77",
+        "overlay": "#8c8fa1",
+        "teal": "#179299",
+        "green": "#40a02b",
+        "peach": "#fe640b",
+        "red": "#d20f39"
+      }
+    }
   },
   "blocks": [
     {
