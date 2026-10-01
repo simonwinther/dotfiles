@@ -55,6 +55,7 @@ function M.apply(path)
         return
     end
     local sections, config, device = {}, {}, nil
+    local variables = {}
     for raw in file:lines() do
         local line = trim((raw:gsub("#.*$", "")))
         local section = line:match("^([%w_.]+)%s*{$")
@@ -73,7 +74,10 @@ function M.apply(path)
             local key, value = line:match("^([^=]+)=%s*(.*)$")
             assert(key, "Unsupported Omarchy data in " .. path .. ": " .. line)
             key, value = trim(key), trim(value)
-            if key == "monitor" then
+            value = value:gsub("%$([%w_]+)", variables)
+            if key:sub(1, 1) == "$" then
+                variables[key:sub(2)] = value
+            elseif key == "monitor" then
                 local parts = {}
                 for part in (value .. ","):gmatch("(.-),") do
                     parts[#parts + 1] = trim(part)
