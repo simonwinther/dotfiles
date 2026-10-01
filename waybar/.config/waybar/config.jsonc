@@ -1,7 +1,8 @@
 {
   "output": [
     "eDP-1", //laptop
-    "DP-2" // stationary
+    "DP-2", // stationary
+    "HDMI-A-1"
   ],
   "position": "top",
   "exclusive": true,

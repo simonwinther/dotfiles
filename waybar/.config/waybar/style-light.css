@@ -1,0 +1,76 @@
+/* Keep the original layout with a flat Latte appearance. */
+@import "style.css";
+
+@define-color base     #eff1f5;
+@define-color mantle   #e6e9ef;
+@define-color text     #4c4f69;
+@define-color subtext  #6c6f85;
+@define-color yellow   #df8e1d;
+@define-color blue     #1e66f5;
+@define-color mauve    #8839ef;
+@define-color surface0 #e6e9ef;
+@define-color surface1 #bcc0cc;
+@define-color surface2 #8c8fa1;
+@define-color red      #d20f39;
+@define-color green    #40a02b;
+
+/* Dark-mode shadows overlap between modules and look like gray tiles in light mode. */
+window#waybar *,
+window#waybar *:hover,
+window#waybar #pulseaudio {
+    box-shadow: none;
+}
+
+#custom-weather,
+#cpu,
+#memory,
+#disk,
+#pulseaudio,
+#pulseaudio.microphone,
+#custom-hyprwhspr,
+#custom-voxtype,
+#battery,
+#clock,
+#tray,
+#workspaces {
+    background: alpha(@base, 0.96);
+}
+
+#cpu,
+#memory,
+#disk,
+#pulseaudio.microphone,
+#custom-hyprwhspr,
+#battery,
+#clock {
+    border-left-color: alpha(@surface1, 0.35);
+}
+
+/* Leave the outer tray empty; only visible icon widgets draw a pill. */
+window#waybar #tray,
+window#waybar #tray:hover {
+    background: transparent;
+    padding: 0;
+    margin-left: 0;
+    margin-right: 0;
+    min-width: 0;
+}
+
+window#waybar #tray image {
+    background: alpha(@base, 0.96);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+window#waybar #tray > widget:hover image {
+    background: @mantle;
+}
+
+/* Icon pills already separate the tray from the clock. */
+window#waybar #custom-separator {
+    color: transparent;
+    font-size: 0;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+}

@@ -29,6 +29,27 @@ COLOR_COLD="#73cef4"        # Blue (≤10°C)
 COLOR_HOT="#f38ba8"         # Red (≥20°C, adjust if you want)
 COLOR_NORMAL_TEMP="#fab387" # Orange (15–19°C)
 COLOR_WHITE="#cdd6f4"
+COLOR_MUTED="#585b70"
+
+# Preserve the original dark palette and use Latte colors in light mode.
+if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/current/theme/light.mode" ]]; then
+  COLOR_CLOUD="#6c6f85"
+  COLOR_THUNDER="#df8e1d"
+  COLOR_LIGHT_RAIN="#1e66f5"
+  COLOR_HEAVY_RAIN="#209fb5"
+  COLOR_SNOW="#4c4f69"
+  COLOR_FOG="#7c7f93"
+  COLOR_TORNADO="#df8e1d"
+  COLOR_SUN="#df8e1d"
+  COLOR_MOON="#4c4f69"
+  COLOR_ERR="#d20f39"
+  COLOR_WIND="#1e66f5"
+  COLOR_COLD="#1e66f5"
+  COLOR_HOT="#d20f39"
+  COLOR_NORMAL_TEMP="#fe640b"
+  COLOR_WHITE="#4c4f69"
+  COLOR_MUTED="#6c6f85"
+fi
 
 # Icons (Nerd Font)
 WIND_ICON="󰖝"        # wind
@@ -157,6 +178,6 @@ formatTemperature
 echo "{\"text\":\"\
 <span color='${ICON_COLOR}'>${ICON}</span>  \
 <span color='${TEMP_COLOR}'>${TEMP_ICON}</span> <span color='${COLOR_WHITE}'>${TEMP}°</span> \
-<span color='#585b70'>·</span> \
-<span color='${COLOR_WIND}'>${WIND_ICON}</span> <span color='${COLOR_WHITE}'>${WIND_KMH}</span><span color='#585b70'>km/h</span>\
+<span color='${COLOR_MUTED}'>·</span> \
+<span color='${COLOR_WIND}'>${WIND_ICON}</span> <span color='${COLOR_WHITE}'>${WIND_KMH}</span><span color='${COLOR_MUTED}'>km/h</span>\
 \",\"tooltip\":\"Weather: ${DESC}\nTemp: ${TEMP}°C\nWind: ${WIND_KMH} km/h\",\"class\":\"weather\"}"

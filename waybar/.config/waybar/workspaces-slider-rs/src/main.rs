@@ -276,7 +276,8 @@ impl App {
         let Some(snapshot) = hypr::snapshot(&self.monitor, WORKSPACE_COUNT) else {
             return;
         };
-        let mut changed = snapshot.occupied != self.occupied;
+        let appearance_changed = self.renderer.as_mut().is_some_and(Renderer::sync_appearance);
+        let mut changed = appearance_changed || snapshot.occupied != self.occupied;
         self.occupied = snapshot.occupied;
         let workspace = snapshot.active;
         if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {

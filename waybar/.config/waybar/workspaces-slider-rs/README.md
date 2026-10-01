@@ -34,6 +34,13 @@ pkill -x workspaces-slider
 uwsm app -- ~/.local/bin/workspaces-slider &
 ```
 
+## Appearance
+
+The original dark palette is preserved. When Omarchy's current theme has a
+`light.mode` marker, the pill uses Catppuccin Latte instead. Omarchy's Hyprland
+reload updates the running pill without restarting it or changing its animation.
+The usual workspace refresh also checks the appearance.
+
 ## Checking rendering
 
 `--dump <path> [scale]` renders one frame to a PNG and exits, which is how the

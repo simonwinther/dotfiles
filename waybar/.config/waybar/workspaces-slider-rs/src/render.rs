@@ -15,11 +15,39 @@ pub const FIRST_CENTER: f32 = 20.0;
 pub const INDICATOR_RADIUS: f32 = 13.0;
 const FONT_PX: f32 = 14.0;
 
-const BASE: [f32; 3] = [0x12 as f32 / 255.0, 0x12 as f32 / 255.0, 0x14 as f32 / 255.0];
-const TEXT: [f32; 3] = [0xF4 as f32 / 255.0, 0xF4 as f32 / 255.0, 0xF5 as f32 / 255.0];
-const BLUE: [f32; 3] = [0x60 as f32 / 255.0, 0xA5 as f32 / 255.0, 0xFA as f32 / 255.0];
-const MAUVE: [f32; 3] = [0xA7 as f32 / 255.0, 0x78 as f32 / 255.0, 0xFA as f32 / 255.0];
-const SURFACE2: [f32; 3] = [0x52 as f32 / 255.0, 0x52 as f32 / 255.0, 0x5B as f32 / 255.0];
+#[derive(Clone, Copy, PartialEq)]
+struct Palette {
+    base: [f32; 3],
+    text: [f32; 3],
+    blue: [f32; 3],
+    mauve: [f32; 3],
+    surface2: [f32; 3],
+}
+
+const fn rgb(hex: u32) -> [f32; 3] {
+    [((hex >> 16) & 255) as f32 / 255.0, ((hex >> 8) & 255) as f32 / 255.0, (hex & 255) as f32 / 255.0]
+}
+
+impl Palette {
+    fn current() -> Self {
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
+        let light = config.is_some_and(|path| path.join("omarchy/current/theme/light.mode").is_file());
+        if light {
+            Self {
+                base: rgb(0xeff1f5), text: rgb(0x4c4f69), blue: rgb(0x1e66f5),
+                mauve: rgb(0x8839ef), surface2: rgb(0x8c8fa1),
+            }
+        } else {
+            Self {
+                base: rgb(0x121214), text: rgb(0xf4f4f5), blue: rgb(0x60a5fa),
+                mauve: rgb(0xa778fa), surface2: rgb(0x52525b),
+            }
+        }
+    }
+}
 
 const FONT_CANDIDATES: &[&str] = &[
     "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Bold.ttf",
@@ -42,6 +70,7 @@ struct Glyph {
 }
 
 pub struct Renderer {
+    palette: Palette,
     glyphs: Vec<Glyph>,
     scale: f32,
     width: u32,
@@ -117,11 +146,21 @@ impl Renderer {
         unsafe { libc::malloc_trim(0) };
 
         Some(Renderer {
+            palette: Palette::current(),
             glyphs,
             scale,
             width: (PANEL_WIDTH * scale).round() as u32,
             height: (PANEL_HEIGHT * scale).round() as u32,
         })
+    }
+
+    pub fn sync_appearance(&mut self) -> bool {
+        let palette = Palette::current();
+        if self.palette == palette {
+            return false;
+        }
+        self.palette = palette;
+        true
     }
 
     pub fn width(&self) -> u32 {
@@ -154,8 +193,8 @@ impl Renderer {
             let glyph = &self.glyphs[(workspace - 1) as usize];
             let (color, alpha) = match override_color {
                 Some(color) => (color, 1.0),
-                None if occupied.contains(&workspace) && Some(workspace) != deferred => (TEXT, 1.0),
-                None => (TEXT, 0.45),
+                None if occupied.contains(&workspace) && Some(workspace) != deferred => (self.palette.text, 1.0),
+                None => (self.palette.text, 0.45),
             };
             blend_glyph(pixmap, glyph, color, alpha, mask);
         }
@@ -178,14 +217,14 @@ impl Renderer {
         paint.anti_alias = true;
 
         if let Some(path) = rounded_rect(0.0, 0.0, PANEL_WIDTH, PANEL_HEIGHT, PANEL_HEIGHT / 2.0) {
-            paint.set_color(rgba(BASE, 0.96));
+            paint.set_color(rgba(self.palette.base, 0.96));
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
         }
 
         if let Some(path) =
             rounded_rect(0.5, 0.5, PANEL_WIDTH - 1.0, PANEL_HEIGHT - 1.0, 16.5)
         {
-            paint.set_color(rgba(SURFACE2, 0.22));
+            paint.set_color(rgba(self.palette.surface2, 0.22));
             let stroke = Stroke { width: 1.0, ..Default::default() };
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
@@ -194,7 +233,7 @@ impl Renderer {
 
         for (radius, alpha) in [(17.0_f32, 0.035_f32), (15.0, 0.07)] {
             if let Some(path) = PathBuilder::from_circle(position, mid + 2.0, radius) {
-                paint.set_color(rgba(BLUE, alpha));
+                paint.set_color(rgba(self.palette.blue, alpha));
                 pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
             }
         }
@@ -209,8 +248,8 @@ impl Renderer {
                 start,
                 end,
                 vec![
-                    GradientStop::new(0.0, rgba(BLUE, 1.0)),
-                    GradientStop::new(1.0, rgba(MAUVE, 1.0)),
+                    GradientStop::new(0.0, rgba(self.palette.blue, 1.0)),
+                    GradientStop::new(1.0, rgba(self.palette.mauve, 1.0)),
                 ],
                 SpreadMode::Pad,
                 Transform::identity(),
@@ -223,7 +262,7 @@ impl Renderer {
         }
 
         if let Some(path) = PathBuilder::from_circle(position, mid, INDICATOR_RADIUS - 0.5) {
-            paint.set_color(rgba(TEXT, 0.20));
+            paint.set_color(rgba(self.palette.text, 0.20));
             let stroke = Stroke { width: 1.0, ..Default::default() };
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
@@ -233,7 +272,7 @@ impl Renderer {
             if let Some(mut mask) = Mask::new(self.width, self.height) {
                 mask.fill_path(&path, FillRule::Winding, true, transform);
                 let range = self.labels_near(position);
-                self.draw_labels(pixmap, occupied, deferred, range, Some(BASE), Some(&mask));
+                self.draw_labels(pixmap, occupied, deferred, range, Some(self.palette.base), Some(&mask));
             }
         }
     }

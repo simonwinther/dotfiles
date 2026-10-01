@@ -1,0 +1,9 @@
+@import "style-minimal.css";
+
+@define-color base     #eff1f5;
+@define-color text     #4c4f69;
+@define-color yellow   #df8e1d;
+@define-color blue     #1e66f5;
+@define-color surface0 #e6e9ef;
+@define-color surface2 #8c8fa1;
+@define-color red      #d20f39;

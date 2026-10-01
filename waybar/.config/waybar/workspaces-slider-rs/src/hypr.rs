@@ -145,7 +145,9 @@ pub fn listen(send: impl Fn(Event) + Send + 'static) {
                         | "focusedmonv2"
                         | "monitoradded"
                         | "monitoraddedv2"
-                        | "monitorremoved" => send(Event::Changed),
+                        | "monitorremoved"
+                        // Omarchy reloads Hyprland after switching its theme.
+                        | "configreloaded" => send(Event::Changed),
                         _ => {}
                     }
                 }
