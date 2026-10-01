@@ -1,12 +1,16 @@
 # ~/.config/ghostty/config
-# Ctrl + shift + , 
+# Ctrl + Shift + ,
 
-# --- Theme & colors ---
+# ------------------------------------------------------------
 # Font
-# Omarchy will literally overwrite anything that I put here. 
-# They have a file where they strictly overwrite any color in any 
-# app if you don't use their set font command in the terminal. 
-# This is also why I want to switch to nix. I'll keep it here tho for nix.
+# ------------------------------------------------------------
+
+# Omarchy will literally overwrite anything that I put here.
+# They have a file where they strictly overwrite any color in any
+# app if you don't use their set font command in the terminal.
+# This is also why I want to switch to nix.
+# I'll keep it here tho for nix.
+
 font-family = "JetBrainsMono Nerd Font"
 font-style = "Regular"
 font-style-bold = "Bold"
@@ -17,54 +21,60 @@ font-size = 14
 font-feature = "calt"
 font-feature = "liga"
 
+
+# ------------------------------------------------------------
+# Theme
+# ------------------------------------------------------------
+
+# Manual: use SimonDark or SimonLight, then Ctrl+Shift+,.
+# Automatic: light:SimonLight,dark:SimonDark follows system appearance.
+# Keep color values in the theme files so they do not override switching.
+theme = light:SimonLight,dark:SimonDark
+
+# Make Ghostty UI/chrome follow the active appearance too.
+window-theme = auto
+
+
+# ------------------------------------------------------------
 # Window
-window-theme = ghostty
-window-padding-x = 6, 6 
+# ------------------------------------------------------------
+
+window-padding-x = 6, 6
 window-padding-y = 0, 6
 window-padding-balance = false
 window-padding-color = extend
+
 window-decoration = none
-confirm-close-surface=false
+
+confirm-close-surface = false
 resize-overlay = never
 gtk-toolbar-style = flat
+
 background-opacity = 1
 
 
-# Theme
-# background = #1e1e2e
-background = #11111b
-foreground = #cdd6f4
+# ------------------------------------------------------------
+# Cursor
+# ------------------------------------------------------------
 
-palette = 0=#45475a
-palette = 1=#f38ba8
-palette = 2=#a6e3a1
-palette = 3=#f9e2af
-palette = 4=#89b4fa
-palette = 5=#f5c2e7
-palette = 6=#94e2d5
-palette = 7=#cdd6f4
-palette = 8=#585b70
-palette = 9=#f38ba8
-palette = 10=#a6e3a1
-palette = 11=#f9e2af
-palette = 12=#89b4fa
-palette = 13=#f5c2e7
-palette = 14=#94e2d5
-palette = 15=#cdd6f4
-
-# Selection & cursor styling
-selection-background = #89b4fa
-selection-foreground = #1e1e2e
 cursor-style = block
 cursor-style-blink = false
-cursor-color         = #cdd6f4
-cursor-text          = #1e1e2e
-# ? do i need this lmao below:
-shell-integration-features = no-cursor 
 
-# Custom cursor shader (keep if you want it)
-#custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
-#custom-shader-animation = true
+# Prevent Ghostty shell integration from changing the cursor.
+shell-integration-features = no-cursor
+
+
+# ------------------------------------------------------------
+# Custom cursor shader
+# ------------------------------------------------------------
+
+# custom-shader = ~/.config/ghostty/shaders/cursor_smear_fade.glsl
+# custom-shader-animation = true
+
+
+# ------------------------------------------------------------
+# Clipboard
+# ------------------------------------------------------------
 
 # btw: If I do this, I can't use V-BLOCK in Neovim
 #
@@ -76,5 +86,12 @@ shell-integration-features = no-cursor
 # keybind = ctrl+shift+c=unbind
 # keybind = ctrl+shift+v=unbind
 
-# Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
+
+# ------------------------------------------------------------
+# Performance
+# ------------------------------------------------------------
+
+# Fix general slowness on Hyprland:
+# https://github.com/ghostty-org/ghostty/discussions/3224
+
 async-backend = epoll
