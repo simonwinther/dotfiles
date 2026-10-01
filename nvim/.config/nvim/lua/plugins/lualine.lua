@@ -2,17 +2,21 @@ return {
   "nvim-lualine/lualine.nvim",
   event = "VeryLazy",
   opts = function(_, opts)
-    local colors = {
-      bg = "#1e1e2e",
-      fg = "#cdd6f4",
-      blue = "#89b4fa",
-      green = "#a6e3a1",
-      violet = "#cba6f7",
-      yellow = "#f9e2af",
-      red = "#f38ba8",
-      peach = "#fab387",
-      teal = "#94e2d5",
-    }
+    local function get_colors()
+      local flavour = vim.o.background == "light" and "latte" or "mocha"
+      local palette = require("catppuccin.palettes").get_palette(flavour)
+      return {
+        bg = palette.base,
+        fg = palette.text,
+        blue = palette.blue,
+        green = palette.green,
+        violet = palette.mauve,
+        yellow = palette.yellow,
+        red = palette.red,
+        peach = palette.peach,
+        teal = palette.teal,
+      }
+    end
 
     -- Define full mode names
     local mode_map = {
@@ -43,16 +47,16 @@ return {
 
     -- Define mode colors
     local mode_color = {
-      n = colors.blue,
-      i = colors.green,
-      v = colors.violet,
-      s = colors.violet,
-      S = colors.violet,
-      ["\22"] = colors.violet,
-      V = colors.violet,
-      c = colors.yellow,
-      R = colors.red,
-      t = colors.peach,
+      n = "blue",
+      i = "green",
+      v = "violet",
+      s = "violet",
+      S = "violet",
+      ["\22"] = "violet",
+      V = "violet",
+      c = "yellow",
+      R = "red",
+      t = "peach",
     }
 
     local formatter_cache = {}
@@ -185,8 +189,9 @@ return {
         end,
         color = function()
           local mode = vim.fn.mode()
+          local colors = get_colors()
           return {
-            bg = mode_color[mode] or colors.blue,
+            bg = colors[mode_color[mode] or "blue"],
             fg = colors.bg,
             gui = "bold",
           }
@@ -204,12 +209,16 @@ return {
 
     table.insert(opts.sections.lualine_x, custom_status_index, {
       attached_formatter,
-      color = { fg = colors.teal, gui = "bold" },
+      color = function()
+        return { fg = get_colors().teal, gui = "bold" }
+      end,
     })
 
     table.insert(opts.sections.lualine_x, custom_status_index + 1, {
       lsp_clients,
-      color = { fg = colors.violet, gui = "bold" },
+      color = function()
+        return { fg = get_colors().violet, gui = "bold" }
+      end,
     })
 
     table.insert(opts.sections.lualine_x, custom_status_index + 2, {
@@ -225,7 +234,9 @@ return {
       "searchcount",
       maxcount = 999,
       timeout = 500,
-      color = { fg = colors.yellow, gui = "bold" },
+      color = function()
+        return { fg = get_colors().yellow, gui = "bold" }
+      end,
     })
 
     opts.sections.lualine_z = {}
