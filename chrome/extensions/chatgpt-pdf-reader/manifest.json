@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT PDF Reader",
+  "version": "0.1.4",
+  "description": "Toggle ChatGPT conversations into a clean, paginated PDF-style reader.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Toggle PDF reader (Alt+Shift+Y)" },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["shortcuts.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "commands": {
+    "toggle-reader": {
+      "suggested_key": { "default": "Alt+Shift+Y" },
+      "description": "Toggle PDF reader"
+    }
+  }
+}
