@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Launch the existing Waybar configuration with Omarchy's light/dark colors."""
+
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+
+args = sys.argv[1:]
+config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+waybar_home = config_home / "waybar"
+
+
+def option(short, long):
+    for index, arg in enumerate(args):
+        if arg in (short, long) and index + 1 < len(args):
+            return args[index + 1]
+        if arg.startswith(long + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def set_option(short, long, value):
+    for index, arg in enumerate(args):
+        if arg in (short, long) and index + 1 < len(args):
+            args[index + 1] = str(value)
+            return
+        if arg.startswith(long + "="):
+            args[index] = long + "=" + str(value)
+            return
+    args.extend([long, str(value)])
+
+
+if not any(arg in ("-h", "--help", "-v", "--version") for arg in args):
+    source = Path(option("-c", "--config") or waybar_home / "config.jsonc").expanduser()
+    owned = [waybar_home / name for name in ("config.jsonc", "config-minimal.jsonc")]
+    if source.resolve() in [path.resolve() for path in owned]:
+        light = (config_home / "omarchy/current/theme/light.mode").is_file()
+        style_arg = option("-s", "--style")
+        style = Path(style_arg).expanduser() if style_arg else waybar_home / "style.css"
+        if light:
+            # Pango spans in module formats have their own colors, independent of CSS.
+            colors = {
+                "#f4f4f5": "#4c4f69", "#cdd6f4": "#4c4f69",
+                "#60a5fa": "#1e66f5", "#89b4fa": "#1e66f5",
+                "#4ade80": "#40a02b", "#eab308": "#df8e1d",
+                "#f87171": "#d20f39",
+            }
+            text = re.sub(r"#[0-9a-fA-F]{6}", lambda m: colors.get(m[0].lower(), m[0]), source.read_text())
+            runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
+            runtime = runtime / ("waybar-theme-" + str(os.getuid()))
+            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+            target = runtime / source.name
+            with tempfile.NamedTemporaryFile(mode="w", dir=runtime, delete=False) as output:
+                output.write(text)
+            os.replace(output.name, target)
+            set_option("-c", "--config", target)
+            for name in ("style.css", "style-minimal.css"):
+                if style.resolve() == (waybar_home / name).resolve():
+                    style = waybar_home / name.replace(".css", "-light.css")
+                    break
+        set_option("-s", "--style", style)
+
+os.execv("/usr/bin/waybar", ["waybar", *args])
