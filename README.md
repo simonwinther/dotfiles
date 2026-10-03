@@ -41,6 +41,30 @@ light themes such as `Catppuccin Latte` select the light bar, weather, workspace
 slider, and shell prompt; dark themes select their dark versions. Ghostty's
 `SimonLight` and `SimonDark` themes follow the system appearance set by Omarchy.
 
+### Catppuccin Latte borders and shadows
+
+The `latte-borders` package customizes only Catppuccin Latte: a deeper pink,
+purple, and blue active border, a soft gray inactive border, and a reduced
+inactive shadow. Border size and rounding continue to come from the Hyprland
+configuration.
+
+After pulling these changes on the other Omarchy PC, run from this checkout:
+
+```sh
+stow --no-folding -n -R -v latte-borders
+stow --no-folding -R latte-borders
+omarchy theme set "Catppuccin Latte"
+hyprctl configerrors
+```
+
+Resolve any conflicts in the dry run before restowing. `--no-folding` keeps the
+theme directory real, with Stow managing its configuration file. Reapplying
+Latte copies this override into Omarchy's current theme; reloading Hyprland
+alone does not copy it. This requires Omarchy's theme setter to support user
+overrides in `~/.config/omarchy/themes/` (as it does on this PC). Other themes
+keep their own settings. No generated theme files or binaries are stored in
+this package.
+
 
 ## Look 'n feel (updated: Sunday 11th of January 2026)
 
