@@ -29,16 +29,28 @@ Started from `hypr/.config/hypr/autostart.lua`:
 
 ```lua
 hl.on("hyprland.start", function()
-    hl.exec_cmd("uwsm app -- ~/.local/bin/workspaces-slider")
+    hl.exec_cmd("uwsm app -- ~/.local/bin/workspaces-slider-launch")
 end)
 ```
 
 Restart after rebuilding:
 
 ```sh
-pkill -x workspaces-slider
-uwsm app -- ~/.local/bin/workspaces-slider &
+pkill -f '^bash .*/workspaces-slider-launch$'
+uwsm app -- ~/.local/bin/workspaces-slider-launch &
 ```
+
+The launcher starts one slider on each connected output listed in the full
+Waybar configuration. Monitor selection stays consistent across restarts and
+does not depend on which output had focus at login. Outputs with only the
+minimal bar do not get a slider. The launcher requires `jq` and `flock`.
+
+Every slider uses a distinct label color for each other monitor. Workspaces
+on its own output use the normal text color, and empty slots are dimmed.
+The blue-purple animated indicator follows its own output's active workspace.
+Monitor colors are assigned by sorted connector name and shared by all sliders;
+the palette adjusts for light and dark themes.
+Clicking and scrolling use Hyprland's Lua dispatchers to switch workspaces.
 
 ## Appearance
 

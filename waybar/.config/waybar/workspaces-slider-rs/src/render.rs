@@ -22,6 +22,7 @@ struct Palette {
     blue: [f32; 3],
     mauve: [f32; 3],
     surface2: [f32; 3],
+    monitor_colors: [[f32; 3]; 6],
 }
 
 const fn rgb(hex: u32) -> [f32; 3] {
@@ -35,15 +36,27 @@ impl Palette {
             .map(std::path::PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
         let light = config.is_some_and(|path| path.join("omarchy/current/theme/light.mode").is_file());
+        Self::for_mode(light)
+    }
+
+    fn for_mode(light: bool) -> Self {
         if light {
             Self {
                 base: rgb(0xffffff), text: rgb(0x4c4f69), blue: rgb(0x635bff),
                 mauve: rgb(0x923df5), surface2: rgb(0xffffff),
+                monitor_colors: [
+                    rgb(0xdf8e1d), rgb(0x179299), rgb(0x40a02b),
+                    rgb(0xd20f39), rgb(0x8839ef), rgb(0xfe640b),
+                ],
             }
         } else {
             Self {
                 base: rgb(0x121214), text: rgb(0xf4f4f5), blue: rgb(0x60a5fa),
                 mauve: rgb(0xa778fa), surface2: rgb(0x52525b),
+                monitor_colors: [
+                    rgb(0xf9e2af), rgb(0x89dceb), rgb(0xa6e3a1),
+                    rgb(0xf38ba8), rgb(0xcba6f7), rgb(0xfab387),
+                ],
             }
         }
     }
@@ -184,6 +197,7 @@ impl Renderer {
         &self,
         pixmap: &mut Pixmap,
         occupied: &std::collections::HashSet<i32>,
+        remote: &std::collections::HashMap<i32, usize>,
         deferred: Option<i32>,
         range: std::ops::RangeInclusive<i32>,
         override_color: Option<[f32; 3]>,
@@ -193,7 +207,12 @@ impl Renderer {
             let glyph = &self.glyphs[(workspace - 1) as usize];
             let (color, alpha) = match override_color {
                 Some(color) => (color, 1.0),
-                None if occupied.contains(&workspace) && Some(workspace) != deferred => (self.palette.text, 1.0),
+                None if Some(workspace) == deferred => (self.palette.text, 0.45),
+                None if remote.contains_key(&workspace) => {
+                    let colors = &self.palette.monitor_colors;
+                    (colors[remote[&workspace] % colors.len()], 1.0)
+                }
+                None if occupied.contains(&workspace) => (self.palette.text, 1.0),
                 None => (self.palette.text, 0.45),
             };
             blend_glyph(pixmap, glyph, color, alpha, mask);
@@ -205,6 +224,7 @@ impl Renderer {
         pixmap: &mut Pixmap,
         position: f32,
         occupied: &std::collections::HashSet<i32>,
+        remote: &std::collections::HashMap<i32, usize>,
         deferred: Option<i32>,
     ) {
         let s = self.scale;
@@ -231,7 +251,7 @@ impl Renderer {
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
 
-        self.draw_labels(pixmap, occupied, deferred, 1..=WORKSPACE_COUNT, None, None);
+        self.draw_labels(pixmap, occupied, remote, deferred, 1..=WORKSPACE_COUNT, None, None);
 
         for (radius, alpha) in [(18.0_f32, 0.035_f32), (16.0, 0.07)] {
             if let Some(path) = PathBuilder::from_circle(position, mid + 2.0, radius) {
@@ -274,7 +294,7 @@ impl Renderer {
             if let Some(mut mask) = Mask::new(self.width, self.height) {
                 mask.fill_path(&path, FillRule::Winding, true, transform);
                 let range = self.labels_near(position);
-                self.draw_labels(pixmap, occupied, deferred, range, Some(rgb(0xffffff)), Some(&mask));
+                self.draw_labels(pixmap, occupied, remote, deferred, range, Some(rgb(0xffffff)), Some(&mask));
             }
         }
     }
@@ -357,6 +377,56 @@ fn blend_glyph(
             let b = (out_b.round().clamp(0.0, 255.0) as u8).min(a);
             if let Some(value) = PremultipliedColorU8::from_rgba(r, g, b, a) {
                 pixels[index] = value;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    fn label_pixel(renderer: &Renderer, pixmap: &Pixmap, workspace: i32) -> [u8; 3] {
+        let glyph = &renderer.glyphs[(workspace - 1) as usize];
+        let (index, _) = glyph.coverage.iter().enumerate().max_by_key(|(_, alpha)| *alpha).unwrap();
+        let x = glyph.left as usize + index % glyph.width;
+        let y = glyph.top as usize + index / glyph.width;
+        let pixel = pixmap.pixels()[y * pixmap.width() as usize + x];
+        [pixel.red(), pixel.green(), pixel.blue()]
+    }
+
+    #[test]
+    fn distinguish_remote_monitors_and_draw_the_local_active_pill() {
+        let occupied: HashSet<i32> = [1, 2, 3, 7].into_iter().collect();
+        let remote: HashMap<i32, usize> = [(1, 1), (2, 2)].into_iter().collect();
+
+        for scale in [1.0, 2.0] {
+            let mut renderer = Renderer::new(scale).expect("JetBrainsMono font is required");
+            let mut pixmap = Pixmap::new(renderer.width(), renderer.height()).unwrap();
+            for light in [false, true] {
+                renderer.palette = Palette::for_mode(light);
+                renderer.draw(&mut pixmap, center_for(3), &occupied, &remote, None);
+
+                let first_monitor = label_pixel(&renderer, &pixmap, 1);
+                let second_monitor = label_pixel(&renderer, &pixmap, 2);
+                let local = label_pixel(&renderer, &pixmap, 7);
+                let empty = label_pixel(&renderer, &pixmap, 4);
+                assert!(first_monitor[2] > first_monitor[0], "first monitor must be cyan");
+                assert!(second_monitor[1] > second_monitor[2], "second monitor must be green");
+                assert_ne!(first_monitor, second_monitor);
+                assert_ne!(first_monitor, local);
+                assert_ne!(second_monitor, local);
+                assert_ne!(local, empty);
+
+                // Sample the pill above its digit, where the label cannot
+                // obscure its opaque blue-purple background.
+                let x = (center_for(3) * scale) as usize;
+                let y = ((PANEL_HEIGHT / 2.0 - 9.0) * scale) as usize;
+                let pill = pixmap.pixels()[y * pixmap.width() as usize + x];
+                assert_eq!(pill.alpha(), 255);
+                assert!(pill.blue() > pill.red());
+                assert!(pill.blue() > pill.green());
             }
         }
     }

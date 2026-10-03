@@ -3,7 +3,7 @@
 mod hypr;
 mod render;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::reexports::calloop::{
@@ -101,6 +101,7 @@ fn main() {
         frame_pending: false,
         active: snapshot.active.clamp(1, WORKSPACE_COUNT),
         occupied: snapshot.occupied,
+        remote: snapshot.remote,
         deferred_occupied: None,
         position: 0.0,
         start_position: 0.0,
@@ -160,13 +161,13 @@ fn main() {
     app.layer = Some(layer);
 
     let (sender, receiver) = channel::channel();
-    hypr::listen(move |event| {
-        let _ = sender.send(event);
+    hypr::listen(move || {
+        let _ = sender.send(());
     });
     handle
         .insert_source(receiver, |event, _, app| {
-            if let channel::Event::Msg(event) = event {
-                app.handle_hypr_event(event);
+            if let channel::Event::Msg(()) = event {
+                app.refresh();
             }
         })
         .expect("channel source");
@@ -197,8 +198,9 @@ fn dump_frame(path: &str, scale: f32) {
     let Some(mut pixmap) = Pixmap::new(renderer.width(), renderer.height()) else {
         return;
     };
-    let occupied: HashSet<i32> = [2, 3, 7].into_iter().collect();
-    renderer.draw(&mut pixmap, center_for(3), &occupied, None);
+    let occupied: HashSet<i32> = [1, 2, 3, 7].into_iter().collect();
+    let remote = [(1, 1), (2, 2)].into_iter().collect();
+    renderer.draw(&mut pixmap, center_for(3), &occupied, &remote, None);
     if let Err(error) = pixmap.save_png(path) {
         eprintln!("save failed: {error}");
     }
@@ -244,6 +246,7 @@ struct App {
 
     active: i32,
     occupied: HashSet<i32>,
+    remote: HashMap<i32, usize>,
     deferred_occupied: Option<i32>,
     position: f32,
     start_position: f32,
@@ -258,27 +261,16 @@ struct App {
 }
 
 impl App {
-    fn handle_hypr_event(&mut self, event: hypr::Event) {
-        match event {
-            // The payload already carries the new id, so start moving without
-            // waiting for the state read that follows.
-            hypr::Event::Switched(workspace) => {
-                if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
-                    self.start_slide(workspace);
-                    self.request_frame();
-                }
-            }
-            hypr::Event::Changed => self.refresh(),
-        }
-    }
-
     fn refresh(&mut self) {
         let Some(snapshot) = hypr::snapshot(&self.monitor, WORKSPACE_COUNT) else {
             return;
         };
         let appearance_changed = self.renderer.as_mut().is_some_and(Renderer::sync_appearance);
-        let mut changed = appearance_changed || snapshot.occupied != self.occupied;
+        let mut changed = appearance_changed
+            || snapshot.occupied != self.occupied
+            || snapshot.remote != self.remote;
         self.occupied = snapshot.occupied;
+        self.remote = snapshot.remote;
         let workspace = snapshot.active;
         if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
             self.start_slide(workspace);
@@ -341,7 +333,7 @@ impl App {
             return;
         };
 
-        renderer.draw(pixmap, self.position, &self.occupied, self.deferred_occupied);
+        renderer.draw(pixmap, self.position, &self.occupied, &self.remote, self.deferred_occupied);
 
         let width = renderer.width() as i32;
         let height = renderer.height() as i32;
@@ -510,10 +502,7 @@ impl PointerHandler for App {
                 PointerEventKind::Press { .. } => {
                     self.pointer_position = event.position;
                     let workspace = self.workspace_at(event.position.0);
-                    hypr::dispatch(format!(
-                        "dispatch focusmonitor {} ; dispatch workspace {}",
-                        self.monitor, workspace
-                    ));
+                    hypr::switch_workspace(&self.monitor, &workspace.to_string());
                 }
                 PointerEventKind::Axis { vertical, .. } => {
                     let notches = if vertical.discrete != 0 {
@@ -526,10 +515,7 @@ impl PointerHandler for App {
                     };
                     if notches != 0.0 {
                         let direction = if notches > 0.0 { "e+1" } else { "e-1" };
-                        hypr::dispatch(format!(
-                            "dispatch focusmonitor {} ; dispatch workspace {}",
-                            self.monitor, direction
-                        ));
+                        hypr::switch_workspace(&self.monitor, direction);
                     }
                 }
                 _ => {}
