@@ -34,6 +34,12 @@
         "default": "Alt+S"
       },
       "description": "Finish dictation without submitting, or submit if not dictating"
+    },
+    "toggle-microphone-mute": {
+      "suggested_key": {
+        "default": "Alt+M"
+      },
+      "description": "Mute or unmute the microphone during live voice"
     }
   }
 }

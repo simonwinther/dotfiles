@@ -9,6 +9,7 @@ While ChatGPT dictation is active, the extension asks the local native host to l
 - `Alt+D`: start dictation. If dictation is already active, stop it, wait for the send button to become available, then submit.
 - `Alt+C`: cancel active dictation.
 - `Alt+S`: if dictating, finish dictation without submitting. If not dictating, submit the current prompt.
+- `Alt+M`: toggle the microphone mute button during a live voice conversation. Press again to unmute. Does nothing when no microphone mute control is available.
 
 The content script also listens for these shortcuts directly on ChatGPT pages. That covers cases where Chrome's extension command dispatcher does not fire for the focused page.
 
@@ -18,6 +19,8 @@ The content script also listens for these shortcuts directly on ChatGPT pages. T
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this folder: `/home/simon/dotfiles/chrome/extensions/chatgpt-dictate`.
+
+After updating, reload the extension on `chrome://extensions` and refresh any open conversation tabs. If `Alt+M` is unassigned, set it under `chrome://extensions/shortcuts`.
 
 The volume ducking bridge also needs the Chrome package and shell scripts stowed:
 

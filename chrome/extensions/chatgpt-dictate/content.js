@@ -12,7 +12,8 @@
   const COMMANDS = {
     TOGGLE_SUBMIT: "toggle-dictation-submit",
     CANCEL: "cancel-dictation",
-    FINISH: "finish-dictation"
+    FINISH: "finish-dictation",
+    TOGGLE_MUTE: "toggle-microphone-mute"
   };
 
   const VOLUME_DUCK_MESSAGE = "chatgpt-dictate-volume-duck";
@@ -21,7 +22,8 @@
   const KEYBOARD_COMMANDS = {
     d: COMMANDS.TOGGLE_SUBMIT,
     c: COMMANDS.CANCEL,
-    s: COMMANDS.FINISH
+    s: COMMANDS.FINISH,
+    m: COMMANDS.TOGGLE_MUTE
   };
 
   let lastDictating = false;
@@ -148,8 +150,7 @@
       (_button, text) => text.includes("submit dictation"),
       (_button, text) => text.includes("stop voice input"),
       (_button, text) => text.includes("stop recording"),
-      (_button, text) => text.includes("finish dictation"),
-      (_button, text) => text === "stop"
+      (_button, text) => text.includes("finish dictation")
     ]);
   };
 
@@ -158,8 +159,17 @@
       (button) => ariaLabel(button) === "cancel dictation",
       (_button, text) => text.includes("cancel voice input"),
       (_button, text) => text.includes("discard dictation"),
-      (_button, text) => text.includes("cancel recording"),
-      (_button, text) => text === "cancel"
+      (_button, text) => text.includes("cancel recording")
+    ]);
+  };
+
+  const findMicrophoneMuteButton = () => {
+    return findButton([
+      (button) => [
+        button.getAttribute("aria-label"),
+        button.getAttribute("title"),
+        button.textContent
+      ].some((label) => /^(?:(?:un)?mute|turn (?:on|off)) (?:microphone|mic)$/.test(normalize(label)))
     ]);
   };
 
@@ -290,6 +300,11 @@
   };
 
   const runCommand = async (command) => {
+    if (command === COMMANDS.TOGGLE_MUTE) {
+      clickButton(findMicrophoneMuteButton());
+      return;
+    }
+
     if (command === COMMANDS.TOGGLE_SUBMIT) {
       if (isDictating()) {
         await stopDictation({ submit: true });
