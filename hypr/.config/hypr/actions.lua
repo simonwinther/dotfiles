@@ -32,6 +32,15 @@ function M.toggle_blur()
     hl.exec_cmd('notify-send "Blur ' .. (enabled and "enabled" or "disabled") .. '"')
 end
 
+function M.toggle_transparency()
+    local mode = require("windows").toggle_transparency()
+    hl.exec_cmd(
+        'notify-send -t 1500 -h string:x-canonical-private-synchronous:global-transparency "Transparency '
+            .. mode
+            .. ' globally"'
+    )
+end
+
 function M.cycle_monitor_scale(direction)
     local monitor = hl.get_active_monitor()
     if not monitor then
