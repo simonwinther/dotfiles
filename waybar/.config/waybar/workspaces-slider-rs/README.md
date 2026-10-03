@@ -17,14 +17,20 @@ The binary is deliberately not committed. Build it out of tree so `target/`
 never lands in the dotfiles repo:
 
 ```sh
-CARGO_TARGET_DIR=~/.cache/workspaces-slider-rs-target cargo build --release
-cp ~/.cache/workspaces-slider-rs-target/release/workspaces-slider ~/.local/bin/
+# Run from the dotfiles checkout.
+CARGO_TARGET_DIR="$HOME/.cache/workspaces-slider-rs-target" cargo build --release --locked --manifest-path waybar/.config/waybar/workspaces-slider-rs/Cargo.toml
+install -Dm755 "$HOME/.cache/workspaces-slider-rs-target/release/workspaces-slider" "$HOME/.local/bin/workspaces-slider"
 ```
 
-Started from `hypr/.config/hypr/autostart.conf`:
+Rebuild on each PC after pulling changes to this package. Cargo, a C compiler,
+pkg-config, Wayland development files, and JetBrainsMono Nerd Font are required.
 
-```
-exec-once = uwsm app -- ~/.local/bin/workspaces-slider
+Started from `hypr/.config/hypr/autostart.lua`:
+
+```lua
+hl.on("hyprland.start", function()
+    hl.exec_cmd("uwsm app -- ~/.local/bin/workspaces-slider")
+end)
 ```
 
 Restart after rebuilding:

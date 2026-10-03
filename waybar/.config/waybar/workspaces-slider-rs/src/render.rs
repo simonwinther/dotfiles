@@ -7,12 +7,12 @@ use tiny_skia::{
 };
 
 pub const WORKSPACE_COUNT: i32 = 10;
-pub const PANEL_WIDTH: f32 = 292.0;
-pub const PANEL_HEIGHT: f32 = 34.0;
-pub const PANEL_TOP: i32 = 14;
-pub const SLOT_WIDTH: f32 = 28.0;
-pub const FIRST_CENTER: f32 = 20.0;
-pub const INDICATOR_RADIUS: f32 = 13.0;
+pub const PANEL_WIDTH: f32 = 320.0;
+pub const PANEL_HEIGHT: f32 = 36.0;
+pub const PANEL_TOP: i32 = 15;
+pub const SLOT_WIDTH: f32 = 30.0;
+pub const FIRST_CENTER: f32 = 25.0;
+pub const INDICATOR_RADIUS: f32 = 14.0;
 const FONT_PX: f32 = 14.0;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -37,8 +37,8 @@ impl Palette {
         let light = config.is_some_and(|path| path.join("omarchy/current/theme/light.mode").is_file());
         if light {
             Self {
-                base: rgb(0xeff1f5), text: rgb(0x4c4f69), blue: rgb(0x1e66f5),
-                mauve: rgb(0x8839ef), surface2: rgb(0x8c8fa1),
+                base: rgb(0xffffff), text: rgb(0x4c4f69), blue: rgb(0x635bff),
+                mauve: rgb(0x923df5), surface2: rgb(0xffffff),
             }
         } else {
             Self {
@@ -217,21 +217,23 @@ impl Renderer {
         paint.anti_alias = true;
 
         if let Some(path) = rounded_rect(0.0, 0.0, PANEL_WIDTH, PANEL_HEIGHT, PANEL_HEIGHT / 2.0) {
-            paint.set_color(rgba(self.palette.base, 0.96));
+            let light = self.palette.base == rgb(0xffffff);
+            paint.set_color(rgba(self.palette.base, if light { 0.70 } else { 0.82 }));
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
         }
 
         if let Some(path) =
-            rounded_rect(0.5, 0.5, PANEL_WIDTH - 1.0, PANEL_HEIGHT - 1.0, 16.5)
+            rounded_rect(0.5, 0.5, PANEL_WIDTH - 1.0, PANEL_HEIGHT - 1.0, PANEL_HEIGHT / 2.0 - 0.5)
         {
-            paint.set_color(rgba(self.palette.surface2, 0.22));
+            let light = self.palette.base == rgb(0xffffff);
+            paint.set_color(rgba(self.palette.surface2, if light { 0.55 } else { 0.22 }));
             let stroke = Stroke { width: 1.0, ..Default::default() };
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
 
         self.draw_labels(pixmap, occupied, deferred, 1..=WORKSPACE_COUNT, None, None);
 
-        for (radius, alpha) in [(17.0_f32, 0.035_f32), (15.0, 0.07)] {
+        for (radius, alpha) in [(18.0_f32, 0.035_f32), (16.0, 0.07)] {
             if let Some(path) = PathBuilder::from_circle(position, mid + 2.0, radius) {
                 paint.set_color(rgba(self.palette.blue, alpha));
                 pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
@@ -272,7 +274,7 @@ impl Renderer {
             if let Some(mut mask) = Mask::new(self.width, self.height) {
                 mask.fill_path(&path, FillRule::Winding, true, transform);
                 let range = self.labels_near(position);
-                self.draw_labels(pixmap, occupied, deferred, range, Some(self.palette.base), Some(&mask));
+                self.draw_labels(pixmap, occupied, deferred, range, Some(rgb(0xffffff)), Some(&mask));
             }
         }
     }

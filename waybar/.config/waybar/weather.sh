@@ -177,7 +177,7 @@ formatTemperature
 
 echo "{\"text\":\"\
 <span color='${ICON_COLOR}'>${ICON}</span>  \
-<span color='${TEMP_COLOR}'>${TEMP_ICON}</span> <span color='${COLOR_WHITE}'>${TEMP}°</span> \
-<span color='${COLOR_MUTED}'>·</span> \
+<span color='${COLOR_WHITE}'>${TEMP}°</span> \
+<span color='${COLOR_MUTED}'> │ </span> \
 <span color='${COLOR_WIND}'>${WIND_ICON}</span> <span color='${COLOR_WHITE}'>${WIND_KMH}</span><span color='${COLOR_MUTED}'>km/h</span>\
 \",\"tooltip\":\"Weather: ${DESC}\nTemp: ${TEMP}°C\nWind: ${WIND_KMH} km/h\",\"class\":\"weather\"}"

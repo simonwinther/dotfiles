@@ -39,6 +39,7 @@ if not any(arg in ("-h", "--help", "-v", "--version") for arg in args):
         light = (config_home / "omarchy/current/theme/light.mode").is_file()
         style_arg = option("-s", "--style")
         style = Path(style_arg).expanduser() if style_arg else waybar_home / "style.css"
+        text = source.read_text()
         if light:
             # Pango spans in module formats have their own colors, independent of CSS.
             colors = {
@@ -47,19 +48,26 @@ if not any(arg in ("-h", "--help", "-v", "--version") for arg in args):
                 "#4ade80": "#40a02b", "#eab308": "#df8e1d",
                 "#f87171": "#d20f39",
             }
-            text = re.sub(r"#[0-9a-fA-F]{6}", lambda m: colors.get(m[0].lower(), m[0]), source.read_text())
-            runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
-            runtime = runtime / ("waybar-theme-" + str(os.getuid()))
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-            target = runtime / source.name
-            with tempfile.NamedTemporaryFile(mode="w", dir=runtime, delete=False) as output:
-                output.write(text)
-            os.replace(output.name, target)
-            set_option("-c", "--config", target)
+            text = re.sub(r"#[0-9a-fA-F]{6}", lambda m: colors.get(m[0].lower(), m[0]), text)
             for name in ("style.css", "style-minimal.css"):
                 if style.resolve() == (waybar_home / name).resolve():
                     style = waybar_home / name.replace(".css", "-light.css")
                     break
+        # NordVPN's monochrome tray icon must contrast with the current theme.
+        nordvpn_icon = "nordvpn-tray-black" if light else "nordvpn-tray-white"
+        text = re.sub(
+            r'("NordVPN"\s*:\s*")[^"]*(")',
+            lambda match: match[1] + nordvpn_icon + match[2],
+            text,
+        )
+        runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
+        runtime = runtime / ("waybar-theme-" + str(os.getuid()))
+        runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = runtime / source.name
+        with tempfile.NamedTemporaryFile(mode="w", dir=runtime, delete=False) as output:
+            output.write(text)
+        os.replace(output.name, target)
+        set_option("-c", "--config", target)
         set_option("-s", "--style", style)
 
 os.execv("/usr/bin/waybar", ["waybar", *args])

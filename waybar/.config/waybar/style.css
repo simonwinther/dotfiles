@@ -1,25 +1,24 @@
-/* -----------------------------------------------------
- * NEUTRAL DARK PALETTE
- * ----------------------------------------------------- */
-@define-color base     #121214;
-@define-color mantle    #0a0a0b;
-@define-color text     #f4f4f5;
-@define-color subtext  #a1a1aa;
-@define-color yellow   #eab308;
-@define-color blue     #60a5fa;
-@define-color mauve    #a78bfa;
-@define-color surface0 #27272a;
+/* Rounded status groups with a centered workspace switcher. */
+@define-color base #121214;
+@define-color mantle #0a0a0b;
+@define-color text #f4f4f5;
+@define-color subtext #a1a1aa;
 @define-color surface1 #3f3f46;
-@define-color surface2 #52525b;
-@define-color red      #f87171;
-@define-color green    #4ade80;
+@define-color blue #60a5fa;
+@define-color mauve #a78bfa;
+@define-color red #f87171;
+@define-color yellow #eab308;
+@define-color green #4ade80;
+@define-color pill rgba(24, 23, 31, 0.82);
+@define-color pill-hover rgba(45, 42, 58, 0.90);
+@define-color outline rgba(255, 255, 255, 0.10);
+@define-color divider rgba(255, 255, 255, 0.13);
+@define-color tray-divider rgba(255, 255, 255, 0.45);
+@define-color shadow rgba(0, 0, 0, 0.16);
 
-/* -----------------------------------------------------
- * GENERAL STYLES
- * ----------------------------------------------------- */
 * {
     border: none;
-    font-family: 'JetBrainsMono Nerd Font';
+    font-family: 'JetBrainsMono Nerd Font', 'Symbols Nerd Font';
     font-weight: 600;
     font-size: 13px;
     min-height: 0;
@@ -32,217 +31,67 @@ window#waybar {
 
 tooltip {
     background: @mantle;
-    border: 1px solid @surface1;
-    border-radius: 6px;
-    padding: 6px 10px;
+    border: 1px solid @outline;
+    border-radius: 12px;
 }
 
 tooltip label {
     color: @text;
+    padding: 6px 10px;
 }
 
-/* -----------------------------------------------------
- * SHARED MODULE STYLES
- * ----------------------------------------------------- */
+/* Draw each group's background once to avoid seams and overlapping shadows. */
+#hardware,
+#controls,
+#workspaces {
+    background: @pill;
+    border: 1px solid @outline;
+    border-radius: 24px;
+    margin: 5px 0;
+    box-shadow: 0 2px 6px @shadow;
+}
+
+#hardware,
+#controls {
+    min-height: 34px;
+    padding: 0 7px;
+}
+
 #custom-weather,
 #cpu,
 #memory,
 #disk,
 #pulseaudio,
-#pulseaudio.microphone,
-#custom-hyprwhspr,
-#custom-voxtype,
 #battery,
-#clock,
-#tray,
-#workspaces {
-    background: alpha(@base, 0.85);
+#clock {
     color: @text;
-    padding: 8px 16px;
-    margin-top: 6px;
-    margin-bottom: 6px;
-    box-shadow: 0 2px 8px alpha(black, 0.25), inset 0 0 0 1px alpha(@surface1, 0.5);
-    transition: all 0.25s ease;
-}
-
-/* -----------------------------------------------------
- * LEFT PILL (Weather -> CPU -> Mem -> Disk)
- * ----------------------------------------------------- */
-
-#custom-weather {
-    border-radius: 8px 0px 0px 8px;
-    margin-right: 0px;
-    padding-right: 14px;
+    background: transparent;
+    padding: 0 10px;
+    margin: 5px 0;
+    border-radius: 8px;
+    transition: background 150ms ease;
 }
 
 #cpu,
-#memory {
-    border-radius: 0px;
-    margin-left: 0px;
-    margin-right: 0px;
-    padding-left: 14px;
-    padding-right: 14px;
-    border-left: 1px solid alpha(@surface1, 0.6);
-}
-
-#disk {
-    border-radius: 0px 8px 8px 0px;
-    padding-left: 14px;
-    padding-right: 16px;
-    border-left: 1px solid alpha(@surface1, 0.6);
-    margin-left: 0px;
-}
-
-/* -----------------------------------------------------
- * RIGHT PILL
- * Structure: [ Audio | Mic | Whisper | Bat | Clock ]  |  [ Tray ]
- * ----------------------------------------------------- */
-
-#pulseaudio {
-    border-radius: 8px 0px 0px 8px;
-    margin-right: 0px;
-    padding-right: 14px;
-}
-
+#memory,
+#disk,
 #pulseaudio.microphone,
-#custom-hyprwhspr,
-#battery {
-    border-radius: 0px;
-    margin-left: 0px;
-    margin-right: 0px;
-    padding-left: 14px;
-    padding-right: 14px;
-    border-left: 1px solid alpha(@surface1, 0.6);
-}
-
+#battery,
 #clock {
-    border-radius: 0px 8px 8px 0px;
-    margin-left: 0px;
-    margin-right: 6px;
-    border-left: 1px solid alpha(@surface1, 0.6);
-    padding-left: 14px;
-    padding-right: 16px;
+    border-left: 1px solid @divider;
 }
 
-#custom-separator {
-    color: @surface2;
-    background: transparent;
-    box-shadow: none;
-    margin-left: 4px;
-    margin-right: 4px;
-    padding: 8px 0;
-}
-
-#tray {
-    border-radius: 8px;
-    margin-left: 6px;
-    padding-left: 14px;
-    padding-right: 14px;
-}
-
-/* -----------------------------------------------------
- * WORKSPACES
- * ----------------------------------------------------- */
-#workspaces {
-    border-radius: 0px;
-    margin-left: 10px;
-    margin-right: 10px;
-    padding: 0px 8px;
-}
-
-#workspaces button {
-    min-width: 26px;
-    min-height: 26px;
-    margin: 5px 3px;
-    padding: 0;
-    border-radius: 50%;
-    color: @text;
-    background-color: transparent;
-    box-shadow: 0 10px 0 -11px alpha(@text, 0.75);
-    font-size: 12px;
-    font-weight: 700;
-    transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-#workspaces button.empty {
-    color: alpha(@text, 0.45);
-    background: transparent;
-    box-shadow: none;
-}
-
-#workspaces button.focused,
-#workspaces button.visible {
-    color: @text;
-    background: alpha(@surface1, 0.9);
-    border-radius: 50%;
-    box-shadow: none;
-}
-
-#workspaces button.active {
-    min-width: 30px;
-    color: @base;
-    background: linear-gradient(135deg, @blue, @mauve);
-    border-radius: 7px;
-    box-shadow: 0 2px 8px alpha(@blue, 0.4);
-}
-
-#workspaces button.urgent {
-    color: @base;
-    background: @red;
-    border-radius: 50%;
-    box-shadow: 0 0 10px alpha(@red, 0.5);
-    animation-name: blink;
-    animation-duration: 0.5s;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-    animation-direction: alternate;
-}
-
-#workspaces button:hover {
-    background: alpha(@surface1, 0.7);
-    color: @text;
-    border-radius: 50%;
-}
-
-#workspaces button.active:hover {
-    border-radius: 7px;
-    background: linear-gradient(135deg, @blue, @mauve);
-}
-
-/* -----------------------------------------------------
- * HOVER EFFECTS
- * ----------------------------------------------------- */
 #custom-weather:hover,
 #cpu:hover,
 #memory:hover,
 #disk:hover,
 #pulseaudio:hover,
-#pulseaudio.microphone:hover,
-#custom-hyprwhspr:hover,
 #battery:hover,
-#clock:hover,
-#tray:hover {
-    background: alpha(@surface0, 0.95);
-    box-shadow: 0 4px 12px alpha(black, 0.3), inset 0 0 0 1px alpha(@blue, 0.35);
+#clock:hover {
+    background: @pill-hover;
 }
 
-#custom-hyprwhspr {
-    min-width: 18px;
-}
-
-#custom-hyprwhspr.recording {
-    color: @red;
-}
-
-#custom-hyprwhspr.active,
-#custom-hyprwhspr.transcribing {
-    color: @blue;
-}
-
-/* -----------------------------------------------------
- * SPECIFIC STATES
- * ----------------------------------------------------- */
-#battery.charging, #battery.plugged {
+#battery {
     color: @green;
 }
 
@@ -250,28 +99,78 @@ tooltip label {
     color: @yellow;
 }
 
-#battery.critical:not(.charging) {
-    background-color: @red;
-    color: @base;
-    animation-name: blink;
-    animation-duration: 0.5s;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-    animation-direction: alternate;
-}
-
-@keyframes blink {
-    to {
-        background-color: @text;
-        color: @base;
-    }
-}
-
-#custom-voxtype {
-    min-width: 12px;
-    margin: 0 0 0 7.5px;
-}
-
-#custom-voxtype.recording {
+#battery.critical:not(.charging):not(.plugged) {
     color: @red;
+}
+
+#workspaces {
+    padding: 0 8px;
+}
+
+#workspaces button {
+    min-width: 25px;
+    min-height: 25px;
+    padding: 0;
+    margin: 3px 2px;
+    border-radius: 100px;
+    background: transparent;
+    color: @text;
+    box-shadow: none;
+    text-shadow: none;
+    transition: background 150ms ease, color 150ms ease;
+}
+
+#workspaces button.empty {
+    color: @subtext;
+}
+
+#workspaces button:hover {
+    background: @pill-hover;
+}
+
+#workspaces button.active,
+#workspaces button.active:hover {
+    color: #ffffff;
+    background: linear-gradient(135deg, #635bff, #923df5);
+    box-shadow: 0 2px 7px rgba(117, 71, 255, 0.40);
+}
+
+#workspaces button.urgent {
+    color: #ffffff;
+    background: @red;
+}
+
+/* One shared tray pill, separated from the status group. */
+#custom-separator {
+    background: transparent;
+    color: @tray-divider;
+    font-size: 24px;
+    font-weight: 400;
+    padding: 0 9px;
+    margin: 5px 0;
+    box-shadow: none;
+}
+
+#tray {
+    background: @pill;
+    border: 1px solid @outline;
+    border-radius: 24px;
+    min-height: 34px;
+    padding: 0 13px;
+    margin: 5px 0;
+    min-width: 0;
+    box-shadow: 0 2px 6px @shadow;
+}
+
+#tray:hover {
+    background: @pill-hover;
+}
+
+#tray image {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
 }

@@ -64,6 +64,42 @@ hl.window_rule({ match = { class = "(waypaper)" }, name = "waypaper-pinned", pin
 hl.window_rule({ match = { class = "(waypaper)" }, name = "waypaper-opacity", opacity = "0.7 0.6" })
 
 -- Toggled globally with SUPER + ALT + T.
-local opaque_rule = hl.window_rule({ match = { class = ".*" }, name = "global-opaque", opaque = true, enabled = false })
+-- Persist within this compositor session so reloads keep the selected mode.
+local runtime_dir = os.getenv("XDG_RUNTIME_DIR")
+local instance = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
+local state_file = runtime_dir and instance and (runtime_dir .. "/hypr-global-opacity-disabled-" .. instance)
+local marker = state_file and io.open(state_file, "r")
+local disabled = marker ~= nil
+if marker then
+    marker:close()
+end
 
-return { opaque_rule = opaque_rule }
+-- Unlike `opaque`, an absolute opacity rule uses Hyprland's native fadeSwitch.
+local opaque_rule = hl.window_rule({
+    match = { class = ".*" },
+    name = "global-opaque",
+    opacity = "1.0 override 1.0 override 1.0 override",
+    enabled = disabled,
+})
+hl.animation({ leaf = "fadeSwitch", enabled = true, speed = 2, bezier = "easeOutQuint" })
+
+local function toggle_transparency()
+    local disable = not opaque_rule:is_enabled()
+    if state_file then
+        if disable then
+            local file = assert(io.open(state_file, "w"))
+            local closed, message = file:close()
+            if not closed then
+                os.remove(state_file)
+                error(message)
+            end
+        else
+            local removed, message, code = os.remove(state_file)
+            assert(removed or code == 2, message)
+        end
+    end
+    opaque_rule:set_enabled(disable)
+    return disable and "disabled" or "enabled"
+end
+
+return { opaque_rule = opaque_rule, toggle_transparency = toggle_transparency }

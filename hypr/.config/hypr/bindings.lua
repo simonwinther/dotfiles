@@ -243,6 +243,7 @@ hl.bind(
 
 hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("hyprctl reload"), { description = "Reload Hyprland configuration" })
 hl.bind("SUPER + ALT + B", require("actions").toggle_blur, { description = "Toggle blur" })
+
 hl.bind(
 	"SUPER + ALT + T",
 	hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle-transparency"),
