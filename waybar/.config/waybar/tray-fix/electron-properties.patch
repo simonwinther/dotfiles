@@ -4,7 +4,7 @@ diff --git a/src/modules/sni/item.cpp b/src/modules/sni/item.cpp
 @@ -108,6 +108,21 @@ void Item::proxyReady(Glib::RefPtr<Gio::AsyncResult>& result) {
        setProperty(name, value);
      }
- 
+
 +    // Electron 43.3/43.4 only answers Properties requests addressed to its
 +    // well-known name. GDBusProxy resolves that name to the unique owner, so
 +    // the normal property cache can be empty despite a valid tray icon.
@@ -21,7 +21,7 @@ diff --git a/src/modules/sni/item.cpp b/src/modules/sni/item.cpp
 +    }
 +
      this->proxy_->signal_signal().connect(sigc::mem_fun(*this, &Item::onSignal));
- 
+
      if (this->id.empty() || this->category.empty()) {
 @@ -253,13 +268,15 @@ void Item::setCustomIcon(const std::string& id) {
  void Item::getUpdatedProperties() {
@@ -34,7 +34,7 @@ diff --git a/src/modules/sni/item.cpp b/src/modules/sni/item.cpp
 +                                bus_name, 2000, Gio::DBus::CALL_FLAGS_NONE,
 +                                Glib::VariantType("(a{sv})"));
  };
- 
+
  void Item::processUpdatedProperties(Glib::RefPtr<Gio::AsyncResult>& _result) {
    try {
 -    auto result = proxy_->call_finish(_result);
