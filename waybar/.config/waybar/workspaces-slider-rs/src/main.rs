@@ -2,6 +2,7 @@
 
 mod hypr;
 mod render;
+mod supervisor;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -63,6 +64,10 @@ fn main() {
     }
 
     let preset = std::env::var("WAYBAR_OUTPUT_NAME").ok().filter(|name| !name.is_empty());
+    if preset.is_none() {
+        supervisor::run();
+        return;
+    }
     let Some((name, snapshot)) = initial_snapshot(preset.as_deref()) else {
         return;
     };
@@ -161,7 +166,7 @@ fn main() {
     app.layer = Some(layer);
 
     let (sender, receiver) = channel::channel();
-    hypr::listen(move || {
+    hypr::listen(move |_| {
         let _ = sender.send(());
     });
     handle

@@ -12,6 +12,12 @@ use std::time::Duration;
 
 const IO_TIMEOUT: Duration = Duration::from_secs(1);
 
+#[derive(Debug, Clone, Copy)]
+pub enum Event {
+    OutputsChanged,
+    Changed,
+}
+
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     pub active: i32,
@@ -71,6 +77,34 @@ pub fn focused_monitor() -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Enabled, unmirrored outputs that use the full Waybar configuration.
+pub fn monitor_names() -> Option<HashSet<String>> {
+    let raw = request("j/monitors")?;
+    let monitors: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    let raw = std::fs::read(config_dir.join("waybar/config.jsonc")).ok()?;
+    let config: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    eligible_monitors(&monitors, &config)
+}
+
+fn eligible_monitors(monitors: &serde_json::Value, config: &serde_json::Value) -> Option<HashSet<String>> {
+    Some(monitors.as_array()?.iter()
+        .filter(|monitor| monitor["disabled"].as_bool() != Some(true))
+        .filter(|monitor| !monitor["mirrorOf"].as_str().is_some_and(|name| name != "none"))
+        .filter_map(|monitor| monitor["name"].as_str())
+        .filter(|name| match &config["output"] {
+            serde_json::Value::Null => true,
+            serde_json::Value::String(output) => output == name,
+            serde_json::Value::Array(outputs) => outputs.iter().any(|output| output.as_str() == Some(name)),
+            _ => false,
+        })
+        .map(str::to_owned)
+        .collect())
+}
+
 /// One monitor's active workspace and occupancy across all monitors.
 pub fn snapshot(monitor: &str, workspace_count: i32) -> Option<Snapshot> {
     let raw = request("[[BATCH]]j/monitors ; j/workspaces")?;
@@ -124,7 +158,7 @@ fn parse_snapshot(raw: &str, monitor: &str, workspace_count: i32) -> Option<Snap
 }
 
 /// Read the event stream forever, reconnecting if it drops.
-pub fn listen(send: impl Fn() + Send + 'static) {
+pub fn listen(send: impl Fn(Event) + Send + 'static) {
     std::thread::spawn(move || {
         let Some(path) = socket_path(".socket2.sock") else {
             return;
@@ -133,7 +167,7 @@ pub fn listen(send: impl Fn() + Send + 'static) {
             if let Ok(stream) = UnixStream::connect(&path) {
                 // Anything that happened before this connect (or during a drop)
                 // was missed, so resync rather than waiting on the failsafe.
-                send();
+                send(Event::OutputsChanged);
                 let mut reader = BufReader::new(stream);
                 let mut line = Vec::new();
                 loop {
@@ -149,6 +183,9 @@ pub fn listen(send: impl Fn() + Send + 'static) {
                         continue;
                     };
                     match event {
+                        "monitoradded" | "monitoraddedv2" | "monitorremoved" => {
+                            send(Event::OutputsChanged);
+                        }
                         // Workspace events carry no monitor, so resolve the
                         // active workspace from the next monitor snapshot.
                         "workspace"
@@ -161,11 +198,8 @@ pub fn listen(send: impl Fn() + Send + 'static) {
                         | "moveworkspacev2"
                         | "focusedmon"
                         | "focusedmonv2"
-                        | "monitoradded"
-                        | "monitoraddedv2"
-                        | "monitorremoved"
                         // Omarchy reloads Hyprland after switching its theme.
-                        | "configreloaded" => send(),
+                        | "configreloaded" => send(Event::Changed),
                         _ => {}
                     }
                 }
@@ -181,6 +215,21 @@ pub fn listen(send: impl Fn() + Send + 'static) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_full_bar_outputs_get_pills() {
+        let monitors = json!([
+            {"name": "eDP-1", "mirrorOf": "none"},
+            {"name": "HDMI-A-1", "mirrorOf": "none"},
+            {"name": "DP-2", "disabled": true},
+            {"name": "DP-3", "mirrorOf": "eDP-1"}
+        ]);
+        let laptop: HashSet<String> = ["eDP-1".to_owned()].into_iter().collect();
+        assert_eq!(eligible_monitors(&monitors, &json!({"output": ["eDP-1", "DP-2", "DP-3"]})), Some(laptop.clone()));
+        assert_eq!(eligible_monitors(&monitors, &json!({"output": "eDP-1"})), Some(laptop));
+        let both = ["eDP-1".to_owned(), "HDMI-A-1".to_owned()].into_iter().collect();
+        assert_eq!(eligible_monitors(&monitors, &json!({})), Some(both));
+    }
 
     #[test]
     fn distinguish_monitor_ownership_and_keep_the_active_workspace_local() {

@@ -37,13 +37,16 @@ Restart after rebuilding:
 
 ```sh
 pkill -f '^bash .*/workspaces-slider-launch$'
+pkill -f "^$HOME/.local/bin/workspaces-slider$"
 uwsm app -- ~/.local/bin/workspaces-slider-launch &
 ```
 
-The launcher starts one slider on each connected output listed in the full
-Waybar configuration. Monitor selection stays consistent across restarts and
-does not depend on which output had focus at login. Outputs with only the
-minimal bar do not get a slider. The launcher requires `jq` and `flock`.
+The launcher uses `flock` to prevent duplicate instances. Without
+`WAYBAR_OUTPUT_NAME`, the binary supervises one slider on each enabled,
+unmirrored output listed in the full Waybar configuration. It adds and removes
+sliders when displays connect or disconnect; outputs with only the minimal bar
+do not get a slider. Child sliders exit with the supervisor. Set
+`WAYBAR_OUTPUT_NAME` when running the binary directly to select a single output.
 
 Every slider uses a distinct label color for each other monitor. Workspaces
 on its own output use the normal text color, and empty slots are dimmed.

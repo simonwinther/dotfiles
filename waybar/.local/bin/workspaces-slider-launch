@@ -6,8 +6,6 @@ umask 077
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/workspaces-slider-${UID}-${HYPRLAND_INSTANCE_SIGNATURE:-default}.lock"
 flock -n 9 || exit 0
 
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}"
-bar_config="$config_dir/waybar/config.jsonc"
 slider="$HOME/.local/bin/workspaces-slider"
 
 cleanup() {
@@ -22,21 +20,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
-output_names=$(hyprctl monitors -j | jq -r --slurpfile bars "$bar_config" '
-  .[]
-  | select(.disabled != true and .mirrorOf == "none")
-  | .name as $name
-  | select($bars[0].output == null or ($bars[0].output | index($name)) != null)
-  | .name
-')
-
-if [[ -z "$output_names" ]]; then
-  printf 'No connected monitors match the full Waybar configuration\n' >&2
-  exit 1
-fi
-
-while IFS= read -r output; do
-  WAYBAR_OUTPUT_NAME="$output" "$slider" 9>&- &
-done <<< "$output_names"
+# The Rust supervisor reconciles outputs at startup and on display changes.
+unset WAYBAR_OUTPUT_NAME
+"$slider" 9>&- &
 
 wait
