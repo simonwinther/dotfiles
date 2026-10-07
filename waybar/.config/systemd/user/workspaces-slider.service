@@ -1,0 +1,14 @@
+[Unit]
+Description=Hyprland workspace sliders
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/workspaces-slider
+Environment=WAYBAR_OUTPUT_NAME=
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+Slice=app-graphical.slice

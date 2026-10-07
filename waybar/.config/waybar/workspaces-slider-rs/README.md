@@ -19,11 +19,13 @@ never lands in the dotfiles repo:
 ```sh
 # Run from the dotfiles checkout.
 CARGO_TARGET_DIR="$HOME/.cache/workspaces-slider-rs-target" cargo build --release --locked --manifest-path waybar/.config/waybar/workspaces-slider-rs/Cargo.toml
-install -Dm755 "$HOME/.cache/workspaces-slider-rs-target/release/workspaces-slider" "$HOME/.local/bin/workspaces-slider"
+install -Dm755 "$HOME/.cache/workspaces-slider-rs-target/release/workspaces-slider" "$HOME/.local/bin/workspaces-slider.new"
+mv -f "$HOME/.local/bin/workspaces-slider.new" "$HOME/.local/bin/workspaces-slider"
 ```
 
 Rebuild on each PC after pulling changes to this package. Cargo, a C compiler,
 pkg-config, Wayland development files, and JetBrainsMono Nerd Font are required.
+Run `stow -R waybar` to install the launcher and its user service.
 
 Started from `hypr/.config/hypr/autostart.lua`:
 
@@ -36,16 +38,19 @@ end)
 Restart after rebuilding:
 
 ```sh
-pkill -f '^bash .*/workspaces-slider-launch$'
-pkill -f "^$HOME/.local/bin/workspaces-slider$"
-uwsm app -- ~/.local/bin/workspaces-slider-launch &
+systemctl --user daemon-reload
+systemctl --user restart workspaces-slider.service
 ```
 
-The launcher uses `flock` to prevent duplicate instances. Without
-`WAYBAR_OUTPUT_NAME`, the binary supervises one slider on each enabled,
+The launcher starts `workspaces-slider.service`; repeated starts are idempotent.
+The service belongs to the graphical session, stops at logout, and restarts
+the supervisor within two seconds if it exits. Logs are available with
+`journalctl --user -u workspaces-slider.service`.
+Without `WAYBAR_OUTPUT_NAME`, the binary supervises one slider on each enabled,
 unmirrored output listed in the full Waybar configuration. It adds and removes
 sliders when displays connect or disconnect; outputs with only the minimal bar
-do not get a slider. Child sliders exit with the supervisor. Set
+do not get a slider. Failed child sliders are detected within two seconds and
+restarted. Child sliders exit with the supervisor. Set
 `WAYBAR_OUTPUT_NAME` when running the binary directly to select a single output.
 
 Every slider uses a distinct label color for each other monitor. Workspaces

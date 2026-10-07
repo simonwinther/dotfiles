@@ -2,26 +2,7 @@
 
 set -euo pipefail
 
-umask 077
-exec 9>"${XDG_RUNTIME_DIR:-/tmp}/workspaces-slider-${UID}-${HYPRLAND_INSTANCE_SIGNATURE:-default}.lock"
-flock -n 9 || exit 0
-
-slider="$HOME/.local/bin/workspaces-slider"
-
-cleanup() {
-  local child
-  for child in $(jobs -pr); do
-    kill "$child" 2>/dev/null || true
-  done
-  wait || true
-}
-
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
-
-# The Rust supervisor reconciles outputs at startup and on display changes.
-unset WAYBAR_OUTPUT_NAME
-"$slider" 9>&- &
-
-wait
+# Keep the sliders independent of this launcher's shell or terminal. Starting
+# an active service is idempotent, including repeated Hyprland startup hooks.
+systemctl --user daemon-reload
+exec systemctl --user start workspaces-slider.service

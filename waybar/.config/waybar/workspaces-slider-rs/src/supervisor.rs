@@ -8,6 +8,9 @@ use std::time::Duration;
 
 use crate::hypr;
 
+/// Detect failed children promptly even when the desktop produces no events.
+const CHILD_HEALTH_REFRESH: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 struct Pills(HashMap<String, Child>);
 
@@ -23,7 +26,19 @@ impl Pills {
                 let _ = child.wait();
                 return false;
             }
-            matches!(child.try_wait(), Ok(None))
+            match child.try_wait() {
+                Ok(None) => true,
+                Ok(Some(status)) => {
+                    eprintln!("slider on {name} exited with {status}; restarting");
+                    false
+                }
+                Err(error) => {
+                    // Keep the handle to avoid launching a duplicate if the
+                    // process is still alive and only the status read failed.
+                    eprintln!("cannot check slider on {name}: {error}");
+                    true
+                }
+            }
         });
 
         let Ok(executable) = std::env::current_exe() else {
@@ -88,7 +103,7 @@ pub fn run() {
     let mut pills = Pills::default();
     loop {
         let ready = pills.reconcile();
-        let retry = if ready { crate::FALLBACK_REFRESH } else { Duration::from_secs(1) };
+        let retry = if ready { CHILD_HEALTH_REFRESH } else { Duration::from_secs(1) };
         match receiver.recv_timeout(retry) {
             Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
