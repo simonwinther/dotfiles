@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build the installed release with the Electron Properties.GetAll workaround.
+# All downloads, build tools, and binaries stay outside the dotfiles checkout.
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-electron-fix"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/tray-fix"
+source_dir="$cache_dir/source"
+system_package=$(pacman -Q waybar)
+if [[ "$system_package" != "waybar 0.15.0-"* ]]; then
+  printf 'This compatibility patch is for Waybar 0.15.0; installed: %s\n' "$system_package" >&2
+  exit 1
+fi
+mkdir -p "$cache_dir"
+if [[ ! -d "$source_dir/.git" ]]; then
+  git clone --depth 1 --branch 0.15.0 https://github.com/Alexays/Waybar.git "$source_dir"
+fi
+if [[ $(git -C "$source_dir" rev-parse HEAD) != 90b209add8937514d0a987aa842e701bd8f1232e ]]; then
+  printf 'Unexpected Waybar source version; refusing to patch it.\n' >&2
+  exit 1
+fi
+patch_file="$config_dir/electron-properties.patch"
+if git -C "$source_dir" apply --check "$patch_file" 2>/dev/null; then
+  git -C "$source_dir" apply "$patch_file"
+else
+  git -C "$source_dir" apply --reverse --check "$patch_file"
+fi
+
+if ! command -v gdbus-codegen >/dev/null; then
+  # Arch splits this build tool out of the runtime GLib package. Extract the
+  # repository package locally rather than installing packages system-wide.
+  tools_dir="$cache_dir/build-tools"
+  if [[ ! -x "$tools_dir/usr/bin/gdbus-codegen" ]]; then
+    url=$(pacman -Sp glib2-devel --print-format '%l' | tail -n 1)
+    curl -fsSL "$url" -o "$cache_dir/glib2-devel.pkg.tar.zst"
+    mkdir -p "$tools_dir"
+    bsdtar -xf "$cache_dir/glib2-devel.pkg.tar.zst" -C "$tools_dir"
+  fi
+  export PATH="$tools_dir/usr/bin:$PATH"
+fi
+if ! command -v meson >/dev/null; then
+  if [[ ! -x "$cache_dir/build-env/bin/meson" ]]; then
+    uv venv "$cache_dir/build-env"
+    uv pip install --python "$cache_dir/build-env/bin/python" 'meson==1.12.1'
+  fi
+  export PATH="$cache_dir/build-env/bin:$PATH"
+fi
+setup_options=()
+if [[ -f "$cache_dir/build/meson-private/coredata.dat" ]]; then
+  setup_options+=(--reconfigure)
+fi
+meson setup "${setup_options[@]}" "$cache_dir/build" "$source_dir" \
+  -Dtests=disabled -Dman-pages=disabled -Ddbusmenu-gtk=enabled \
+  -Dpulseaudio=enabled -Dcava=disabled
+ninja -C "$cache_dir/build" -j2
+printf '%s\n' "$system_package" > "$cache_dir/system-package.txt"
+printf 'Tray compatibility build ready; restart Waybar to use it.\n'

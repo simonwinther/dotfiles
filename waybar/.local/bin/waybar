@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -70,4 +71,29 @@ if not any(arg in ("-h", "--help", "-v", "--version") for arg in args):
         set_option("-c", "--config", target)
         set_option("-s", "--style", style)
 
-os.execv("/usr/bin/waybar", ["waybar", *args])
+executable = "/usr/bin/waybar"
+cache_home = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+compatibility = cache_home / "waybar-electron-fix"
+candidate = compatibility / "build/waybar"
+version_file = compatibility / "system-package.txt"
+if candidate.is_file() and version_file.is_file():
+    package = subprocess.run(["pacman", "-Q", "waybar"], capture_output=True, text=True)
+    if package.returncode == 0 and package.stdout.strip() == version_file.read_text().strip():
+        executable = str(candidate)
+
+# Omarchy redirects launch output to /dev/null. Keep the bar's diagnostics so
+# icon registration and renderer failures remain available after a restart.
+if not any(arg in ("-h", "--help", "-v", "--version") for arg in args):
+    log_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
+    log_dir = log_dir / ("waybar-theme-" + str(os.getuid()))
+    log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    log_file = log_dir / "waybar.log"
+    if log_file.exists() and log_file.stat().st_size > 512 * 1024:
+        os.replace(log_file, log_dir / "waybar.previous.log")
+    descriptor = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.dup2(descriptor, 1)
+    os.dup2(descriptor, 2)
+    if descriptor > 2:
+        os.close(descriptor)
+
+os.execv(executable, ["waybar", *args])

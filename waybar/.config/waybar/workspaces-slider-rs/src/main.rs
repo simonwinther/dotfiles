@@ -3,6 +3,7 @@
 mod hypr;
 mod render;
 mod supervisor;
+mod termination;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -63,6 +64,7 @@ fn main() {
         return;
     }
 
+    termination::install();
     let preset = std::env::var("WAYBAR_OUTPUT_NAME").ok().filter(|name| !name.is_empty());
     if preset.is_none() {
         supervisor::run();

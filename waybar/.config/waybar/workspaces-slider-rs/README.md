@@ -46,6 +46,9 @@ The launcher starts `workspaces-slider.service`; repeated starts are idempotent.
 The service belongs to the graphical session, stops at logout, and restarts
 the supervisor within two seconds if it exits. Logs are available with
 `journalctl --user -u workspaces-slider.service`.
+SIGTERM, SIGHUP, and SIGINT log the sender PID and process name before exiting.
+SIGKILL cannot be caught; systemd records that signal but identifying its sender
+requires kernel audit or tracing configured before the event.
 Without `WAYBAR_OUTPUT_NAME`, the binary supervises one slider on each enabled,
 unmirrored output listed in the full Waybar configuration. It adds and removes
 sliders when displays connect or disconnect; outputs with only the minimal bar
