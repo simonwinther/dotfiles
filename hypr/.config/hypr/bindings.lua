@@ -261,6 +261,18 @@ hl.bind("SUPER + ALT + Comma", hl.dsp.exec_cmd("makoctl invoke"), { description 
 -- TERMINAL PICKERS AND GLOBAL UTILITIES
 -- =============================================================================
 
-hl.bind("SUPER + Z", hl.dsp.exec_cmd("ghostty --class=pdf.picker -e ~/.local/bin/pdf-picker"))
+-- Keep the familiar PDF opener on SUPER+Z; use ALT for copying/dragging files.
+hl.unbind("SUPER + Z")
+hl.unbind("SUPER + ALT + Z")
+hl.bind(
+	"SUPER + Z",
+	hl.dsp.exec_cmd("ghostty --class=pdf.picker --font-size=13 --window-padding-x=10 --window-padding-y=8 -e ~/.local/bin/pdf-picker"),
+	{ description = "Open a PDF" }
+)
+hl.bind(
+	"SUPER + ALT + Z",
+	hl.dsp.exec_cmd("ghostty --class=file.picker --font-size=13 --window-padding-x=10 --window-padding-y=8 -e ~/.local/bin/file-picker"),
+	{ description = "Copy or drag a file" }
+)
 hl.bind("SUPER + ALT + PERIOD", hl.dsp.exec_cmd("ghostty --class=global.snip -e ~/.local/bin/globalsnip"))
 hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("ghostty --class=macro.picker -e ~/.local/bin/macro-picker"))

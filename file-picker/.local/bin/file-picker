@@ -1,0 +1,436 @@
+#!/usr/bin/env python3
+"""Pick local files, copy them as attachments, or expose a native drag source."""
+
+import argparse
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+
+
+# Skip dependency trees in the fast view. Ctrl+A includes these too.
+EXCLUDES = (
+    ".git", ".cache", "node_modules", ".venv", "venv", "__pycache__",
+    "target", "build", ".cargo", ".rustup", "go/pkg/mod",
+    ".local/share/flatpak", ".local/share/pnpm", ".local/share/Steam",
+    ".local/share/mise", ".local/share/uv", ".local/share/Trash", ".var/app",
+)
+# Never walk virtual filesystems, even in the unrestricted view.
+VIRTUAL = ("/proc", "/sys", "/dev", "/run")
+
+
+def appearance_colors():
+    appearance = os.environ.get("FILE_PICKER_APPEARANCE", "")
+    if appearance not in ("light", "dark"):
+        try:
+            setting = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                capture_output=True, text=True, timeout=0.15,
+            ).stdout.strip()
+            appearance = "light" if setting in ("'prefer-light'", "'default'") else "dark"
+        except (OSError, subprocess.TimeoutExpired):
+            appearance = "dark"
+    if appearance == "light":
+        return dict(bg="#eff1f5", fg="#4c4f69", surface="#e6e9ef", selected="#dce6fa",
+                    accent="#1e66f5", muted="#6c6f85", border="#bcc0cc", on_accent="#ffffff")
+    return dict(bg="#11111b", fg="#cdd6f4", surface="#1e1e2e", selected="#26334d",
+                accent="#89b4fa", muted="#9399b2", border="#45475a", on_accent="#11111b")
+
+
+def picker_style(scope="HOME", pdf=False):
+    colors = appearance_colors()
+    title = "PDFS" if pdf else "FILES"
+    footer = (
+        "Enter  open    Ctrl+R  refresh    Esc  close" if pdf else
+        "Enter  copy    Ctrl+D  drag    Ctrl+Y  copy path\n"
+        "Tab  select    Ctrl+R  refresh    Ctrl+A  all files    Ctrl+S  whole PC    Esc  close"
+    )
+    return [
+        "--style=minimal", "--border=rounded", f"--border-label= {title} · {scope} ",
+        "--border-label-pos=3", "--margin=1,2", "--padding=1,2", "--highlight-line",
+        "--prompt=Search > ", "--info=inline-right", "--keep-right", "--pointer=›", "--marker=✓",
+        "--footer-border=top", f"--footer={footer}",
+        "--color=" + ",".join([
+            f"fg:{colors['fg']}", f"bg:{colors['bg']}", f"fg+:{colors['fg']}:bold",
+            f"bg+:{colors['selected']}", f"hl:{colors['accent']}:bold", f"hl+:{colors['accent']}:bold",
+            f"gutter:{colors['bg']}", f"pointer:{colors['accent']}", f"marker:{colors['accent']}",
+            f"border:{colors['border']}", f"label:{colors['accent']}:bold", f"prompt:{colors['accent']}:bold",
+            f"footer:{colors['muted']}", f"info:{colors['muted']}",
+            f"spinner:{colors['accent']}", f"separator:{colors['border']}", f"footer-border:{colors['border']}",
+        ]),
+    ]
+
+
+def need(*commands):
+    for command in commands:
+        if not shutil.which(command):
+            raise RuntimeError(f"Missing dependency: {command}")
+
+
+def notify(title, body, urgent=False):
+    if shutil.which("notify-send"):
+        subprocess.Popen(
+            ["notify-send", "-a", "File picker", "-u",
+             "critical" if urgent else "low", "-t", "3500", title, body],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+
+
+def scan_command(root, unrestricted=False, pdf=False):
+    resolved = root.resolve()
+    if any(resolved.is_relative_to(Path(path)) for path in VIRTUAL):
+        raise RuntimeError(f"Virtual filesystem is excluded: {root}")
+    command = ["fd", "--type", "f", "--absolute-path", "--color=never", "--print0"]
+    if pdf:
+        # Preserve the PDF opener's normal fd ignore/hidden-file behavior.
+        command.extend(("--extension", "pdf"))
+    else:
+        command.extend(("--type", "l"))
+    if not pdf or unrestricted:
+        command.extend(("--hidden", "--no-ignore"))
+    virtual_excludes = tuple("/" + str(Path(path).relative_to(resolved))
+                             for path in VIRTUAL if Path(path).is_relative_to(resolved))
+    for pattern in virtual_excludes + (() if unrestricted or pdf else EXCLUDES):
+        command.extend(("--exclude", pattern))
+    command.extend((".", str(root)))
+    return command
+
+
+def checked_files(names):
+    paths = list(dict.fromkeys(Path(name).expanduser().absolute() for name in names))
+    for path in paths:
+        if not path.is_file() or not os.access(path, os.R_OK):
+            raise RuntimeError(f"File is missing or unreadable: {path}")
+    if not paths:
+        raise RuntimeError("No files selected")
+    return paths
+
+
+def file_uris(paths):
+    # Percent encoding handles spaces, Unicode, #, %, and embedded newlines.
+    return "".join(path.as_uri() + "\r\n" for path in paths)
+
+
+def copy_selection(paths, as_path=False):
+    need("wl-copy", "wl-paste")
+    if as_path and len(paths) != 1:
+        raise RuntimeError("Select one file to copy its path")
+    mime = "text/plain;charset=utf-8" if as_path else "text/uri-list"
+    content = str(paths[0]) if as_path else file_uris(paths)
+    # Keep a foreground provider alive after the picker terminal closes.
+    # A separate session prevents terminal shutdown from taking ownership away.
+    provider = subprocess.Popen(
+        ["wl-copy", "--foreground", "--type", mime, "--", content],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and provider.poll() is None:
+        try:
+            result = subprocess.run(
+                ["wl-paste", "--no-newline", "--type", mime],
+                capture_output=True, timeout=0.3,
+            )
+            if result.returncode == 0 and result.stdout == os.fsencode(content):
+                notify(
+                    "File path copied" if as_path else "File copied" if len(paths) == 1 else f"{len(paths)} files copied",
+                    "Paste into the upload dialog's location field (Ctrl+L)." if as_path
+                    else "Paste with Ctrl+V.",
+                )
+                return
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(0.02)
+    if provider.poll() is None:
+        provider.terminate()
+    raise RuntimeError("Could not acquire the Wayland clipboard")
+
+
+def drag_content(paths):
+    import gi
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, Gio, GLib
+
+    return Gdk.ContentProvider.new_union([
+        Gdk.ContentProvider.new_for_value(Gdk.FileList.new_from_array([
+            Gio.File.new_for_path(str(path)) for path in paths
+        ])),
+        # Offer the interoperable wire format explicitly as well as GTK files.
+        Gdk.ContentProvider.new_for_bytes("text/uri-list", GLib.Bytes.new(
+            os.fsencode(file_uris(paths))
+        )),
+    ])
+
+
+def drag_files(paths):
+    # GTK is loaded only for the drag card; the fuzzy picker starts immediately.
+    try:
+        import gi
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Gdk", "4.0")
+        from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+    except (ImportError, ValueError) as error:
+        raise RuntimeError("Drag mode needs gtk4 and python-gobject") from error
+
+    app = Gtk.Application(application_id="local.filepicker.drag",
+                          flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def activate(application):
+        window = Gtk.ApplicationWindow(application=application, title="Drag files")
+        window.set_default_size(660, 360)
+        window.set_decorated(False)
+        window.add_css_class("file-attachment")
+        style = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "file-picker/style.css"
+        try:
+            definitions = "\n".join(f"@define-color fp_{name} {color};" for name, color in appearance_colors().items())
+            css = Gtk.CssProvider()
+            css.load_from_data((definitions + "\n" + style.read_text()).encode())
+            Gtk.StyleContext.add_provider_for_display(window.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except OSError:
+            pass  # Missing optional styling must not prevent a file transfer.
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{side}")(24)
+        window.set_child(box)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        titles.set_hexpand(True)
+        eyebrow = Gtk.Label(label="FILE ATTACHMENT", xalign=0)
+        eyebrow.add_css_class("eyebrow")
+        titles.append(eyebrow)
+        title = Gtk.Label(label="Ready to drop", xalign=0)
+        title.add_css_class("attachment-title")
+        titles.append(title)
+        subtitle = Gtk.Label(label="Drag the card into an app.", xalign=0)
+        subtitle.add_css_class("secondary")
+        titles.append(subtitle)
+        header.append(titles)
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        close.add_css_class("close-button")
+        close.set_valign(Gtk.Align.START)
+        close.set_tooltip_text("Close (Esc)")
+        close.connect("clicked", lambda _button: application.quit())
+        header.append(close)
+        box.append(header)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        card.add_css_class("drop-zone")
+        card.set_vexpand(True)
+        card.set_tooltip_text("\n".join(map(str, paths)))
+        icon_box = Gtk.Box()
+        icon_box.add_css_class("file-icon")
+        icon_box.set_valign(Gtk.Align.CENTER)
+        icon_name = "application-pdf-symbolic" if len(paths) == 1 and paths[0].suffix.lower() == ".pdf" else "text-x-generic-symbolic"
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_pixel_size(32)
+        icon_box.append(icon)
+        card.append(icon_box)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        text.set_hexpand(True)
+        text.set_valign(Gtk.Align.CENTER)
+        card.append(text)
+        names = paths[0].name if len(paths) == 1 else f"{len(paths)} files selected"
+        heading = Gtk.Label(label=names, xalign=0)
+        heading.add_css_class("filename")
+        heading.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        heading.set_max_width_chars(44)
+        heading.set_single_line_mode(True)
+        text.append(heading)
+        if len(paths) == 1:
+            kind = {".pdf": "PDF document", ".py": "Python source", ".md": "Markdown", ".txt": "Text document"}.get(
+                paths[0].suffix.lower(), paths[0].suffix.lstrip(".").upper() or "File")
+            try:
+                size = paths[0].stat().st_size
+                unit = "B"
+                for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+                    if size < 1024 or unit == "TiB":
+                        break
+                    size /= 1024
+                metadata = f"{kind}  ·  {size:.1f} {unit}" if unit != "B" else f"{kind}  ·  {size} B"
+            except OSError:
+                metadata = kind
+            location = str(paths[0].parent)
+            if paths[0].parent.is_relative_to(Path.home()):
+                location = "~/" + str(paths[0].parent.relative_to(Path.home()))
+        else:
+            metadata = "Attach together in one drop"
+            location = ", ".join(path.name for path in paths[:3])
+            if len(paths) > 3:
+                location += f" + {len(paths) - 3} more"
+        detail = Gtk.Label(label=metadata, xalign=0)
+        detail.add_css_class("secondary")
+        detail.set_ellipsize(Pango.EllipsizeMode.END)
+        detail.set_single_line_mode(True)
+        text.append(detail)
+        location_label = Gtk.Label(label=location, xalign=0)
+        location_label.add_css_class("location")
+        location_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        location_label.set_single_line_mode(True)
+        text.append(location_label)
+        box.append(card)
+
+        source = Gtk.DragSource()
+        source.set_actions(Gdk.DragAction.COPY)
+        source.set_content(drag_content(paths))
+        cancelled = False
+
+        def begin(_source, drag):
+            nonlocal cancelled
+            cancelled = False
+            drag.connect("dnd-finished", finished)
+
+        def cancel(_source, _drag, _reason):
+            nonlocal cancelled
+            cancelled = True
+            return False
+
+        def finished(_drag):
+            # Wait until the destination has actually read the transfer data.
+            if not cancelled:
+                GLib.idle_add(application.quit)
+
+        source.connect("drag-begin", begin)
+        source.connect("drag-cancel", cancel)
+        card.add_controller(source)
+
+        def copy(as_path=False):
+            try:
+                copy_selection(paths, as_path)
+                application.quit()
+            except RuntimeError as error:
+                notify("File picker", str(error), urgent=True)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hint = Gtk.Label(label="Ctrl C  copy   ·   Esc  close", xalign=0)
+        hint.add_css_class("shortcut-hint")
+        hint.set_hexpand(True)
+        buttons.append(hint)
+        if len(paths) == 1:
+            button = Gtk.Button(label="Copy path")
+            button.connect("clicked", lambda _button: copy(True))
+            buttons.append(button)
+        button = Gtk.Button(label="Copy file" if len(paths) == 1 else "Copy files")
+        button.add_css_class("suggested-action")
+        button.connect("clicked", lambda _button: copy())
+        buttons.append(button)
+        box.append(buttons)
+
+        keys = Gtk.EventControllerKey()
+
+        def key(_controller, keyval, _keycode, modifiers):
+            if keyval == Gdk.KEY_Escape:
+                application.quit()
+                return True
+            if modifiers & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_c, Gdk.KEY_y):
+                copy(keyval == Gdk.KEY_y)
+                return True
+            return False
+
+        keys.connect("key-pressed", key)
+        window.add_controller(keys)
+        window.present()
+
+    app.connect("activate", activate)
+    app.run([sys.argv[0]])
+
+
+def pick(root, unrestricted=False, pdf=False):
+    need("fd", "fzf")
+    if pdf:
+        need("zathura")
+    root = root.expanduser().absolute()
+    if not root.is_dir():
+        raise RuntimeError(f"Search directory does not exist: {root}")
+    default_scan = scan_command(root, unrestricted, pdf)
+    # Expand roots via quoted environment variables so even fzf action syntax
+    # characters in a directory name cannot become commands or keybindings.
+    scan = '"$FILE_PICKER_PYTHON" "$FILE_PICKER_SCRIPT" --list'
+    if pdf:
+        scan += " --pdf"
+    fast = scan + ' --root "$FILE_PICKER_ROOT"' + (" --all" if unrestricted else "")
+    all_home = scan + ' --all --root "$FILE_PICKER_ROOT"'
+    all_pc = scan + ' --all --root /'
+    scope = "ALL FILES" if unrestricted else "HOME" if root == Path.home() else "FOLDER"
+    title = "PDFS" if pdf else "FILES"
+    bindings = f"ctrl-r:change-border-label( {title} · {scope} )+reload({fast})"
+    if not pdf:
+        bindings += (
+            f",ctrl-a:change-border-label( FILES · ALL FILES )+reload({all_home}),"
+            f"ctrl-s:change-border-label( FILES · WHOLE PC )+reload({all_pc})"
+        )
+    env = os.environ.copy()
+    env.update(FZF_DEFAULT_OPTS="", FZF_DEFAULT_OPTS_FILE="", SHELL="/bin/sh",
+               FILE_PICKER_PYTHON=sys.executable,
+               FILE_PICKER_SCRIPT=str(Path(__file__).resolve()), FILE_PICKER_ROOT=str(root))
+    scanner = subprocess.Popen(default_scan, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        result = subprocess.run(
+            ["fzf", "--read0", "--print0", "--no-multi-line", "--reverse", "--scheme=path",
+             *([] if pdf else ["--multi", "--expect=ctrl-d,ctrl-y"]),
+             "--bind", bindings, *picker_style(scope, pdf)],
+            stdin=scanner.stdout, stdout=subprocess.PIPE, env=env,
+        )
+    finally:
+        scanner.stdout.close()
+        if scanner.poll() is None:
+            scanner.terminate()
+        scanner.wait()
+    if result.returncode in (1, 130):
+        return
+    if result.returncode:
+        raise RuntimeError(f"fzf failed (exit {result.returncode})")
+    records = result.stdout.split(b"\0")
+    action = "" if pdf else os.fsdecode(records.pop(0))
+    paths = checked_files(os.fsdecode(record) for record in records if record)
+    if pdf:
+        os.execvp("zathura", ["zathura", "--fork", str(paths[0])])
+    elif action == "ctrl-d":
+        # GTK must outlive the terminal, so launch the card in its own session.
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--drag", *map(str, paths)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    else:
+        copy_selection(paths, as_path=action == "ctrl-y")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.home(), help="Search directory (default: home)")
+    parser.add_argument("--all", action="store_true", help="Include dependency and cache directories")
+    parser.add_argument("--pdf", action="store_true", help="Search PDFs and open the selection in Zathura")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--list", action="store_true", help="Print NUL-delimited file paths")
+    actions.add_argument("--copy", nargs="+", metavar="FILE", help="Copy files as attachments")
+    actions.add_argument("--path", nargs=1, metavar="FILE", help="Copy one absolute file path")
+    actions.add_argument("--drag", nargs="+", metavar="FILE", help="Show a native drag card")
+    args = parser.parse_args()
+    try:
+        if args.list:
+            need("fd")
+            root = args.root.expanduser().absolute()
+            if not root.is_dir():
+                raise RuntimeError(f"Search directory does not exist: {root}")
+            os.execvp("fd", scan_command(root, args.all, args.pdf))
+        elif args.copy or args.path:
+            copy_selection(checked_files(args.copy or args.path), as_path=bool(args.path))
+        elif args.drag:
+            drag_files(checked_files(args.drag))
+        else:
+            pick(args.root, args.all, args.pdf)
+    except (OSError, RuntimeError) as error:
+        print(f"file-picker: {error}", file=sys.stderr)
+        notify("File picker", str(error), urgent=True)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

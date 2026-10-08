@@ -1,0 +1,88 @@
+window.file-attachment {
+  background-color: @fp_bg;
+  color: @fp_fg;
+}
+
+.file-attachment .eyebrow {
+  color: @fp_accent;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+.file-attachment .attachment-title {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.file-attachment .secondary {
+  color: @fp_muted;
+  font-size: 13px;
+}
+
+.file-attachment .drop-zone {
+  padding: 20px;
+  background-color: @fp_surface;
+  border: 2px dashed @fp_border;
+  border-radius: 16px;
+}
+
+.file-attachment .drop-zone:hover {
+  background-color: @fp_selected;
+  border-color: @fp_accent;
+}
+
+.file-attachment .file-icon {
+  padding: 14px;
+  color: @fp_accent;
+  background-color: alpha(@fp_accent, 0.12);
+  border-radius: 12px;
+}
+
+.file-attachment .filename {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.file-attachment .location,
+.file-attachment .shortcut-hint {
+  color: @fp_muted;
+  font-size: 11px;
+}
+
+.file-attachment button {
+  padding: 10px 16px;
+  min-height: 0;
+  color: @fp_fg;
+  background: @fp_surface;
+  border: 1px solid @fp_border;
+  border-radius: 10px;
+  box-shadow: none;
+  transition: none;
+}
+
+.file-attachment button:hover {
+  background: @fp_selected;
+  border-color: @fp_accent;
+}
+
+.file-attachment button.suggested-action {
+  color: @fp_on_accent;
+  background: @fp_accent;
+  border-color: @fp_accent;
+  font-weight: 600;
+}
+
+.file-attachment button.suggested-action:hover {
+  background: shade(@fp_accent, 0.92);
+}
+
+.file-attachment button.close-button {
+  padding: 6px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.file-attachment button.close-button:hover {
+  background: @fp_surface;
+}

@@ -34,11 +34,26 @@ hl.window_rule({
 })
 
 hl.window_rule({
-    match = { class = "^pdf\\.picker$" },
-    name = "pdf-picker",
+    match = { class = "^(pdf\\.picker|file\\.picker)$" },
+    name = "file-pickers",
     float = true,
-    size = { "(monitor_w*0.78)", "(monitor_h*0.58)" },
+    size = { "(monitor_w*0.76)", "(monitor_h*0.68)" },
     center = true,
+})
+
+hl.window_rule({
+    match = { class = "^local\\.filepicker\\.drag$" },
+    name = "file-drag-card",
+    float = true,
+    size = { 660, 360 },
+    center = true,
+    pin = true,
+})
+
+-- A solid background keeps the text readable over other windows.
+hl.window_rule({
+    match = { class = "^(pdf\\.picker|file\\.picker|local\\.filepicker\\.drag)$" },
+    opacity = "1.0 override 1.0 override 1.0 override",
 })
 
 -- Keep the dictation overlay visible without stealing keyboard focus.

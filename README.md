@@ -6,6 +6,10 @@ The [wallpaper grid](background-grid/README.md) package includes the visual pick
 folder categories, keyboard navigation, wallpaper transitions, and setup steps
 for both PCs.
 
+The [file picker](file-picker/README.md) puts any local file on the clipboard for
+ChatGPT with Super+Alt+Z, or opens a drag card with Ctrl+D. The PDF opener stays on
+Super+Z. Its scripts, styling, keybindings, and window rules are managed with Stow.
+
 ## Setup
 
 Symlink the configs (using stow)
