@@ -39,9 +39,15 @@ def appearance_colors():
                 accent="#89b4fa", muted="#9399b2", border="#45475a", on_accent="#11111b")
 
 
+def picker_prompt(scope="HOME", pdf=False):
+    name = "pdf" if pdf else "files"
+    suffix = {"ALL FILES": ":all", "WHOLE PC": ":/"}.get(scope, "")
+    # fzf reserves two columns before filenames for its selection indicator.
+    return f"  {name}{suffix}> "
+
+
 def picker_style(scope="HOME", pdf=False):
     colors = appearance_colors()
-    title = "PDFS" if pdf else "FILES"
     footer = (
         "Enter  open    Ctrl+R  refresh    Esc  close" if pdf else
         "Enter  copy    Ctrl+D  drag    Ctrl+Y  copy path\n"
@@ -49,14 +55,14 @@ def picker_style(scope="HOME", pdf=False):
     )
     return [
         "--style=minimal", "--border=none", "--margin=1,3", "--padding=0", "--highlight-line",
-        f"--header={title} · {scope}", "--header-first", "--header-border=none",
-        "--prompt=Search > ", "--info=inline-right", "--keep-right", "--pointer=›", "--marker=✓",
+        f"--prompt={picker_prompt(scope, pdf)}", "--info=inline-right", "--keep-right",
+        "--pointer=>", "--marker=*",
         "--footer-border=top", f"--footer={footer}",
         "--color=" + ",".join([
             f"fg:{colors['fg']}", f"bg:{colors['bg']}", f"fg+:{colors['fg']}:bold",
             f"bg+:{colors['selected']}", f"hl:{colors['accent']}:bold", f"hl+:{colors['accent']}:bold",
             f"gutter:{colors['bg']}", f"pointer:{colors['accent']}", f"marker:{colors['accent']}",
-            f"header:{colors['accent']}:bold", f"prompt:{colors['accent']}:bold",
+            f"prompt:{colors['accent']}:bold",
             f"footer:{colors['muted']}", f"info:{colors['muted']}",
             f"spinner:{colors['accent']}", f"separator:{colors['border']}", f"footer-border:{colors['border']}",
         ]),
@@ -357,12 +363,11 @@ def pick(root, unrestricted=False, pdf=False):
     all_home = scan + ' --all --root "$FILE_PICKER_ROOT"'
     all_pc = scan + ' --all --root /'
     scope = "ALL FILES" if unrestricted else "HOME" if root == Path.home() else "FOLDER"
-    title = "PDFS" if pdf else "FILES"
-    bindings = f"ctrl-r:change-header({title} · {scope})+reload({fast})"
+    bindings = f"ctrl-r:change-prompt({picker_prompt(scope, pdf)})+reload({fast})"
     if not pdf:
         bindings += (
-            f",ctrl-a:change-header(FILES · ALL FILES)+reload({all_home}),"
-            f"ctrl-s:change-header(FILES · WHOLE PC)+reload({all_pc})"
+            f",ctrl-a:change-prompt({picker_prompt('ALL FILES')})+reload({all_home}),"
+            f"ctrl-s:change-prompt({picker_prompt('WHOLE PC')})+reload({all_pc})"
         )
     env = os.environ.copy()
     env.update(FZF_DEFAULT_OPTS="", FZF_DEFAULT_OPTS_FILE="", SHELL="/bin/sh",
