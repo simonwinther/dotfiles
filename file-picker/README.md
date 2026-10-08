@@ -47,7 +47,9 @@ or machine-specific path is required.
 ## Search and clipboard behavior
 
 The picker streams a fresh `fd` scan into `fzf`, so newly created files are
-searchable immediately. It includes hidden files and ignores `.gitignore`.
+searchable immediately. It disables `fd`'s initial output buffering so the first
+matches appear while the rest of the scan continues. The file picker includes
+hidden files and ignores `.gitignore`.
 The default view searches home while excluding common dependency/cache trees;
 Ctrl+A includes those too. Ctrl+S scans `/` with no dependency exclusions.
 Unreadable directories are skipped; `/proc`, `/sys`, `/dev`, and `/run` are

@@ -48,15 +48,15 @@ def picker_style(scope="HOME", pdf=False):
         "Tab  select    Ctrl+R  refresh    Ctrl+A  all files    Ctrl+S  whole PC    Esc  close"
     )
     return [
-        "--style=minimal", "--border=rounded", f"--border-label= {title} · {scope} ",
-        "--border-label-pos=3", "--margin=1,2", "--padding=1,2", "--highlight-line",
+        "--style=minimal", "--border=none", "--margin=1,3", "--padding=0", "--highlight-line",
+        f"--header={title} · {scope}", "--header-first", "--header-border=none",
         "--prompt=Search > ", "--info=inline-right", "--keep-right", "--pointer=›", "--marker=✓",
         "--footer-border=top", f"--footer={footer}",
         "--color=" + ",".join([
             f"fg:{colors['fg']}", f"bg:{colors['bg']}", f"fg+:{colors['fg']}:bold",
             f"bg+:{colors['selected']}", f"hl:{colors['accent']}:bold", f"hl+:{colors['accent']}:bold",
             f"gutter:{colors['bg']}", f"pointer:{colors['accent']}", f"marker:{colors['accent']}",
-            f"border:{colors['border']}", f"label:{colors['accent']}:bold", f"prompt:{colors['accent']}:bold",
+            f"header:{colors['accent']}:bold", f"prompt:{colors['accent']}:bold",
             f"footer:{colors['muted']}", f"info:{colors['muted']}",
             f"spinner:{colors['accent']}", f"separator:{colors['border']}", f"footer-border:{colors['border']}",
         ]),
@@ -83,7 +83,9 @@ def scan_command(root, unrestricted=False, pdf=False):
     resolved = root.resolve()
     if any(resolved.is_relative_to(Path(path)) for path in VIRTUAL):
         raise RuntimeError(f"Virtual filesystem is excluded: {root}")
-    command = ["fd", "--type", "f", "--absolute-path", "--color=never", "--print0"]
+    # Skip fd's initial buffering so fzf can show matches as soon as they arrive.
+    command = ["fd", "--type", "f", "--absolute-path", "--color=never", "--print0",
+               "--max-buffer-time", "0"]
     if pdf:
         # Preserve the PDF opener's normal fd ignore/hidden-file behavior.
         command.extend(("--extension", "pdf"))
@@ -356,11 +358,11 @@ def pick(root, unrestricted=False, pdf=False):
     all_pc = scan + ' --all --root /'
     scope = "ALL FILES" if unrestricted else "HOME" if root == Path.home() else "FOLDER"
     title = "PDFS" if pdf else "FILES"
-    bindings = f"ctrl-r:change-border-label( {title} · {scope} )+reload({fast})"
+    bindings = f"ctrl-r:change-header({title} · {scope})+reload({fast})"
     if not pdf:
         bindings += (
-            f",ctrl-a:change-border-label( FILES · ALL FILES )+reload({all_home}),"
-            f"ctrl-s:change-border-label( FILES · WHOLE PC )+reload({all_pc})"
+            f",ctrl-a:change-header(FILES · ALL FILES)+reload({all_home}),"
+            f"ctrl-s:change-header(FILES · WHOLE PC)+reload({all_pc})"
         )
     env = os.environ.copy()
     env.update(FZF_DEFAULT_OPTS="", FZF_DEFAULT_OPTS_FILE="", SHELL="/bin/sh",
