@@ -2,6 +2,10 @@
 
 My personal configuration files for Arch Linux, managed with GNU Stow.
 
+[LAST_UPDATED](LAST_UPDATED) records each package or tool's last update as
+`component: DD/MM/YYYY`. Initial dates come from Git history; changes update the
+relevant entry in the same commit. Check it when deciding what needs maintenance.
+
 The [wallpaper grid](background-grid/README.md) package includes the visual picker,
 folder categories, keyboard navigation, wallpaper transitions, and setup steps
 for both PCs.
