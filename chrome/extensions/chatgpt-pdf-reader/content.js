@@ -9,9 +9,14 @@
   const HEIGHT = 1123;
   const CONTENT_HEIGHT = 971;
   const BOOKMARK_KEY = "__chatgptPdfReaderBookmark";
-  const messages = collectMessages();
+  let messages = collectMessages();
+  const controller = new AbortController();
+  const conversationUrl = location.href;
   const textLinks = new WeakMap();
   const sourceFragments = new Map();
+  const readerImages = new Set();
+  let pendingFrame = 0;
+  let finishFrame = null;
   let openingAnchor = null;
   let rendered = false;
   let initialReaderTop = 0;
@@ -43,7 +48,8 @@
     input { border: 0; border-radius: 2px; background: #202124; color: #f1f1f1;
       text-align: center; height: 24px; width: 38px; font: inherit; padding: 2px; }
     .zoom { width: 50px; }
-    .workspace { height: calc(100% - 56px); display: flex; }
+    .summary { height: 28px; padding: 6px 20px; background: #323639; color: #ddd; font-size: 12px; }
+    .workspace { height: calc(100% - 84px); display: flex; }
     .outline { width: 230px; flex-shrink: 0; background: #323639; border-right: 1px solid #ffffff20;
       overflow: auto; padding: 16px 12px; }
     .outline[hidden] { display: none; }
@@ -78,8 +84,9 @@
     .paper-content a { color: inherit; text-decoration-color: #aaa; text-underline-offset: 2px; }
     .paper-content hr { border: 0; border-top: 1px solid #ddd; margin: 24px 0; }
     .paper-content .prompt { font: 14px/1.5 Arial, sans-serif; color: #555; border-bottom: 1px solid #ddd; padding: 0 0 14px; margin: 24px 0 20px; white-space: pre-wrap; }
-    .paper-content math { font-family: math; }
+    .paper-content math { font-family: math; white-space: normal; }
     .paper-content math[display="block"] { margin: 18px 0; overflow-wrap: normal; }
+    .paper-content .math-error { text-decoration: underline dotted #a33; text-underline-offset: 3px; }
     .page-number { position: absolute; bottom: 30px; left: 0; right: 0; text-align: center;
       color: #777; font: 11px Georgia, serif; }
     .status { padding: 60px; color: white; text-align: center; font: 16px Arial, sans-serif; }
@@ -104,6 +111,7 @@
         <button data-action="close" title="Close reader (Esc)" aria-label="Close reader"></button>
       </div>
     </header>
+    <div class="summary" role="status">Loading full conversation…</div>
     <div class="workspace">
       <nav class="outline" aria-label="Document outline" hidden></nav>
       <main class="viewport" tabindex="0" aria-label="Document pages">
@@ -142,7 +150,7 @@
   const continuedParents = new WeakSet();
   const state = { close };
   window[KEY] = state;
-  const resizeObserver = new ResizeObserver(() => { if (fitWidth) updateZoom(); });
+  const resizeObserver = new ResizeObserver(() => { if (!closed && fitWidth) updateZoom(); });
 
   function close() {
     if (closed) return;
@@ -152,6 +160,11 @@
     const moved = rendered && (Math.abs(viewport.scrollTop - initialReaderTop) > 0.5 || scale !== initialScale);
     const readerTop = viewport.scrollTop;
     closed = true;
+    controller.abort();
+    if (pendingFrame) cancelAnimationFrame(pendingFrame);
+    pendingFrame = 0;
+    finishFrame?.();
+    finishFrame = null;
     resizeObserver.disconnect();
     dialog.close();
     host.remove();
@@ -170,10 +183,24 @@
         scrolls: scrollContainers(sourceAnchor.node).map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }))
       };
     }
+    for (const image of readerImages) image.removeAttribute("src");
+    readerImages.clear();
+    pagesRoot.replaceChildren();
+    outline.replaceChildren();
+    shadow.replaceChildren();
+    sourceFragments.clear();
+    parentClones.clear();
+    pages = [];
+    messages = [];
+    currentContent = null;
+    openingAnchor = null;
+    delete window.__chatgptPdfHistory;
+    delete window.__chatgptPdfMath;
   }
 
-  dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
-  dialog.addEventListener("close", close);
+  const listenerOptions = { signal: controller.signal };
+  dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); }, listenerOptions);
+  dialog.addEventListener("close", close, listenerOptions);
   dialog.addEventListener("click", (event) => {
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (action === "close") close();
@@ -188,18 +215,44 @@
       event.target.closest("button").setAttribute("aria-expanded", String(!outline.hidden));
       if (fitWidth) updateZoom();
     }
-  });
-  pageInput.addEventListener("change", () => goToPage(Number(pageInput.value) - 1));
-  pageInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { pageInput.blur(); viewport.focus(); } });
+  }, listenerOptions);
+  pageInput.addEventListener("change", () => goToPage(Number(pageInput.value) - 1), listenerOptions);
+  pageInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { pageInput.blur(); viewport.focus(); } }, listenerOptions);
   zoomInput.addEventListener("change", () => {
     const value = parseFloat(zoomInput.value);
     if (Number.isFinite(value)) { fitWidth = false; scale = Math.min(3, Math.max(0.25, value / 100)); }
     updateZoom();
-  });
-  zoomInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { zoomInput.blur(); viewport.focus(); } });
+  }, listenerOptions);
+  zoomInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { zoomInput.blur(); viewport.focus(); } }, listenerOptions);
   viewport.addEventListener("scroll", () => {
     if (shadow.activeElement !== pageInput) pageInput.value = String(currentPage() + 1);
-  }, { passive: true });
+  }, { ...listenerOptions, passive: true });
+
+  function nextFrame() {
+    return new Promise((resolve) => {
+      finishFrame = resolve;
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = 0;
+        finishFrame = null;
+        resolve();
+      });
+    });
+  }
+
+  function waitForImages(images) {
+    if (!images.length) return Promise.resolve();
+    return new Promise((resolve) => {
+      let timeout;
+      function finish() {
+        clearTimeout(timeout);
+        controller.signal.removeEventListener("abort", finish);
+        resolve();
+      }
+      controller.signal.addEventListener("abort", finish, { once: true });
+      timeout = setTimeout(finish, 1500);
+      Promise.allSettled(images.map((image) => image.decode())).then(finish);
+    });
+  }
 
   function currentPage() {
     return Math.max(0, Math.min(pages.length - 1, Math.floor((viewport.scrollTop + 16) / (HEIGHT * scale + 16))));
@@ -390,14 +443,11 @@
         ![...seenRoots].some((seen) => seen.contains(root)));
       if (!roots.length) continue;
       for (const root of roots) seenRoots.add(root);
-      result.push({ element, role, roots });
+      const id = element.getAttribute("data-message-id") || author?.getAttribute("data-message-id") ||
+        element.querySelector("[data-message-id]")?.getAttribute("data-message-id") || element.getAttribute("data-turn-id");
+      result.push({ element, id, role, roots });
     }
 
-    // A final semantic fallback covers clients with neither turn wrappers nor
-    // markdown classes. Restrict it to the conversation's main region.
-    if (!result.length && scope !== document && scope.querySelector("p, pre, li, table")) {
-      result.push({ element: scope, role: "assistant", roots: [scope] });
-    }
     return result;
   }
 
@@ -426,6 +476,7 @@
       const src = node.currentSrc || node.src;
       if (!/^(https?:|data:image\/|blob:)/i.test(src)) return document.createTextNode(node.alt || "");
       img.src = src;
+      readerImages.add(img);
       img.alt = node.alt;
       if (node.naturalWidth && node.naturalHeight) {
         img.width = Math.min(654, node.naturalWidth);
@@ -559,7 +610,44 @@
   }
 
   async function render() {
+    dialog.showModal();
+    const status = pagesRoot.querySelector(".status");
+    const mathEngine = await window.__chatgptPdfMath.initialize(shadow, { signal: controller.signal });
+    if (closed) return;
+    const history = await window.__chatgptPdfHistory.load({
+      signal: controller.signal,
+      selectedIds: messages.map((message) => message.id).filter(Boolean),
+      onProgress: (text) => { if (!closed) status.textContent = text; }
+    });
+    if (closed) return;
+    if (location.href !== conversationUrl) throw new Error("The conversation changed while loading. Close and reopen the reader.");
+    const mounted = new Map(messages.filter((message) => message.id).map((message) => [message.id, message]));
+    let unavailableMedia = false;
+    messages = history.map((message) => {
+      const existing = mounted.get(message.id);
+      const root = message.role === "user" ? document.createElement("div") : window.__chatgptPdfHistory.markdown(message.text);
+      if (message.role === "user") root.textContent = message.text;
+      // Only enrich from a mounted message if its text covers the server body.
+      // Collapsed or partially mounted replies must not truncate saved history.
+      // Native equations and media replace their source/placeholder in the page.
+      const chunks = root.textContent.split(/\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^\n$]+\$|\[(?:Image|Media|Attachment):[^\]]*\]/g)
+        .map((text) => text.replace(/\s+/g, "")).filter(Boolean);
+      const mountedText = existing?.roots.map((node) => node.innerText || node.textContent).join("").replace(/\s+/g, "") || "";
+      let offset = 0;
+      const complete = chunks.every((chunk) => {
+        const index = mountedText.indexOf(chunk, offset);
+        if (index < 0) return false;
+        offset = index + chunk.length;
+        return true;
+      });
+      if (existing?.role === message.role && complete &&
+        existing.roots.some((root) => root.textContent.trim() || root.querySelector("img, math"))) return existing;
+      unavailableMedia ||= message.hasMedia;
+      return { ...message, element: root, roots: [root] };
+    });
+    shadow.querySelector(".summary").textContent = `Full conversation · ${messages.length} messages${unavailableMedia ? " · Some media shown as placeholders" : ""}`;
     const blocks = [];
+    let failedMath = 0;
     const heading = document.createElement("h1");
     heading.textContent = title;
     blocks.push({ node: heading, message: -1 });
@@ -567,6 +655,12 @@
       const user = role === "user";
       for (const root of roots) {
         const cleaned = clean(root);
+        if (cleaned instanceof Element || cleaned instanceof DocumentFragment) {
+          failedMath += window.__chatgptPdfMath.render(cleaned, mathEngine, (text, node, offset) => {
+            const link = textLinks.get(node);
+            return link ? linkedText(text, link.source, link.start + offset) : document.createTextNode(text);
+          }).failed;
+        }
         if (user) {
           const prompt = document.createElement("div");
           prompt.className = "prompt";
@@ -579,6 +673,7 @@
         }
       }
     });
+    if (failedMath) shadow.querySelector(".summary").textContent += ` · ${failedMath} equation${failedMath === 1 ? "" : "s"} could not be rendered`;
     if (!messages.length) {
       const empty = document.createElement("p");
       empty.textContent = "No readable messages were found on this page. Close the reader and try again after the conversation finishes loading.";
@@ -592,12 +687,8 @@
       outline.hidden = bookmark.outlineHidden;
       dialog.querySelector('[data-action="outline"]').setAttribute("aria-expanded", String(!outline.hidden));
     }
-    dialog.showModal();
     const images = blocks.flatMap(({ node }) => node instanceof Element ? [...(node.matches("img") ? [node] : []), ...node.querySelectorAll("img")] : []);
-    await Promise.race([
-      Promise.allSettled(images.map((img) => img.decode())),
-      new Promise((resolve) => setTimeout(resolve, 1500))
-    ]);
+    await waitForImages(images);
     if (closed) return;
     pagesRoot.replaceChildren();
     newPage();
@@ -612,11 +703,11 @@
       if (label) {
         const item = document.createElement("button");
         item.textContent = label;
-        item.addEventListener("click", () => goToPage(page));
+        item.addEventListener("click", () => goToPage(page), listenerOptions);
         outline.append(item);
       }
       if (index % 30 === 29) {
-        await new Promise(requestAnimationFrame);
+        await nextFrame();
         if (closed) return;
       }
     }
@@ -632,11 +723,13 @@
   }
 
   render().catch((error) => {
-    console.warn("PDF reader rendering failed:", error);
+    if (closed) return;
+    console.warn("PDF reader rendering failed:", error.message);
+    shadow.querySelector(".summary").textContent = "Full conversation could not be loaded";
     pagesRoot.replaceChildren();
     const status = document.createElement("div");
     status.className = "status";
-    status.textContent = "Could not prepare this conversation. Press Escape to return to the chat.";
+    status.textContent = `${error.message} Press Escape to return to the chat, then reopen the reader to retry.`;
     pagesRoot.append(status);
     if (!dialog.open && !closed) dialog.showModal();
   });

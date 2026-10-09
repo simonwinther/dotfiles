@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT PDF Reader",
-  "version": "0.1.4",
+  "version": "0.2.2",
   "description": "Toggle ChatGPT conversations into a clean, paginated PDF-style reader.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
@@ -12,6 +12,12 @@
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": ["shortcuts.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/temml/temml.js", "vendor/temml/src/*.js", "vendor/temml/src/functions/*.js", "vendor/temml/src/environments/*.js", "vendor/temml/math.css"],
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
     }
   ],
   "commands": {

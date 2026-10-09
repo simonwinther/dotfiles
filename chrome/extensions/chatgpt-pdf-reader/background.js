@@ -10,12 +10,16 @@ async function toggleReader(tab, source) {
   const previous = recentToggles.get(tab.id);
   const now = Date.now();
   if (previous && previous.source !== source && now - previous.time < 300) return true;
+  // Expire keypress bookkeeping only on a toggle. No timer or tab-close wakeup.
+  for (const [tabId, toggle] of recentToggles) {
+    if (now - toggle.time >= 300) recentToggles.delete(tabId);
+  }
   recentToggles.set(tab.id, { source, time: now });
 
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ["content.js"]
+      files: ["math.js", "history.js", "content.js"]
     });
     await chrome.action.setBadgeText({ tabId: tab.id, text: "" });
     await chrome.action.setTitle({ tabId: tab.id, title: "Toggle PDF reader (Alt+Shift+Y)" });
@@ -43,8 +47,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   toggleReader(sender.tab, "page").then((ok) => sendResponse({ ok }));
   return true;
 });
-
-chrome.tabs.onRemoved.addListener((tabId) => recentToggles.delete(tabId));
 
 // Install/reload the shortcut listener in already-open conversations too.
 chrome.runtime.onInstalled.addListener(async () => {
