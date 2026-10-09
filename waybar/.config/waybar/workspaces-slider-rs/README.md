@@ -63,6 +63,10 @@ Monitor colors are assigned by sorted connector name and shared by all sliders;
 the palette adjusts for light and dark themes.
 Clicking and scrolling use Hyprland's Lua dispatchers to switch workspaces.
 
+The full Waybar uses the bottom layer and the slider uses the top layer. This
+keeps Waybar's transparent center from intercepting slider clicks regardless of
+startup order, bar restarts, or monitor reconnects.
+
 ## Appearance
 
 The original dark palette is preserved. When Omarchy's current theme has a

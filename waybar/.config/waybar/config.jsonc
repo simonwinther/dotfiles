@@ -5,6 +5,7 @@
     "HDMI-A-1"
   ],
   "position": "top",
+  "layer": "bottom",
   "exclusive": true,
   "passthrough": false,
   "gtk-layer-shell": true,

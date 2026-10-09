@@ -154,7 +154,9 @@ fn main() {
     let layer = layer_shell.create_layer_surface(
         &qh,
         surface,
-        Layer::Bottom,
+        // Waybar uses the bottom layer and its transparent center still takes
+        // pointer input. A separate layer keeps clicks independent of map order.
+        Layer::Top,
         Some(format!("waybar-workspace-slider-{}", app.monitor)),
         Some(&output),
     );
