@@ -29,11 +29,15 @@ hl.monitor({ output = "DP-2", mode = "1920x1080@165", position = "1920x0", scale
 hl.monitor({ output = "DVI-D-1", mode = "1920x1080@144", position = "3840x0", scale = 1, transform = 3 })
 
 -- Laptop
-hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "0x0", scale = 1.2 })
+-- hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "0x0", scale = 1.2 })
+
+-- Home Laptop (top-to-bottom)
+-- hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@100", position = "0x0", scale = 1 })
+-- hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "160x1080", scale = 1.2 })
 
 -- AI Pioneer (top-to-bottom)
--- hl.monitor({ output = "HDMI-A-1", mode = "2560x1440@59.95", position = "0x0", scale = 1 })
--- hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "480x1440", scale = 1.2 })
+hl.monitor({ output = "HDMI-A-1", mode = "2560x1440@59.95", position = "0x0", scale = 1 })
+hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "480x1440", scale = 1.2 })
 
 -- # Left-to-right: laptop on the left, external monitor on the right
 -- hl.monitor({ output = "eDP-1", mode = "1920x1080@60.02", position = "0x270", scale = 1.2 })
