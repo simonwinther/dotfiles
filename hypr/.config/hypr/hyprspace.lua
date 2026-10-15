@@ -46,7 +46,8 @@ if hl.get_config("plugin.hyprspace.follow_mouse") ~= nil then
                     workspace_labels = true,
                     label_color = "rgba(cdd6f4ff)",
                     title_bg_color = "rgba(1e1e2ee6)",
-                    include_special = true,
+                    -- Prepared pickers and scratchpads stay outside the overview.
+                    include_special = false,
                     all_monitors = true,
                     font = "Sans 12",
                     fullscreen_border = "rgba(89b4faff)",

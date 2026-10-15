@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+appearance=dark
+
+# Match Neovim's Omarchy appearance detection, including embedded terminals.
+# Read on every invocation so future diff renders follow theme changes.
+if [[ -f "$config_home/omarchy/current/theme/light.mode" ]]; then
+  appearance=light
+fi
+
+exec delta --config "$config_home/lazygit/delta.gitconfig" \
+  --features "$appearance" "--$appearance" "$@"

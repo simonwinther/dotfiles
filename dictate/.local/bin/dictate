@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/dictate"
+if [[ ! -x "$cache_root/bin/dictate" ]]; then
+  "${BASH_SOURCE[0]%/*}/dictate-build"
+fi
+exec "$cache_root/bin/dictate" "$@"

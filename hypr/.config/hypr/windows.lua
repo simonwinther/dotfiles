@@ -34,11 +34,31 @@ hl.window_rule({
 })
 
 hl.window_rule({
-    match = { class = "^(pdf\\.picker|file\\.picker)$" },
+    match = { class = "^(pdf\\.picker|file\\.picker|recent\\.picker)$" },
     name = "file-pickers",
+    no_anim = true,
     float = true,
     size = { "(monitor_w*0.76)", "(monitor_h*0.68)" },
     center = true,
+})
+
+-- Keep the file picker ready offscreen until its shortcut brings it forward.
+hl.window_rule({
+    match = { class = "^file\\.picker$" },
+    name = "file-picker-ready",
+    workspace = "special:file-picker silent",
+})
+
+hl.window_rule({
+    match = { class = "^pdf\\.picker$" },
+    name = "pdf-picker-ready",
+    workspace = "special:pdf-picker silent",
+})
+
+hl.window_rule({
+    match = { class = "^recent\\.picker$" },
+    name = "recent-picker-ready",
+    workspace = "special:recent-picker silent",
 })
 
 hl.window_rule({
@@ -52,7 +72,7 @@ hl.window_rule({
 
 -- A solid background keeps the text readable over other windows.
 hl.window_rule({
-    match = { class = "^(pdf\\.picker|file\\.picker|local\\.filepicker\\.drag)$" },
+    match = { class = "^(pdf\\.picker|file\\.picker|recent\\.picker|local\\.filepicker\\.drag)$" },
     opacity = "1.0 override 1.0 override 1.0 override",
 })
 

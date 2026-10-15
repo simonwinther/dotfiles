@@ -1,0 +1,73 @@
+[package]
+name = "dictate"
+version = "1.0.0"
+edition = "2024"
+description = "Native streaming dictation for Hyprland"
+
+[dependencies]
+anyhow = "=1.0.103"
+base64 = "=0.22.1"
+clap = { version = "=4.6.1", features = ["derive"] }
+futures-util = { version = "=0.3.32", features = ["sink"] }
+libc = "=0.2.186"
+regex = "=1.12.3"
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "multipart", "stream", "json"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.151"
+shell-words = "=1.1.1"
+tokio = { version = "=1.52.1", features = ["rt", "macros", "process", "io-util", "io-std", "net", "signal", "sync", "time", "fs"] }
+tokio-tungstenite = { version = "=0.24.0", features = ["rustls-tls-native-roots"] }
+tokio-util = { version = "=0.7.18", features = ["io"] }
+toml = "=0.9.10"
+
+[features]
+overlay = ["dep:gtk", "dep:gdk", "dep:glib", "dep:gobject", "dep:gio", "dep:pango", "dep:layer", "dep:cairo"]
+
+[dependencies.gtk]
+package = "gtk4-sys"
+version = "=0.9.6"
+optional = true
+[dependencies.gdk]
+package = "gdk4-sys"
+version = "=0.9.6"
+features = ["v4_10"]
+optional = true
+[dependencies.glib]
+package = "glib-sys"
+version = "=0.20.10"
+optional = true
+[dependencies.gobject]
+package = "gobject-sys"
+version = "=0.20.10"
+optional = true
+[dependencies.gio]
+package = "gio-sys"
+version = "=0.20.10"
+optional = true
+[dependencies.pango]
+package = "pango-sys"
+version = "=0.20.10"
+optional = true
+[dependencies.layer]
+package = "gtk4-layer-shell-sys"
+version = "=0.3.0"
+optional = true
+[dependencies.cairo]
+package = "cairo-rs"
+version = "=0.20.12"
+optional = true
+
+[[bin]]
+name = "dictate"
+path = "src/main.rs"
+
+[[bin]]
+name = "dictate-overlay"
+path = "src/overlay.rs"
+required-features = ["overlay"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

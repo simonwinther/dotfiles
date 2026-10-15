@@ -60,6 +60,13 @@ hl.bind(
 
 hl.bind("SUPER + SHIFT + F", hl.dsp.exec_cmd("uwsm-app -- nautilus --new-window"), { description = "File manager" })
 
+hl.unbind("SUPER + R")
+hl.bind(
+	"SUPER + R",
+	require("file-picker").show_recent,
+	{ description = "Recent files and actions" }
+)
+
 -- This one is amazing.
 hl.bind(
 	"SUPER + ALT + SHIFT + F",
@@ -266,13 +273,14 @@ hl.unbind("SUPER + Z")
 hl.unbind("SUPER + ALT + Z")
 hl.bind(
 	"SUPER + Z",
-	hl.dsp.exec_cmd("ghostty --class=pdf.picker --font-size=13 --window-padding-x=10 --window-padding-y=8 -e ~/.local/bin/pdf-picker"),
+	require("file-picker").show_pdf,
 	{ description = "Open a PDF" }
 )
 hl.bind(
 	"SUPER + ALT + Z",
-	hl.dsp.exec_cmd("ghostty --class=file.picker --font-size=13 --window-padding-x=10 --window-padding-y=8 -e ~/.local/bin/file-picker"),
+	require("file-picker").show,
 	{ description = "Copy or drag a file" }
 )
+hl.bind("Escape", require("file-picker").dismiss, { auto_consuming = true, description = "Hide file/PDF picker" })
 hl.bind("SUPER + ALT + PERIOD", hl.dsp.exec_cmd("ghostty --class=global.snip -e ~/.local/bin/globalsnip"))
 hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("ghostty --class=macro.picker -e ~/.local/bin/macro-picker"))

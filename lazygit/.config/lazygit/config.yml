@@ -5,3 +5,24 @@ customCommands:
     command: "zsh -ic 'gai'"
     loadingText: "Generating AI commit message..."
     output: terminal
+
+gui:
+  sidePanelWidth: 0.20
+  showCommandLog: false
+  showRandomTip: false
+  nerdFontsVersion: "3"
+  theme:
+    # ANSI colors follow the terminal palette; Snacks adds Neovim's colors.
+    activeBorderColor: [blue, bold]
+    searchingActiveBorderColor: [magenta, bold]
+    inactiveBorderColor: [black]
+    selectedLineBgColor: [black]
+
+git:
+  diffContextSize: 5
+  # Press | to switch layouts. Both read the current appearance on every render.
+  diffRenderers:
+    - name: Side-by-side
+      command: '"${XDG_CONFIG_HOME:-$HOME/.config}/lazygit/delta-pager" --side-by-side'
+    - name: Unified
+      command: '"${XDG_CONFIG_HOME:-$HOME/.config}/lazygit/delta-pager"'

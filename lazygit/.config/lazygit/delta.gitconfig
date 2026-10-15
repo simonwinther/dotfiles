@@ -1,0 +1,51 @@
+# Shared layout for Lazygit's unified and side-by-side renderers.
+[delta]
+    paging = never
+    true-color = always
+    line-numbers = true
+    keep-plus-minus-markers = true
+    tabs = 4
+    line-fill-method = spaces
+    wrap-max-lines = unlimited
+    wrap-right-percent = 1
+    zero-style = syntax
+    hunk-header-style = "line-number syntax"
+    hunk-header-decoration-style = none
+    line-numbers-left-format = "{nm:>4} "
+    line-numbers-right-format = "{np:>4} │ "
+
+# Catppuccin Latte: subtle line backgrounds, stronger highlights for edits.
+[delta "light"]
+    syntax-theme = Catppuccin Latte
+    minus-style = "syntax #f3e2e8"
+    plus-style = "syntax #e2eddf"
+    minus-emph-style = "bold #4c4f69 #ecc2cc"
+    plus-emph-style = "bold #4c4f69 #bdddb1"
+    file-style = "bold #1e66f5"
+    file-decoration-style = "#bcc0cc ul"
+    commit-style = "bold #8839ef"
+    hunk-header-line-number-style = "#6c6f85"
+    line-numbers-left-style = "#6c6f85"
+    line-numbers-right-style = "#6c6f85"
+    line-numbers-zero-style = "#6c6f85"
+    line-numbers-minus-style = "#d20f39"
+    line-numbers-plus-style = "#40a02b"
+    inline-hint-style = "#6c6f85"
+
+# Catppuccin Mocha uses the same layout with colors for a dark background.
+[delta "dark"]
+    syntax-theme = Catppuccin Mocha
+    minus-style = "syntax #302b3a"
+    plus-style = "syntax #28382e"
+    minus-emph-style = "bold #cdd6f4 #643b48"
+    plus-emph-style = "bold #cdd6f4 #3f5d43"
+    file-style = "bold #89b4fa"
+    file-decoration-style = "#45475a ul"
+    commit-style = "bold #cba6f7"
+    hunk-header-line-number-style = "#a6adc8"
+    line-numbers-left-style = "#a6adc8"
+    line-numbers-right-style = "#a6adc8"
+    line-numbers-zero-style = "#a6adc8"
+    line-numbers-minus-style = "#f38ba8"
+    line-numbers-plus-style = "#a6e3a1"
+    inline-hint-style = "#a6adc8"

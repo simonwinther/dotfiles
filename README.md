@@ -11,8 +11,14 @@ folder categories, keyboard navigation, wallpaper transitions, and setup steps
 for both PCs.
 
 The [file picker](file-picker/README.md) puts any local file on the clipboard for
-ChatGPT with Super+Alt+Z, or opens a drag card with Ctrl+D. The PDF opener stays on
-Super+Z. Its scripts, styling, keybindings, and window rules are managed with Stow.
+ChatGPT with Super+Alt+Z, or opens a drag card with Ctrl+G. Super+Z opens the PDF
+picker, and Super+R opens recent files and actions. Its Rust source, styling,
+keybindings, and window rules are managed with Stow; build with `file-picker-build`.
+
+[Rust dictation](dictate/README.md) streams a live transcript with Super+D and
+cancels with Super+Ctrl+Shift+X. Its source and configuration live in the `dictate`
+Stow package; build with `dictate-build`. Both tools keep compiled binaries and
+Cargo build files in the local cache so the same packages can be used on both PCs.
 
 ## Setup
 

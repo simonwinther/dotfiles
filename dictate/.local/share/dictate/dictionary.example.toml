@@ -1,0 +1,54 @@
+# Add the terms you actually use. These are sent as transcription hints.
+# Save this file; changes apply to the next recording.
+terms = [
+  "PyTorch", "NumPy", "pandas", "scikit-learn", "XGBoost",
+  "Hugging Face", "CUDA", "LoRA", "embeddings", "gradient descent",
+  "TensorFlow", "TensorBoard", "SciPy", "matplotlib", "Jupyter",
+  "backpropagation", "overfitting", "underfitting", "large language model",
+]
+
+# Exact word/phrase corrections applied locally after transcription.
+# Matching ignores case; output uses exactly the spelling on the right.
+# Add recurring grammar mistakes here too. Avoid ambiguous single words.
+[replacements]
+# Libraries and tools: mishearings, spacing, and preferred capitalization.
+"pie torch" = "PyTorch"
+"pytorch" = "PyTorch"
+"num pie" = "NumPy"
+"numpy" = "NumPy"
+"scikit learn" = "scikit-learn"
+"sci kit learn" = "scikit-learn"
+"x g boost" = "XGBoost"
+"xgboost" = "XGBoost"
+"hugging face" = "Hugging Face"
+"tensor flow" = "TensorFlow"
+"tensorflow" = "TensorFlow"
+"tensor board" = "TensorBoard"
+"tensorboard" = "TensorBoard"
+"sci pie" = "SciPy"
+"scipy" = "SciPy"
+"mat plot lib" = "matplotlib"
+"jupiter notebook" = "Jupyter notebook"
+"jupiter notebooks" = "Jupyter notebooks"
+"jupiter lab" = "JupyterLab"
+
+# Technical phrases. Avoid changing ordinary words like "torch" or "sequel".
+"gradient decent" = "gradient descent"
+"back propagation" = "backpropagation"
+"over fitting" = "overfitting"
+"under fitting" = "underfitting"
+"large language modal" = "large language model"
+"large language modals" = "large language models"
+
+# Clear grammar slips, limited to specific phrases.
+"could of been" = "could have been"
+"should of been" = "should have been"
+"would of been" = "would have been"
+"could of done" = "could have done"
+"should of done" = "should have done"
+"would of done" = "would have done"
+"doesn't has" = "doesn't have"
+"doesn’t has" = "doesn’t have"
+"does not has" = "does not have"
+"these model is" = "these models are"
+"these models is" = "these models are"
