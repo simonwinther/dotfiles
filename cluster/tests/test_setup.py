@@ -165,9 +165,10 @@ class SetupTests(unittest.TestCase):
         self.assertIn("nvim/.config/nvim/init.lua", names)
         self.assertIn("tmux/.tmux.conf", names)
         self.assertIn("cluster/.local/bin/cluster-setup", names)
+        self.assertIn("cluster/.local/bin/cluster", names)
         self.assertTrue(all(
             name.startswith(("nvim/", "tmux/")) or name in (
-                "cluster/.local/bin/cluster-setup", "terminal.info"
+                "cluster/.local/bin/cluster-setup", "cluster/.local/bin/cluster", "terminal.info"
             ) for name in names
         ))
         self.assertFalse(any(name.endswith("AGENTS.md") for name in names))
@@ -178,6 +179,7 @@ class SetupTests(unittest.TestCase):
         self.run_setup("--skip-plugins", "-p", "2222", "test-host")
         self.assertTrue((self.home / ".tmux.conf").is_symlink())
         self.assertTrue((self.home / ".config/nvim").is_symlink())
+        self.assertTrue((self.home / ".local/bin/cluster").is_symlink())
         self.assertEqual(list(self.state.glob("incoming.*")), [])
 
     def test_failed_stow_restores_original_configs(self):

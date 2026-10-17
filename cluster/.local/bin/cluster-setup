@@ -73,6 +73,7 @@ if ! $local_install; then
   # Only tracked editor/multiplexer files; no caches, credentials, or desktop packages.
   git -C "$repo" ls-files -z -- nvim tmux > "$bundle/files"
   printf '%s\0' 'cluster/.local/bin/cluster-setup' > "$bundle/command"
+  [[ ! -f $repo/cluster/.local/bin/cluster ]] || printf '%s\0' 'cluster/.local/bin/cluster' >> "$bundle/command"
   tar -C "$repo" --null -T "$bundle/files" -T "$bundle/command" -cf "$bundle/payload.tar"
   if command -v infocmp >/dev/null; then
     : > "$bundle/terminal.info"
@@ -147,6 +148,7 @@ check_tool fzf 'fzf>=0.25' 0.25
 check_tool tree-sitter 'tree-sitter-cli>=0.26.1' 0.26.1
 check_tool curl curl
 check_tool unzip unzip '' -v
+check_tool python3 'python>=3.6' 3.6
 
 need_stow=false
 if stow --version >/dev/null 2>&1; then
