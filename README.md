@@ -12,8 +12,8 @@ for both PCs.
 
 The [file picker](file-picker/README.md) puts any local file on the clipboard for
 ChatGPT with Super+Alt+Z, or opens a drag card with Ctrl+G. Super+Z opens the PDF
-picker, and Super+R opens recent files and actions. Its Rust source, styling,
-keybindings, and window rules are managed with Stow; build with `file-picker-build`.
+picker. Its Rust source, styling, keybindings, and window rules are managed with
+Stow; build with `file-picker-build`.
 
 [Rust dictation](dictate/README.md) streams a live transcript with Super+D and
 cancels with Super+Ctrl+Shift+X. Its source and configuration live in the `dictate`

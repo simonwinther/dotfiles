@@ -60,12 +60,8 @@ hl.bind(
 
 hl.bind("SUPER + SHIFT + F", hl.dsp.exec_cmd("uwsm-app -- nautilus --new-window"), { description = "File manager" })
 
+-- Use SUPER+ALT+Z for file search; leave SUPER+R unassigned.
 hl.unbind("SUPER + R")
-hl.bind(
-	"SUPER + R",
-	require("file-picker").show_recent,
-	{ description = "Recent files and actions" }
-)
 
 -- This one is amazing.
 hl.bind(

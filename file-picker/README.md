@@ -7,12 +7,7 @@ composer to attach the file. Super+Z opens the PDF picker and Enter opens the
 selected PDF in Zathura. Both pickers share the same styling. The picker and
 native drag card are written in Rust; no Python runtime is used.
 
-Super+R opens the newest 30,000 files at most. Name sorting still uses that recent
-set. Switching between the three picker shortcuts hides the previous picker.
-Search for a file and press Enter to
-choose an action. Press `o` to select Open (Zathura for PDFs, the default app for
-other files), `c` to select Copy path, or `a` to select Copy file as attachment;
-then press Enter to confirm. Escape cancels. No file is automatically pasted.
+Switching between the two picker shortcuts hides the previous picker.
 
 | Key | Action |
 | --- | --- |
@@ -52,7 +47,6 @@ hyprctl reload
 hyprctl configerrors
 file-picker --warm
 file-picker --warm --pdf
-file-picker --warm --recent
 ```
 
 Resolve Stow conflicts before applying. The Hyprland package supplies the
@@ -64,12 +58,12 @@ Rebuild after changing the Rust source, or if the cache was cleared.
 The launcher exports a stable executable path, so prepared pickers can refresh
 and launch helpers even after a rebuild replaces their running executable.
 
-Super+Alt+Z, Super+Z and Super+R bring their prepared windows forward directly
-from Hyprland; they use `file-picker --window` (plus `--pdf` or `--recent`) to
-start them if needed. Hyprland prepares all three pickers at login, on the
-hidden `special:file-picker`, `special:pdf-picker` and `special:recent-picker`
-workspaces. Each shortcut brings its existing window
-forward and refreshes the file list. Esc, copying and dragging hide the picker
+Super+Alt+Z and Super+Z bring their prepared windows forward directly
+from Hyprland; they use `file-picker --window` (plus `--pdf` for PDFs) to
+start them if needed. Hyprland prepares both pickers at login, on the
+hidden `special:file-picker` and `special:pdf-picker` workspaces. Each shortcut
+brings its existing window forward and refreshes the file list. Esc, copying
+and dragging hide the picker
 while preserving its last drawn screen; refresh keeps the existing results
 visible until the replacement list is ready. The first open waits for the
 finder interface to initialize before showing the terminal. These avoid a
@@ -115,6 +109,13 @@ The destination website still decides which file types, sizes, and paste
 operations it accepts. If paste is unsupported, use Ctrl+G to drag. For an
 upload dialog, use Ctrl+Y, then Ctrl+L and Ctrl+V in its location field. Path
 copying supports one file at a time.
+
+The optional `file-picker --window --recent` mode opens the newest 30,000 files
+at most, with an action menu after selection. Name sorting still uses that
+recent set. Press `o` to select Open (Zathura for PDFs, the default app for other
+files), `c` to select Copy path, or `a` to select Copy file as attachment; then
+press Enter to confirm. Escape cancels. No file is automatically pasted. This
+mode has no global shortcut and starts its window only when requested.
 
 The tool can also be called directly:
 
