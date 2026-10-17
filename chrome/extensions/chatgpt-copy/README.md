@@ -52,3 +52,5 @@ The destination document still needs any packages used by the original equations
 Markdown mode uses Markdown headings, emphasis, lists, quotations, links, tables, and fenced code blocks. Inline equations use `$...$` and display equations use `$$...$$`, for Markdown editors that support math.
 
 Both formats support selected-text copying and the message copy button. Selecting part of a rendered equation includes its complete source. Source attributes and older KaTeX annotations are both supported.
+
+Both the older and newer ChatGPT message layouts are supported, including grouped prompts and responses. Code blocks retain their language and indentation, including blocks rendered in CodeMirror editors. If an editor has unloaded part of its source, the extension leaves copying to the page to avoid copying incomplete code.

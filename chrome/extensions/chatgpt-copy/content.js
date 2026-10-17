@@ -7,12 +7,21 @@
 
   const ZERO_WIDTH_RE = /[\u200b\u200c\u200d\ufeff\u2060]/g;
   const LITERAL_PLACEHOLDER_PREFIX = "@@LATEX_COPY_LITERAL_";
-  const COPY_BUTTON_SELECTOR =
-    'button[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]';
-  const TURN_SELECTOR = 'section[data-turn], [data-testid^="conversation-turn"]';
+  const COPY_BUTTON_SELECTOR = [
+    'button[data-testid="copy-turn-action-button"]',
+    'button[aria-label="Copy message"]',
+    '.turn-action-controls button[aria-label="Copy"]',
+    '.turn-action-controls button:has(use[href$="#square-on-square-light-20"])'
+  ].join(", ");
+  const TURN_SELECTOR =
+    'section[data-turn], article[data-turn], [data-testid^="conversation-turn"], [data-turn-id], [data-turn-key]';
+  const MESSAGE_CONTAINER_SELECTOR =
+    '[data-message-author-role], [data-content-search-unit-key], [data-chatgpt-search-unit-key]';
   const MESSAGE_ROOT_SELECTORS = [
     '[data-message-author-role="assistant"] .markdown',
+    '[data-markdown-text-style="assistant-message"]',
     ".markdown",
+    "[data-user-message-bubble]",
     ".whitespace-pre-wrap",
     "[data-message-author-role]"
   ];
@@ -122,7 +131,7 @@
 
     const context = createCopyContext();
     const text = textFromSelection(selection, context);
-    if (!text) {
+    if (!text || context.state.incomplete) {
       return;
     }
 
@@ -152,7 +161,7 @@
 
     const context = createCopyContext();
     const text = normalizeText(nodeToText(messageRoot, context), context);
-    if (!text) {
+    if (!text || context.state.incomplete) {
       return;
     }
 
@@ -164,7 +173,7 @@
   }
 
   function createCopyContext() {
-    return { format: outputFormat, literals: [] };
+    return { format: outputFormat, literals: [], state: { incomplete: false } };
   }
 
   function copySuccessMessage(context) {
@@ -198,8 +207,8 @@
       ancestor = ancestor.parentElement;
     }
 
-    while (ancestor && !ancestor.matches(".markdown, [data-message-author-role], body, html")) {
-      if (ancestor.matches("strong, b, em, i, s, del, sub, sup, a, code, pre")) {
+    while (ancestor && !ancestor.matches('.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role], [data-user-message-bubble], body, html')) {
+      if (ancestor.matches('strong, b, em, i, s, del, sub, sup, a, code, pre, [data-markdown-copy="code-block"]')) {
         const wrapper = ancestor.cloneNode(false);
         wrapper.appendChild(contents);
         contents = wrapper;
@@ -211,19 +220,21 @@
   }
 
   function findMessageRoot(button) {
-    const turn = button.closest(TURN_SELECTOR);
-    if (!turn) {
+    // New turn groups contain both the prompt and the response. Scope prompt
+    // buttons to their own message before falling back to the shared turn.
+    const scope = button.closest(MESSAGE_CONTAINER_SELECTOR) || button.closest(TURN_SELECTOR);
+    if (!scope) {
       return null;
     }
 
     for (const selector of MESSAGE_ROOT_SELECTORS) {
-      const messageRoot = turn.querySelector(selector);
+      const messageRoot = scope.querySelector(selector);
       if (messageRoot) {
         return messageRoot;
       }
     }
 
-    return turn;
+    return scope;
   }
 
   function expandRangeAroundMath(range) {
@@ -274,6 +285,14 @@
     }
 
     const tag = element.tagName.toLowerCase();
+
+    if (element.matches('[data-markdown-copy="code-block"]')) {
+      return preToText(element, context);
+    }
+
+    if (element.hasAttribute("data-user-message-bubble")) {
+      return asBlock(childrenToText(element, { ...context, preserveLineBreaks: true }));
+    }
 
     if (element.classList.contains("whitespace-pre-wrap") && element.children.length === 0) {
       return asBlock(formatPlainText(cleanPlainText(element.textContent, true), context));
@@ -355,7 +374,7 @@
       return node.nodeValue || "";
     }
 
-    return formatPlainText(cleanPlainText(node.nodeValue || "", false), context);
+    return formatPlainText(cleanPlainText(node.nodeValue || "", context.preserveLineBreaks), context);
   }
 
   function formatPlainText(text, context) {
@@ -431,7 +450,7 @@
       }
     }
 
-    if (element.hasAttribute("data-copy-ignore")) {
+    if (element.hasAttribute("data-copy-ignore") || element.getAttribute("data-markdown-copy") === "exclude") {
       return true;
     }
 
@@ -501,7 +520,7 @@
   }
 
   function codeToText(element, context) {
-    if (element.closest("pre")) {
+    if (element.closest('pre, [data-markdown-copy="code-block"]')) {
       return "";
     }
 
@@ -527,8 +546,19 @@
   }
 
   function preToText(element, context) {
-    const code = element.querySelector("code") || element;
-    const text = (code.textContent || "").replace(/\n+$/g, "");
+    const code = element.querySelector(".cm-content") || element.querySelector("code") || element;
+    let source = code.textContent || "";
+    if (code.classList.contains("cm-content")) {
+      const lines = Array.from(code.children);
+      if (lines.length === 0 || lines.some((line) => !line.classList.contains("cm-line"))) {
+        // Virtualized editors omit offscreen source. Let native copying handle
+        // the message instead of replacing it with a partial code block.
+        context.state.incomplete = true;
+        return "";
+      }
+      source = lines.map((line) => line.textContent || "").join("\n");
+    }
+    const text = source.replace(/\n+$/g, "");
     if (!text) {
       return "";
     }
@@ -551,8 +581,8 @@
     const candidates = [
       pre.getAttribute("data-language"),
       code.getAttribute("data-language"),
-      ...Array.from(pre.classList),
-      ...Array.from(code.classList)
+      ...Array.from(pre.classList).filter((name) => /^(language-|lang-)/.test(name)),
+      ...Array.from(code.classList).filter((name) => /^(language-|lang-)/.test(name))
     ];
 
     for (const candidate of candidates) {
@@ -722,7 +752,7 @@
       return "";
     }
 
-    if (element.matches(".markdown, .text-message, [data-message-author-role]")) {
+    if (element.matches('.markdown, .text-message, [data-message-author-role], [data-markdown-text-style="assistant-message"]')) {
       return text;
     }
 
