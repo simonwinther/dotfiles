@@ -2,6 +2,9 @@
 
 My personal configuration files for Arch Linux, managed with GNU Stow.
 
+[Cluster setup](cluster/README.md) checks remote tools, installs missing ones
+without sudo, and syncs only Neovim and tmux over SSH: `cluster-setup my-cluster`.
+
 [LAST_UPDATED](LAST_UPDATED) records each package or tool's last update as
 `component: DD/MM/YYYY`. Initial dates come from Git history; changes update the
 relevant entry in the same commit. Check it when deciding what needs maintenance.
