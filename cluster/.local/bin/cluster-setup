@@ -4,8 +4,8 @@ set -euo pipefail
 
 usage() {
   cat <<'HELP'
-Usage: cluster-setup [--check] [-p PORT] SSH_HOST
-       cluster-setup --local [--check] [--skip-plugins]
+Usage: cluster setup [--check] [-p PORT] SSH_HOST
+       cluster setup --local [--check] [--skip-plugins]
 
   --check         Report available tools; do not change the target.
   --local         Set up the machine running this command.
@@ -19,7 +19,7 @@ Neovim installs its plugins from lazy-lock.json on its first interactive start.
 HELP
 }
 
-die() { printf 'cluster-setup: %s\n' "$*" >&2; exit 1; }
+die() { printf 'cluster setup: %s\n' "$*" >&2; exit 1; }
 log() { printf '\n%s\n' "$*"; }
 
 # Quote for the remote login shell, which need not be Bash.

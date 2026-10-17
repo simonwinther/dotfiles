@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit from a paired Git checkout and read Slurm output over SSH."""
+"""Set up cluster tools, submit jobs, and read Slurm output over SSH."""
 
 import argparse
 import hashlib
@@ -225,6 +225,34 @@ def link(args):
     return 0
 
 
+def setup(args):
+    local = args.local or args.setup_local
+    if args.host and args.setup_host and args.host != args.setup_host:
+        raise Error("Choose one setup host, using either --host or the setup argument.")
+    host = args.setup_host or args.host
+    if local and host:
+        raise Error("Choose an SSH host or --local for setup.")
+    if not local and not host:
+        raise Error("Choose a target: cluster setup SSH_HOST, or cluster setup --local.")
+    backend = Path(__file__).resolve().with_name("cluster-setup")
+    if not backend.is_file():
+        raise Error("The setup helper is missing. Update and restow the cluster package.")
+    arguments = ["bash", str(backend)]
+    if args.check:
+        arguments.append("--check")
+    if local:
+        arguments.append("--local")
+    if args.skip_plugins:
+        arguments.append("--skip-plugins")
+    if args.port is not None:
+        if local:
+            raise Error("An SSH port cannot be used with --local.")
+        arguments.extend(["-p", str(args.port)])
+    if host:
+        arguments.append(validate_host(host))
+    return subprocess.call(arguments)
+
+
 def submit(args):
     root = repo_root()
     host = selected_host(args, root)
@@ -233,11 +261,11 @@ def submit(args):
         raise Error("Provide a batch script: cluster submit -- path/to/train.sbatch")
     if any(arg in ("-Q", "--quiet", "--quiet=yes") for arg in arguments):
         raise Error("Remove --quiet; the helper needs sbatch's job ID.")
-    if git("status", "--porcelain", "--untracked-files=no", cwd=str(root)):
-        raise Error("Commit your local tracked changes, then push and pull on the cluster before submitting.")
     path = str(root) if host == "local" else config(root, "cluster." + host + ".path")
     if not path:
-        raise Error("Pair this checkout first: cluster link {} REMOTE_CHECKOUT_PATH".format(host))
+        raise Error("This checkout is not linked to {}.\nLink it once: cluster link {} REMOTE_CHECKOUT_PATH".format(host, shlex.quote(host)))
+    if git("status", "--porcelain", "--untracked-files=no", cwd=str(root)):
+        raise Error("Commit your local tracked changes, then push and pull on the cluster before submitting.")
     environment = {}
     for item in args.env:
         name, separator, value = item.partition("=")
@@ -267,8 +295,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, epilog="Code sync stays in GitHub: commit/push locally and pull in the paired cluster checkout.")
     target = parser.add_mutually_exclusive_group()
     target.add_argument("-H", "--host", help="SSH alias; defaults to the repository pairing, then hendrix")
-    target.add_argument("--local", action="store_true", help="run Slurm commands on this machine")
+    target.add_argument("--local", action="store_true", help="run on this machine")
     commands = parser.add_subparsers(dest="command")
+    installation = commands.add_parser("setup", help="check and install terminal tools and configurations")
+    installation.add_argument("setup_host", metavar="SSH_HOST", nargs="?")
+    installation.add_argument("--check", action="store_true", help="report available tools without changing the target")
+    installation.add_argument("--local", dest="setup_local", action="store_true", help="set up this machine")
+    installation.add_argument("--skip-plugins", action="store_true", help="skip tmux plugin downloads")
+    installation.add_argument("-p", "--port", type=int, help="SSH port")
     pairing = commands.add_parser("link", help="pair this repository with an existing cluster checkout")
     pairing.add_argument("link_host", metavar="HOST")
     pairing.add_argument("path", help="absolute path, ~/path, or a path relative to the remote home")
@@ -285,6 +319,8 @@ def main(argv=None):
     logs.add_argument("-n", "--lines", type=int, default=80)
     commands.add_parser("jobs", help="show your queued and running jobs")
     args = parser.parse_args(argv)
+    if args.command == "setup":
+        return setup(args)
     if args.command == "link":
         return link(args)
     if args.command == "submit":

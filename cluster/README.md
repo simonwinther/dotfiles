@@ -1,5 +1,8 @@
 # Cluster tools
 
+Use `cluster --help` to see the setup, link, submit, jobs, and logs commands.
+Each command also has its own help, such as `cluster setup --help`.
+
 ## Submit from your PC
 
 Pair a local Git checkout with its existing cluster checkout once. The paths
@@ -16,6 +19,11 @@ origin and saves the pairing in the local repository's `.git/config`.
 `cluster link --check hendrix dev/bratz2026` only validates it. Each checkout
 can have a separate pairing for each SSH alias. The last saved pairing becomes
 that repository's default; `--host` selects a different one.
+
+If you submit without a saved link, the command exits with a `cluster link`
+instruction before connecting or submitting anything. A missing checkout,
+different Git origin, or mismatched commit also stops submission with an
+explanation.
 
 GitHub remains the code-sync workflow: commit and push locally, then pull in
 the cluster checkout. Submission requires matching commits and no uncommitted
@@ -63,19 +71,21 @@ ssh hendrix 'mytop --once'
 From the PC with this dotfiles checkout:
 
 ```sh
-cluster-setup --check my-cluster
-cluster-setup my-cluster
+cluster setup --check my-cluster
+cluster setup my-cluster
 ```
 
 Use any SSH alias or `user@hostname`. SSH config settings, jump hosts, and
 authentication work as usual. For a custom SSH port, use
-`cluster-setup -p 2222 user@hostname`. Run the same setup command again to send
+`cluster setup -p 2222 user@hostname`. Run the same setup command again to send
 your current configs. It transfers only tracked Neovim and tmux files and the
-setup command, including local edits to those tracked configs.
+cluster commands, including local edits to those tracked configs.
 
 On another PC, install the command from this checkout with `stow cluster`.
-You can also run `./cluster/.local/bin/cluster-setup` directly. If the checkout
-is already on a cluster, run `./cluster/.local/bin/cluster-setup --local`.
+You can also run `./cluster/.local/bin/cluster setup my-cluster` directly. If
+the checkout is already on a cluster, run `cluster setup --local`, or
+`./cluster/.local/bin/cluster setup --local` before stowing it. The old
+`cluster-setup` entry point remains available for compatibility.
 
 The check reports Neovim, tmux, Git, ripgrep, fd, fzf, tree-sitter CLI, curl,
 unzip, Python, Stow, and a C compiler. **`--check` changes no files and downloads

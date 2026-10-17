@@ -5,12 +5,14 @@ from pathlib import Path
 import shutil
 import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / ".local/bin/cluster-setup"
+CLI = SCRIPT.with_name("cluster")
 
 
 class SetupTests(unittest.TestCase):
@@ -65,6 +67,15 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
         return result
 
+    def run_cli(self, *args, check=True):
+        result = subprocess.run(
+            [sys.executable, str(CLI), *args], env=self.env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+        )
+        if check:
+            self.assertEqual(result.returncode, 0, result.stdout)
+        return result
+
     def install(self):
         return self.run_setup(
             "--local", "--skip-plugins", "--source", str(self.source)
@@ -78,6 +89,43 @@ class SetupTests(unittest.TestCase):
         result = self.run_setup("--local", "--check")
         self.assertIn("Check complete. No files changed.", result.stdout)
         self.assertNotIn("missing", result.stdout)
+        self.assertFalse(self.home.exists())
+
+    def test_cli_setup_local_check_creates_nothing(self):
+        result = self.run_cli("setup", "--local", "--check")
+        self.assertIn("Check complete. No files changed.", result.stdout)
+        self.assertFalse(self.home.exists())
+
+    def test_cli_setup_remote_check_with_global_host(self):
+        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        result = self.run_cli("--host", "test-host", "setup", "--check")
+        self.assertIn("Check complete. No files changed.", result.stdout)
+        self.assertFalse(self.home.exists())
+
+    def test_cli_setup_accepts_global_local_flag(self):
+        result = self.run_cli("--local", "setup", "--check")
+        self.assertIn("Check complete. No files changed.", result.stdout)
+        self.assertFalse(self.home.exists())
+
+    def test_cli_setup_remote_install_and_installed_local_command(self):
+        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.run_cli("setup", "--skip-plugins", "-p", "2222", "test-host")
+        command = self.home / ".local/bin/cluster"
+        self.assertTrue(command.is_symlink())
+        result = subprocess.run(
+            [str(command), "setup", "--local", "--skip-plugins"],
+            env=self.env, text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_cli_setup_invalid_targets_fail_before_changes(self):
+        for args in (("setup",), ("setup", "--local", "test-host"),
+                     ("setup", "--local", "-p", "22"),
+                     ("--host", "one", "setup", "two")):
+            with self.subTest(args=args):
+                result = self.run_cli(*args, check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("Traceback", result.stdout)
         self.assertFalse(self.home.exists())
 
     def test_old_versions_are_reported(self):

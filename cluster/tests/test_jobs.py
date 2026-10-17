@@ -80,6 +80,34 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.git("config", "--get", "cluster.host"), "test-host")
         self.assertFalse(self.marker.exists())
 
+    def test_missing_link_exits_cleanly_before_ssh_or_submission(self):
+        self.git("config", "--unset", "cluster.test-host.path")
+        self.tool("ssh", "#!/bin/bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
+        for dirty in (False, True):
+            if dirty:
+                (self.local / "scripts/train.sbatch").write_text("#!/bin/bash\necho changed\n")
+            with self.subTest(dirty=dirty):
+                result = self.run_cli("submit", "scripts/train.sbatch", check=False)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("This checkout is not linked to test-host", result.stdout)
+                self.assertIn("cluster link test-host REMOTE_CHECKOUT_PATH", result.stdout)
+                self.assertNotIn("Traceback", result.stdout)
+                self.assertNotIn("SSH MUST NOT RUN", result.stdout)
+                self.assertFalse(self.marker.exists())
+
+    def test_missing_link_for_another_host_does_not_use_default_pairing(self):
+        result = self.run_cli("--host", "another-host", "submit", "scripts/train.sbatch", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cluster link another-host REMOTE_CHECKOUT_PATH", result.stdout)
+        self.assertNotIn("Traceback", result.stdout)
+        self.assertFalse(self.marker.exists())
+
+    def test_submit_outside_repository_exits_without_traceback(self):
+        result = self.run_cli("submit", "scripts/train.sbatch", cwd=self.root, check=False)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("Traceback", result.stdout)
+        self.assertFalse(self.marker.exists())
+
     def test_link_check_does_not_save_another_pairing(self):
         self.run_cli("link", "another-host", str(self.checkout), "--check")
         result = subprocess.run(["git", "config", "--get", "cluster.another-host.path"],

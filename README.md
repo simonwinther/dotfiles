@@ -3,7 +3,7 @@
 My personal configuration files for Arch Linux, managed with GNU Stow.
 
 The [cluster package](cluster/README.md) checks remote tools, installs missing ones
-without sudo, and syncs only Neovim and tmux over SSH: `cluster-setup my-cluster`.
+without sudo, and syncs only Neovim and tmux over SSH: `cluster setup my-cluster`.
 The same package includes `cluster link`, `cluster submit`, and `cluster logs`
 for submitting from paired Git checkouts and reading Slurm output from your PC.
 
