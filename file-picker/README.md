@@ -13,6 +13,7 @@ Switching between the two picker shortcuts hides the previous picker.
 | --- | --- |
 | Enter | Copy the selected file(s) as attachments |
 | Tab / Shift+Tab | Select / deselect multiple files |
+| Alt+S (M-s), then a label | Jump to a visible row without changing the search |
 | Ctrl+D / Ctrl+U | Scroll half a page down / up, as in Neovim (both pickers) |
 | Ctrl+G | Open a small card to drag into ChatGPT or another app |
 | Ctrl+Y | Copy one absolute path for a file upload dialog |
@@ -20,7 +21,17 @@ Switching between the two picker shortcuts hides the previous picker.
 | Ctrl+T | Toggle newest-first / name order, preserving the current scope |
 | Ctrl+A | Include dependency, build, and cache directories |
 | Ctrl+S | Search readable files across the whole PC, including mounted drives |
-| Esc | Cancel |
+| Esc / Ctrl+C | Cancel |
+
+Alt+S labels only the rows currently visible, from top to bottom. Labels use
+the Danish alphabet: A–Z, Æ, Ø, Å. Lowercase keys work too. When more than 29
+rows are visible, every label has two letters (AA, AB, AC, …); larger views use
+longer labels. Type the label to move the highlight, then use Enter, Tab, or
+another normal action. A partial label hides the other choices. Press Alt+S
+again to cancel jump mode; Backspace removes a partial label. Esc or Ctrl+C closes
+the picker, including while labels are shown.
+Resizing or changing the terminal zoom cancels jump mode so the next Alt+S
+uses the new viewport.
 
 The drag card stays visible across workspaces. Drag its filename/card onto the
 destination; it closes after a successful drop. A cancelled drop leaves it
@@ -28,7 +39,8 @@ available to retry. It also has copy buttons.
 
 The PDF picker, file picker, and drag card use a matching light/dark palette,
 readable solid backgrounds, and keyboard hints. The pickers share native fzf
-styling; they do not generate thumbnails or read file contents. Rust reads
+styling, with a terminal overlay for viewport jump labels; they do not generate
+thumbnails or read file contents. Rust reads
 filesystem timestamps and sorts the list in the background. The drag card
 reads size metadata for its selected file. The default palette follows
 the desktop appearance; `FILE_PICKER_APPEARANCE=light` or `dark` overrides it for

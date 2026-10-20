@@ -12,6 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod jump;
+
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const EXCLUDES: &[&str] = &[
@@ -634,11 +636,11 @@ fn picker_style(scope: &str, options: &Options) -> Vec<String> {
         format!(
             "--footer={}",
             if options.recent {
-                "Enter  choose action    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
+                "Enter  choose action    Alt+S  jump    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
             } else if options.pdf {
-                "Enter  open    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
+                "Enter  open    Alt+S  jump    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
             } else {
-                "Enter  copy    Ctrl+G  drag    Ctrl+Y  copy path\nCtrl+D / Ctrl+U  half-page down / up    Tab  select\nCtrl+T  newest / name    Ctrl+R  refresh    Ctrl+A  all files    Ctrl+S  whole PC    Esc  close"
+                "Enter  copy    Alt+S  jump    Ctrl+G  drag    Ctrl+Y  copy path\nCtrl+D / Ctrl+U  half-page down / up    Tab  select\nCtrl+T  newest / name    Ctrl+R  refresh    Ctrl+A  all files    Ctrl+S  whole PC    Esc  close"
             }
         ),
         format!(
@@ -867,7 +869,7 @@ pub fn pick(options: &Options) -> Result<()> {
     if let Some(ready) = ready {
         fzf.env("FILE_PICKER_READY", ready);
     }
-    let result = fzf
+    fzf
         .args(["--bind", &bindings])
         .args(picker_style(scope, options))
         .env("FZF_DEFAULT_OPTS", "")
@@ -875,10 +877,8 @@ pub fn pick(options: &Options) -> Result<()> {
         .env("SHELL", "/bin/sh")
         .env("FILE_PICKER_BINARY", executable_path()?)
         .env("FILE_PICKER_ROOT", &options.root)
-        .stdin(Stdio::from(scanner.0.stdout.take().unwrap()))
-        .stdout(Stdio::piped())
-        .spawn()?
-        .wait_with_output();
+        .stdin(Stdio::from(scanner.0.stdout.take().unwrap()));
+    let result = jump::run(&mut fzf, if options.pdf || options.recent { 2 } else { 3 });
     drop(scanner);
     let result = result?;
     match result.status.code() {
