@@ -11,7 +11,7 @@ local function show(mode)
             hl.dispatch(hl.dsp.window.move({ window = window, workspace = "special:" .. other .. "-picker", follow = false }))
         end
     end
-    local command = "~/.local/bin/file-picker --window" .. (mode == "pdf" and " --pdf" or mode == "recent" and " --recent" or "")
+    local command = "file-picker --window" .. (mode == "pdf" and " --pdf" or mode == "recent" and " --recent" or "")
     local runtime = os.getenv("XDG_RUNTIME_DIR")
     local ready = runtime and io.open(runtime .. "/" .. name .. "-ready", "rb")
     if not ready then

@@ -1,2 +1,2 @@
-include=~/.config/omarchy/current/theme/mako.ini
+include=~/.local/state/desktop/theme/mako.ini
 max-history=50

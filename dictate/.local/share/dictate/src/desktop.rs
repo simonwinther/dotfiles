@@ -26,8 +26,9 @@ pub async fn hypr_json(command: &str) -> Result<Value> {
     )?)
 }
 pub async fn focused_monitor() -> Option<String> {
-    let window = hypr_json("activewindow").await.ok();
-    let monitors = hypr_json("monitors").await.ok()?;
+    let (window, monitors) = tokio::join!(hypr_json("activewindow"), hypr_json("monitors"));
+    let window = window.ok();
+    let monitors = monitors.ok()?;
     let monitors = monitors.as_array()?;
     let preferred = window.as_ref().and_then(|w| w.get("monitor"));
     monitors

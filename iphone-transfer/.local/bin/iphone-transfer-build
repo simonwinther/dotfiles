@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+case "${1:-}" in
+  ''|--check) ;;
+  *) printf 'Usage: iphone-transfer-build [--check]\n' >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then
+  printf 'Usage: iphone-transfer-build [--check]\n' >&2
+  exit 2
+fi
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+source_root="$(dirname "$(dirname "$script")")/share/iphone-transfer"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/iphone-transfer"
+mkdir -p "$cache_root/build" "$cache_root/bin"
+exec 9>"$cache_root/build.lock"
+flock -x 9
+rm -rf -- "$cache_root/build/src" "$cache_root/build/tests"
+cp "$source_root/Cargo.toml" "$cache_root/build/Cargo.toml"
+cp "$source_root/Cargo.lock" "$cache_root/build/Cargo.lock"
+cp -R "$source_root/src" "$cache_root/build/"
+if [[ -d "$source_root/tests" ]]; then
+  cp -R "$source_root/tests" "$cache_root/build/"
+fi
+export CARGO_TARGET_DIR="$cache_root/target"
+if [[ "${1:-}" == --check ]]; then
+  cargo fmt --manifest-path "$cache_root/build/Cargo.toml" -- --check
+  nice -n 10 cargo clippy --locked --manifest-path "$cache_root/build/Cargo.toml" --all-targets -- -D warnings
+  nice -n 10 cargo test --locked --manifest-path "$cache_root/build/Cargo.toml" --all-targets
+fi
+nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --bin iphone-transfer-native
+install -m 755 "$CARGO_TARGET_DIR/release/iphone-transfer-native" "$cache_root/bin/iphone-transfer-native.new"
+mv -f "$cache_root/bin/iphone-transfer-native.new" "$cache_root/bin/iphone-transfer-native"
+printf 'Rust iPhone transfer helpers installed in %s/bin\n' "$cache_root"

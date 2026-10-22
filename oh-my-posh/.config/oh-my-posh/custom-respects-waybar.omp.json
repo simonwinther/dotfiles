@@ -3,7 +3,7 @@
   "version": 3,
   "final_space": true,
   "palettes": {
-    "template": "{{ if glob (printf \"%s/omarchy/current/theme/light.mode\" (default (printf \"%s/.config\" .Env.HOME) .Env.XDG_CONFIG_HOME)) }}light{{ else }}dark{{ end }}",
+    "template": "{{ if glob (printf \"%s/desktop/theme/light.mode\" (default (printf \"%s/.local/state\" .Env.HOME) .Env.XDG_STATE_HOME)) }}light{{ else }}dark{{ end }}",
     "list": {
       "dark": {
         "text": "#cdd6f4",
@@ -34,7 +34,7 @@
           "type": "os",
           "style": "plain",
           "foreground": "p:teal",
-          "template": "\uf303 "
+          "template": " "
         },
         {
           "type": "path",

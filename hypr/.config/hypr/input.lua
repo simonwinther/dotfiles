@@ -39,7 +39,8 @@ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 -- Discover touchpads on this machine instead of hard-coding a device name.
 -- Reload Hyprland after connecting a new external touchpad.
 local touchpads = {}
-local devices = io.popen("udevadm info --export-db")
+-- Avoid scanning unrelated hardware, and keep discovery within the reload budget.
+local devices = io.popen("timeout --kill-after=0.1s 0.5s udevadm info --export-db --subsystem-match=input")
 if devices then
     local database = devices:read("*a")
     devices:close()

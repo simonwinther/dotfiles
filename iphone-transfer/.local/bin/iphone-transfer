@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+if command -v iphone-transfer-native >/dev/null 2>&1; then
+    exec iphone-transfer-native "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/iphone-transfer/bin/iphone-transfer-native"
+if [ ! -x "$binary" ]; then
+    printf '%s\n' 'iphone-transfer: Run iphone-transfer-build to compile the Rust file transfer helpers.' >&2
+    exit 1
+fi
+exec "$binary" "$@"

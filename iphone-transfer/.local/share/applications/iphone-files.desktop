@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Files from iPhone
+Comment=Open files received from your iPhone, organized by type
+Exec=iphone-transfer open
+Icon=folder-download
+Terminal=false
+Categories=Utility;
+Keywords=file;files;photo;photos;share;sharing;tailscale;taildrop;iphone;
+StartupNotify=true

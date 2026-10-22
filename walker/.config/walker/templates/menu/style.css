@@ -1,0 +1,34 @@
+@import "../desktop-rounded/style.css";
+
+* {
+  font-size: 17px;
+}
+
+.box-wrapper {
+  background: @base;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.search-container {
+  background: alpha(@text, 0.055);
+  padding: 12px;
+  margin-bottom: 6px;
+}
+
+.item-box {
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+.item-text-box {
+  padding: 12px 0;
+}
+
+child:hover .item-box {
+  background: alpha(@border, 0.08);
+}
+
+child:selected .item-box {
+  background: alpha(@border, 0.16);
+}

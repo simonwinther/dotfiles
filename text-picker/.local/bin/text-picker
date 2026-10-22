@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+if command -v text-picker-native >/dev/null 2>&1; then
+    exec text-picker-native "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/text-picker/bin/text-picker-native"
+if [ ! -x "$binary" ]; then
+    message='Run text-picker-build once to compile the Rust snippet and macro pickers.'
+    printf '%s\n' "text-picker: $message" >&2
+    notify-send -a 'Text picker' 'Text picker needs a build' "$message" 2>/dev/null || true
+    exit 1
+fi
+exec "$binary" "$@"

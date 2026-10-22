@@ -39,17 +39,17 @@
     }
   },
   "custom/voxtype": {
-    "exec": "omarchy-voxtype-status",
+    "exec": "desktopctl dictation-status",
     "return-type": "json",
     "format": "{icon}",
     "format-icons": {
       "idle": "",
-      "recording": "󰍬",
-      "transcribing": "󰔟"
+      "recording": "\udb80\udf6c",
+      "transcribing": "\udb81\udd1f"
     },
     "tooltip": true,
-    "on-click-right": "omarchy-voxtype-config",
-    "on-click": "omarchy-voxtype-model"
+    "on-click-right": "desktopctl launch editor ~/.config/dictate/config.env",
+    "on-click": "desktopctl launch tui dictate models"
   },
   "tray": {
     "icon-size": 16,
@@ -61,24 +61,24 @@
   },
   "clock": {
     "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
-    "format": "<span color='#60a5fa'>󰥔 </span><span color='#f4f4f5'>{:%H:%M | %a %d %b}</span>",
+    "format": "<span color='#60a5fa'>\udb82\udd54 </span><span color='#f4f4f5'>{:%H:%M | %a %d %b}</span>",
     "format-alt": "{:%Y-%m-%d}"
   },
   "cpu": {
-    "format": "<span color='#4ade80'>{icon}</span>  <span color='#eab308'>{usage}%</span> <span color='#4ade80'>󰍛</span>",
+    "format": "<span color='#4ade80' font_family='Noto Sans Mono'>{icon}</span>  <span color='#eab308'>{usage}%</span> <span color='#4ade80'>\udb80\udf5b</span>",
     "interval": 1,
     "format-icons": [
-      "▰▱▱▱▱",
-      "▰▰▱▱▱",
-      "▰▰▰▱▱",
-      "▰▰▰▰▱",
-      "▰▰▰▰▰"
+      "\u25b0\u25b1\u25b1\u25b1\u25b1",
+      "\u25b0\u25b0\u25b1\u25b1\u25b1",
+      "\u25b0\u25b0\u25b0\u25b1\u25b1",
+      "\u25b0\u25b0\u25b0\u25b0\u25b1",
+      "\u25b0\u25b0\u25b0\u25b0\u25b0"
     ],
     "on-click": "missioncenter"
   },
   "memory": {
     "interval": 3,
-    "format": "<span color='#f87171'> </span><span color='#f4f4f5'>{used:.1f}G / {total:.1f}G</span>"
+    "format": "<span color='#f87171'>\uefc5 </span><span color='#f4f4f5'>{used:.1f}G / {total:.1f}G</span>"
   },
   "custom/weather": {
     "exec": "~/.config/waybar/weather.sh",
@@ -88,18 +88,18 @@
   },
   "pulseaudio": {
     "format": "<span color='#f87171'>{icon}</span> <span color='#f4f4f5'>{volume}%</span>",
-    "format-muted": "<span color='#f87171'>󰝟</span> <span color='#f4f4f5'>{volume}%</span>",
+    "format-muted": "<span color='#f87171'>\udb81\udf5f</span> <span color='#f4f4f5'>{volume}%</span>",
     "format-icons": {
-      "headphone": "",
-      "hands-free": "",
-      "headset": "",
-      "phone": "",
-      "portable": "",
-      "car": "",
+      "headphone": "\uf025",
+      "hands-free": "\uf025",
+      "headset": "\uf025",
+      "phone": "\uf095",
+      "portable": "\uf095",
+      "car": "\uf1b9",
       "default": [
-        "",
-        "",
-        ""
+        "\uf026",
+        "\uf027",
+        "\uf028"
       ]
     },
     "on-click": "wpctl set-mute @DEFAULT_SINK@ toggle",
@@ -108,8 +108,8 @@
   },
   "pulseaudio#microphone": {
     "format": "{format_source}",
-    "format-source": "<span color='#f87171'></span>",
-    "format-source-muted": "<span color='#f87171'></span>",
+    "format-source": "<span color='#f87171'>\uf130</span>",
+    "format-source-muted": "<span color='#f87171'>\uf131</span>",
     "on-click": "wpctl set-mute @DEFAULT_SOURCE@ toggle",
     "on-scroll-up": "wpctl set-volume @DEFAULT_SOURCE@ 5%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_SOURCE@ 5%-"
@@ -122,20 +122,20 @@
       "critical": 15
     },
     "format": "{icon} {capacity}%",
-    "format-charging": " {capacity}%",
-    "format-plugged": " {capacity}%",
+    "format-charging": "\uf0e7 {capacity}%",
+    "format-plugged": "\uf240 {capacity}%",
     "format-icons": [
-      "󰁺",
-      "󰁼",
-      "󰁾",
-      "󰂀",
-      "󰁹"
+      "\udb80\udc7a",
+      "\udb80\udc7c",
+      "\udb80\udc7e",
+      "\udb80\udc80",
+      "\udb80\udc79"
     ]
   },
   "disk": {
     "interval": 30,
     "path": "/home",
-    "format": "<span color='#4ade80'> </span><span color='#f4f4f5'>{free}</span>"
+    "format": "<span color='#4ade80'>\uf0a0 </span><span color='#f4f4f5'>{free}</span>"
   },
   "group/hardware": {
     "orientation": "horizontal",
@@ -156,7 +156,7 @@
     ]
   },
   "custom/separator": {
-    "format": "│",
+    "format": "\u2502",
     "tooltip": false
   }
 }

@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+canonical_home=${CX_SWITCH_CODEX_HOME:-"${HOME}/.codex"}
+accounts_root=${CX_SWITCH_ACCOUNTS_ROOT:-"${HOME}/.codex-accounts"}
+canonical_auth="${canonical_home}/auth.json"
+active_file="${accounts_root}/.active-auth-account"
+lock_file="${accounts_root}/.auth-switch.lock"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cx-switch <account>          Switch ~/.codex/auth.json to <account>
+  cx-switch --adopt <account> Label the current ~/.codex/auth.json once
+  cx-switch --current          Print the active account
+  cx-switch --list             List saved accounts
+
+After switching, launch Codex normally:
+  codex
+
+Close running Codex CLI sessions before switching. An existing session may
+refresh auth.json after a switch and overwrite the newly selected credentials.
+EOF
+}
+
+die() {
+  printf 'cx-switch: %s\n' "$*" >&2
+  exit 1
+}
+
+valid_account() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
+}
+
+assert_owned_directory() {
+  local path=$1
+  [[ -d $path && ! -L $path && -O $path ]] \
+    || die "refusing unsafe directory: ${path}"
+}
+
+assert_auth_file() {
+  local path=$1
+  [[ -f $path && ! -L $path && -O $path && -s $path ]] \
+    || die "missing or unsafe credentials: ${path}"
+}
+
+atomic_secret_copy() {
+  local source=$1
+  local destination=$2
+  local destination_dir temporary
+
+  destination_dir=${destination%/*}
+  assert_auth_file "$source"
+  assert_owned_directory "$destination_dir"
+  [[ ! -L $destination ]] || die "refusing symlinked destination: ${destination}"
+
+  temporary=$(mktemp "${destination_dir}/.auth.json.tmp.XXXXXX")
+  trap 'rm -f -- "$temporary"' RETURN
+  command install -m 600 -- "$source" "$temporary"
+  command mv -fT -- "$temporary" "$destination"
+  trap - RETURN
+}
+
+atomic_marker_write() {
+  local account=$1
+  local temporary
+
+  temporary=$(mktemp "${accounts_root}/.active-auth-account.tmp.XXXXXX")
+  trap 'rm -f -- "$temporary"' RETURN
+  printf '%s\n' "$account" >"$temporary"
+  chmod 600 -- "$temporary"
+  command mv -fT -- "$temporary" "$active_file"
+  trap - RETURN
+}
+
+read_active_account() {
+  local account
+
+  [[ -f $active_file && ! -L $active_file && -O $active_file ]] || return 1
+  IFS= read -r account <"$active_file" || return 1
+  valid_account "$account" || die "invalid account marker: ${active_file}"
+  printf '%s\n' "$account"
+}
+
+prepare_roots() {
+  local previous_umask
+
+  previous_umask=$(umask)
+  umask 077
+  [[ ! -L $accounts_root ]] || die "refusing symlinked accounts directory: ${accounts_root}"
+  command mkdir -p -- "$accounts_root"
+  umask "$previous_umask"
+
+  assert_owned_directory "$canonical_home"
+  assert_owned_directory "$accounts_root"
+  chmod 700 -- "$accounts_root"
+}
+
+prepare_account_directory() {
+  local account=$1
+  local account_dir="${accounts_root}/${account}"
+  local previous_umask
+
+  [[ ! -L $account_dir ]] || die "refusing symlinked account directory: ${account_dir}"
+  previous_umask=$(umask)
+  umask 077
+  command mkdir -p -- "$account_dir"
+  umask "$previous_umask"
+  assert_owned_directory "$account_dir"
+  chmod 700 -- "$account_dir"
+}
+
+list_accounts() {
+  local active=''
+  local account_dir account state
+
+  active=$(read_active_account 2>/dev/null || true)
+  printf '%-18s %-8s %s\n' ACCOUNT ACTIVE AUTH
+  shopt -s nullglob
+  for account_dir in "$accounts_root"/*/; do
+    account=${account_dir%/}
+    account=${account##*/}
+    state='missing'
+    if [[ -f ${account_dir}auth.json && ! -L ${account_dir}auth.json && -s ${account_dir}auth.json ]]; then
+      state='saved'
+    fi
+    if [[ $account == "$active" ]]; then
+      printf '%-18s %-8s %s\n' "$account" yes "$state"
+    else
+      printf '%-18s %-8s %s\n' "$account" '' "$state"
+    fi
+  done
+}
+
+adopt_current() {
+  local account=$1
+  local account_dir saved_auth active=''
+
+  valid_account "$account" || die "invalid account name: ${account}"
+  assert_auth_file "$canonical_auth"
+  active=$(read_active_account 2>/dev/null || true)
+  if [[ -n $active && $active != "$account" ]]; then
+    die "the active cache is already labeled '${active}'; switch normally instead"
+  fi
+
+  prepare_account_directory "$account"
+  account_dir="${accounts_root}/${account}"
+  saved_auth="${account_dir}/auth.json"
+  if [[ -e $saved_auth || -L $saved_auth ]]; then
+    assert_auth_file "$saved_auth"
+    cmp -s -- "$canonical_auth" "$saved_auth" \
+      || die "${account} already has different saved credentials; refusing to overwrite them"
+  else
+    atomic_secret_copy "$canonical_auth" "$saved_auth"
+  fi
+  atomic_marker_write "$account"
+  printf "Active Codex credentials labeled '%s'.\n" "$account"
+}
+
+switch_account() {
+  local target=$1
+  local target_dir target_auth current=''
+  local current_dir current_auth
+
+  valid_account "$target" || die "invalid account name: ${target}"
+  target_dir="${accounts_root}/${target}"
+  target_auth="${target_dir}/auth.json"
+  assert_owned_directory "$target_dir"
+  assert_auth_file "$target_auth"
+
+  current=$(read_active_account 2>/dev/null || true)
+  if [[ -n $current && $current == "$target" ]]; then
+    printf "Codex account '%s' is already active.\n" "$target"
+    return 0
+  fi
+
+  if [[ -e $canonical_auth || -L $canonical_auth ]]; then
+    assert_auth_file "$canonical_auth"
+    [[ -n $current ]] \
+      || die "the current auth.json is unlabeled; run 'cx-switch --adopt <account>' first"
+    current_dir="${accounts_root}/${current}"
+    current_auth="${current_dir}/auth.json"
+    assert_owned_directory "$current_dir"
+    atomic_secret_copy "$canonical_auth" "$current_auth"
+  fi
+
+  atomic_secret_copy "$target_auth" "$canonical_auth"
+  atomic_marker_write "$target"
+  printf "Switched Codex credentials to '%s'. Run: codex\n" "$target"
+}
+
+main() {
+  local operation=${1:-}
+  local active
+
+  case $operation in
+    -h|--help|'')
+      usage
+      [[ -n $operation ]]
+      return
+      ;;
+  esac
+
+  prepare_roots
+  exec 9>"$lock_file"
+  flock -x 9
+
+  case $operation in
+    --adopt)
+      [[ $# == 2 ]] || die 'usage: cx-switch --adopt <account>'
+      adopt_current "$2"
+      ;;
+    --current)
+      [[ $# == 1 ]] || die 'usage: cx-switch --current'
+      active=$(read_active_account 2>/dev/null || true)
+      [[ -n $active ]] || die "the current auth.json has not been labeled"
+      printf '%s\n' "$active"
+      ;;
+    --list|-l)
+      [[ $# == 1 ]] || die 'usage: cx-switch --list'
+      list_accounts
+      ;;
+    --*)
+      die "unknown option: ${operation}"
+      ;;
+    *)
+      [[ $# == 1 ]] || die 'usage: cx-switch <account>'
+      switch_account "$operation"
+      ;;
+  esac
+}
+
+main "$@"

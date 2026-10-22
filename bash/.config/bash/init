@@ -1,0 +1,30 @@
+if command -v mise &> /dev/null; then
+  eval "$(mise activate bash)"
+fi
+
+if [[ $- == *i* ]] && [[ ${TERM:-} != "dumb" ]] && command -v starship &> /dev/null; then
+  eval "$(starship init bash)"
+fi
+
+if command -v zoxide &> /dev/null; then
+  eval "$(zoxide init bash)"
+fi
+
+if command -v try &> /dev/null; then
+  try() {
+    unset -f try
+    eval "$(SHELL="$(command -v bash)" command try init ~/Work/tries)"
+    try "$@"
+  }
+fi
+
+if command -v fzf &> /dev/null; then
+  if [[ -f ${FZF_SHELL_DIR:-/usr/share/fzf}/completion.bash ]]; then
+    source ${FZF_SHELL_DIR:-/usr/share/fzf}/completion.bash
+  fi
+  if [[ -f ${FZF_SHELL_DIR:-/usr/share/fzf}/key-bindings.bash ]]; then
+    source ${FZF_SHELL_DIR:-/usr/share/fzf}/key-bindings.bash
+  fi
+fi
+
+complete -W "theme wallpaper launcher menu launch terminal capture reminder toggle lock session prepare path display transcode" desktopctl

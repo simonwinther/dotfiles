@@ -33,12 +33,12 @@ hl.unbind("ALT + SHIFT + TAB")
 
 hl.bind(
 	"SUPER + ALT + RETURN",
-	hl.dsp.exec_cmd('uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)" tmux new'),
+	hl.dsp.exec_cmd('uwsm-app -- xdg-terminal-exec --dir="$(desktopctl cwd)" tmux new'),
 	{ description = "Tmux" }
 )
 hl.bind(
 	"SUPER + RETURN",
-	hl.dsp.exec_cmd('uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)"'),
+	hl.dsp.exec_cmd('uwsm-app -- xdg-terminal-exec --dir="$(desktopctl cwd)"'),
 	{ description = "Terminal" }
 )
 
@@ -46,11 +46,11 @@ hl.bind(
 -- BROWSERS
 -- =============================================================================
 
-hl.bind("SUPER + SHIFT + RETURN", hl.dsp.exec_cmd("omarchy-launch-browser"), { description = "Browser" })
+hl.bind("SUPER + SHIFT + RETURN", hl.dsp.exec_cmd("desktopctl launch browser"), { description = "Browser" })
 hl.bind("SUPER + B", hl.dsp.exec_cmd("firefox --force-device-scale-factor=0.8"), { description = "Open Browser" })
 hl.bind(
 	"SUPER + SHIFT + ALT + B",
-	hl.dsp.exec_cmd("omarchy-launch-browser --private"),
+	hl.dsp.exec_cmd("desktopctl launch browser --private"),
 	{ description = "Browser (private)" }
 )
 
@@ -66,7 +66,7 @@ hl.unbind("SUPER + R")
 -- This one is amazing.
 hl.bind(
 	"SUPER + ALT + SHIFT + F",
-	hl.dsp.exec_cmd('uwsm-app -- nautilus --new-window "$(omarchy-cmd-terminal-cwd)"'),
+	hl.dsp.exec_cmd('uwsm-app -- nautilus --new-window "$(desktopctl cwd)"'),
 	{ description = "File manager (cwd)" }
 )
 
@@ -76,12 +76,12 @@ hl.bind(
 
 hl.bind(
 	"SUPER + SHIFT + M",
-	hl.dsp.exec_cmd("~/.config/hypr/scripts/launch-or-focus spotify"),
+	hl.dsp.exec_cmd("desktopctl launch focus spotify"),
 	{ description = "Music" }
 )
 hl.bind(
 	"SUPER + SHIFT + ALT + M",
-	hl.dsp.exec_cmd('~/.config/hypr/scripts/launch-or-focus org.omarchy.cliamp "omarchy-launch-tui cliamp"'),
+	hl.dsp.exec_cmd('desktopctl launch focus org.desktop.cliamp "desktopctl launch tui cliamp"'),
 	{ description = "Music TUI" }
 )
 
@@ -89,8 +89,8 @@ hl.bind(
 -- DEVELOPMENT AND PRODUCTIVITY APPLICATIONS
 -- =============================================================================
 
-hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("omarchy-launch-editor"), { description = "Editor" })
-hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("omarchy-launch-tui lazydocker"), { description = "Docker" })
+hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("desktopctl launch editor"), { description = "Editor" })
+hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("desktopctl launch tui lazydocker"), { description = "Docker" })
 
 -- =============================================================================
 -- NOTES, WRITING, AND PASSWORDS
@@ -98,7 +98,7 @@ hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("omarchy-launch-tui lazydocker"), {
 
 hl.bind(
 	"SUPER + SHIFT + O",
-	hl.dsp.exec_cmd('~/.config/hypr/scripts/launch-or-focus ^obsidian$ "uwsm-app -- obsidian"'),
+	hl.dsp.exec_cmd('desktopctl launch focus ^obsidian$ "uwsm-app -- obsidian"'),
 	{ description = "Obsidian" }
 )
 hl.bind("SUPER + SHIFT + SLASH", hl.dsp.exec_cmd("uwsm-app -- 1password"), { description = "Passwords" })
@@ -109,7 +109,7 @@ hl.bind("SUPER + SHIFT + SLASH", hl.dsp.exec_cmd("uwsm-app -- 1password"), { des
 
 hl.bind(
 	"SUPER + SHIFT + Y",
-	hl.dsp.exec_cmd('omarchy-launch-webapp "https://youtube.com/"'),
+	hl.dsp.exec_cmd('desktopctl launch webapp "https://youtube.com/"'),
 	{ description = "YouTube" }
 )
 
@@ -163,16 +163,11 @@ hl.bind(
 -- TERMINAL USER INTERFACE APPLICATIONS
 -- =============================================================================
 
-hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("omarchy-launch-tui lazygit"), { description = "Lazygit" })
+hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("desktopctl launch tui lazygit"), { description = "Lazygit" })
 hl.bind(
 	"SUPER + SHIFT + B",
-	hl.dsp.exec_cmd('~/.config/hypr/scripts/launch-or-focus org.omarchy.btop "omarchy-launch-tui btop"'),
+	hl.dsp.exec_cmd('desktopctl launch focus org.desktop.btop "desktopctl launch tui btop"'),
 	{ description = "Activity (btop)" }
-)
-hl.bind(
-	"SUPER + SHIFT + E",
-	hl.dsp.exec_cmd('~/.config/hypr/scripts/launch-or-focus org.omarchy.aerc "omarchy-launch-tui aerc"'),
-	{ description = "Email (aerc)" }
 )
 
 -- =============================================================================
@@ -181,24 +176,24 @@ hl.bind(
 
 hl.bind(
 	"SUPER + SHIFT + A",
-	hl.dsp.exec_cmd('omarchy-launch-webapp "https://chatgpt.com"'),
+	hl.dsp.exec_cmd('desktopctl launch webapp "https://chatgpt.com"'),
 	{ description = "ChatGPT" }
 )
 hl.bind(
 	"SUPER + SHIFT + ALT + A",
-	hl.dsp.exec_cmd('omarchy-launch-webapp "https://gemini.google.com/"'),
+	hl.dsp.exec_cmd('desktopctl launch webapp "https://gemini.google.com/"'),
 	{ description = "Gemini" }
 )
 hl.bind(
 	"SUPER + SHIFT + Z",
 	hl.dsp.exec_cmd(
-		'omarchy-launch-webapp "https://chatgpt.com/g/g-p-69e293a3b1e08191adb490744c113679-machine-learning-b/project"'
+		'desktopctl launch webapp "https://chatgpt.com/g/g-p-69e293a3b1e08191adb490744c113679-machine-learning-b/project"'
 	),
 	{ description = "Machine Learning B" }
 )
 hl.bind(
 	"SUPER + SHIFT + X",
-	hl.dsp.exec_cmd('omarchy-launch-webapp "https://chatgpt.com/g/g-p-698420698d708191aa845c44f3f7008a-orel/project"'),
+	hl.dsp.exec_cmd('desktopctl launch webapp "https://chatgpt.com/g/g-p-698420698d708191aa845c44f3f7008a-orel/project"'),
 	{ description = "Online Reinforcement Learning GPT" }
 )
 
@@ -228,15 +223,15 @@ hl.bind("SUPER + ALT + D", hl.dsp.exec_cmd("flatpak run com.discordapp.Discord")
 -- DICTATION
 -- =============================================================================
 
--- Override Omarchy's default voxtype toggle.
+-- Override Desktop's default voxtype toggle.
 hl.unbind("SUPER + CTRL + X")
 
 hl.unbind("SUPER + D")
-hl.bind("SUPER + D", hl.dsp.exec_cmd("~/.local/bin/dictate live toggle"), { description = "Dictation (live toggle)" })
+hl.bind("SUPER + D", hl.dsp.exec_cmd("dictate live toggle"), { description = "Dictation (live toggle)" })
 
 hl.bind(
 	"SUPER + CTRL + SHIFT + X",
-	hl.dsp.exec_cmd("~/.local/bin/dictate cancel"),
+	hl.dsp.exec_cmd("dictate cancel"),
 	{ description = "Dictation cancel" }
 )
 

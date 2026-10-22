@@ -2,6 +2,11 @@
 
 Open with **Ctrl + Super + Space** or **Omarchy → Style → Background**.
 
+The picker is a native Rust/GTK4 application. Rebuild it after syncing source
+changes with `background-grid-build`; `background-grid-build --check` also runs
+the automated checks. Rust source lives in `.local/share/background-grid/`
+inside this Stow package, and compiled files stay outside dotfiles.
+
 - Pictures directly in the main library folder appear at the top.
 - Subfolders become named categories beneath them, collapsed by default on each launch.
 - Nested folders become nested categories. Empty folders are shown with a count of zero.
@@ -28,6 +33,11 @@ Only visible previews are loaded. Closed categories do not decode their images
 until opened. The cache lives in `~/.cache/background-grid`, outside dotfiles;
 cache keys include source path, modification time, and size. Only previews are
 cropped to 16:9. Originals are never resized or rewritten.
+
+Existing thumbnails from the Python picker are reused. Image decoding runs on
+two background workers; GTK widgets remain on the main thread. Relative library
+paths are resolved from the Stow source of `folders.json`, including when Stow
+links each configuration file separately.
 
 The shared setter uses awww for the original two-second expanding-circle
 transition at 60 fps (a random origin on each selection) and maintains

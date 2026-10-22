@@ -1,0 +1,78 @@
+@import "../desktop-rounded/style.css";
+
+* {
+  font-size: 16px;
+}
+
+.box-wrapper {
+  background: @base;
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.search-container {
+  background: alpha(@text, 0.055);
+  padding: 12px;
+  margin-bottom: 4px;
+}
+
+.clipboard-card {
+  padding: 0 12px;
+  margin: 3px 0;
+  border-radius: 9px;
+  border: 1px solid transparent;
+}
+
+.clipboard-card .item-text-box {
+  padding: 10px 0;
+}
+
+.clipboard-card .item-subtext {
+  font-size: 12px;
+  min-height: 16px;
+  margin-top: 5px;
+  opacity: 0.65;
+}
+
+child:hover .clipboard-card {
+  background: alpha(@border, 0.07);
+}
+
+child:selected .clipboard-card {
+  background: alpha(@border, 0.14);
+  border-color: alpha(@border, 0.45);
+}
+
+child:selected .clipboard-card .item-subtext {
+  color: @text;
+}
+
+.preview {
+  background: alpha(@text, 0.035);
+  border: 1px solid alpha(@border, 0.25);
+  border-radius: 10px;
+  padding: 14px;
+  margin-left: 8px;
+}
+
+.preview label {
+  font-size: 15px;
+}
+
+.clipboard-help {
+  font-size: 12px;
+  opacity: 0.7;
+  padding-top: 10px;
+}
+
+scrollbar {
+  opacity: 0.45;
+  min-width: 3px;
+}
+
+scrollbar slider {
+  background: alpha(@border, 0.4);
+  border-radius: 3px;
+  min-width: 3px;
+  min-height: 18px;
+}

@@ -1,0 +1,5 @@
+include "%H/.config/desktop/compose"
+
+# Identification
+<Multi_key> <space> <n> : "Simon Winther"
+<Multi_key> <space> <e> : "simonwa01@gmail.com"

@@ -1,61 +1,11 @@
-#!/usr/bin/env python3
-import sys
-import matplotlib.pyplot as plt
-import numpy as np
-import re
-import argparse
-
-# Join arguments
-parser = argparse.ArgumentParser()
-parser.add_argument("formula", nargs="+")
-parser.add_argument("-r", "--range", type=float, nargs=2, default=[-10, 10])
-args = parser.parse_args()
-
-raw_input = " ".join(args.formula)
-formulas = raw_input.split(',')
-
-# Define X variable
-xmin, xmax = args.range
-x_vals = np.linspace(xmin, xmax, 2000)
-
-plt.figure(figsize=(10, 6))
-plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-plt.axhline(0, color='black', linewidth=0.8)
-plt.axvline(0, color='black', linewidth=0.8)
-
-# 2. Create the context (what words the calculator understands)
-# We add 'x' specifically so it knows x is our array of numbers
-context = {k: v for k, v in np.__dict__.items() if not k.startswith("__")}
-context['x'] = x_vals 
-context['e'] = np.e 
-context['pi'] = np.pi
-
-functions_plotted = 0
-
-for f in formulas:
-    f = f.strip()
-    if not f: continue
-    
-    expression = re.sub(r'^y\s*=\s*', '', f)
-    expression = re.sub(r'(\d)(x)', r'\1*\2', expression) 
-    expression = expression.replace('^', '**')
-
-    try:
-        with np.errstate(all='ignore'):
-            y = eval(expression, {"__builtins__": __builtins__}, context)
-        
-        if isinstance(y, (int, float)):
-            y = np.full_like(x_vals, y)
-
-        y = np.ma.masked_invalid(y)
-        
-        plt.plot(x_vals, y, label=f"y = {f}")
-        functions_plotted += 1
-    except Exception as e:
-        print(f"Error parsing '{f}': {e}")
-        continue
-
-if functions_plotted > 0:
-    plt.legend()
-    plt.ylim(-20, 20) 
-    plt.show()
+#!/bin/sh
+set -eu
+if command -v plot-native >/dev/null 2>&1; then
+    exec plot-native "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/plot/bin/plot-native"
+if [ ! -x "$binary" ]; then
+    printf '%s\n' 'plot: Run plot-build to compile the Rust formula plotter.' >&2
+    exit 1
+fi
+exec "$binary" "$@"

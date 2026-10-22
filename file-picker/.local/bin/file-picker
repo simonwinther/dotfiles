@@ -1,7 +1,17 @@
 #!/bin/sh
 set -eu
+if native_binary=$(command -v file-picker-native); then
+    export FILE_PICKER_EXECUTABLE="$native_binary"
+    exec "$native_binary" "$@"
+fi
+if command -v desktopctl >/dev/null 2>&1; then
+  if native_binary=$(desktopctl path file-picker-native 2>/dev/null); then
+    export FILE_PICKER_EXECUTABLE="$native_binary"
+    exec "$native_binary" "$@"
+  fi
+fi
 
-binary="${XDG_CACHE_HOME:-$HOME/.cache}/file-picker/bin/file-picker-native"
+binary="${DESKTOP_FILE_PICKER_NATIVE_BIN:-${XDG_CACHE_HOME:-$HOME/.cache}/file-picker/bin/file-picker-native}"
 if [ ! -x "$binary" ]; then
     message='Run file-picker-build once to compile the Rust picker.'
     printf '%s\n' "file-picker: $message" >&2

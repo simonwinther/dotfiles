@@ -8,3 +8,24 @@
 .claude
 
 __pycache__/
+
+# Private runtime state and build output
+.work/
+result
+result-*
+.direnv/
+__pycache__/
+*.pyc
+secrets/*.env
+secrets/keys/
+secrets/*.agekey
+private/
+**/secrets.env
+**/secrets.zsh
+**/.env
+**/*.agekey
+**/ku-password
+**/target/
+**/.venv/
+**/venv/
+**/.pytest_cache/

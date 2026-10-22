@@ -5,12 +5,13 @@ source_root="${XDG_DATA_HOME:-$HOME/.local/share}/file-picker"
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/file-picker"
 mkdir -p "$cache_root/build" "$cache_root/bin"
 
-# Keep Cargo's lockfile, compiled artifacts and executables outside the Stow repo.
+# Keep Build output, compiled artifacts and executables outside the Stow repo.
 cp "$source_root/Cargo.toml" "$cache_root/build/Cargo.toml"
+cp "$source_root/Cargo.lock" "$cache_root/build/Cargo.lock"
 cp -R "$source_root/src" "$cache_root/build/"
 export CARGO_TARGET_DIR="$cache_root/target"
-cargo build --release --manifest-path "$cache_root/build/Cargo.toml" --bin file-picker-native
-cargo build --release --manifest-path "$cache_root/build/Cargo.toml" --features drag --bin file-picker-drag
+nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --bin file-picker-native
+nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --features drag --bin file-picker-drag
 install -m 755 "$CARGO_TARGET_DIR/release/file-picker-native" "$cache_root/bin/file-picker-native.new"
 install -m 755 "$CARGO_TARGET_DIR/release/file-picker-drag" "$cache_root/bin/file-picker-drag.new"
 mv -f "$cache_root/bin/file-picker-drag.new" "$cache_root/bin/file-picker-drag"

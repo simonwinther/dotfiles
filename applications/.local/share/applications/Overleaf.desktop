@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Overleaf
+Comment=Overleaf
+Exec=desktopctl launch webapp https://www.overleaf.com/project
+Terminal=false
+Type=Application
+Icon=Overleaf
+StartupNotify=true

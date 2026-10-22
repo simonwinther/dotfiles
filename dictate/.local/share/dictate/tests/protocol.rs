@@ -190,3 +190,179 @@ async fn api_failure_interrupts_a_running_capture() {
     );
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn long_live_preview_stays_bounded_and_final_retains_all_text() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut c = config(format!("ws://{}", listener.local_addr().unwrap()));
+    c.set("LIVE_FINAL_TIMEOUT_S", "1");
+    let text = format!(
+        "{}PyTorch comma ∇β new line finished",
+        "é🙂 model ".repeat(1800)
+    );
+    let final_text = text.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        ws.send(Message::Text(json!({"type":"session.updated"}).to_string()))
+            .await
+            .unwrap();
+        while let Some(Ok(message)) = ws.next().await {
+            let event: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if event["type"] == "input_audio_buffer.append" {
+                ws.send(Message::Text(json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"ours","delta":text}).to_string())).await.unwrap();
+            } else if event["type"] == "input_audio_buffer.commit" {
+                for event in [
+                    json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"ours","transcript":text}),
+                    // A late draft must not replace an already authoritative final.
+                    json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"ours","delta":" Stale draft"}),
+                    json!({"type":"input_audio_buffer.committed","item_id":"ours"}),
+                ] {
+                    ws.send(Message::Text(event.to_string())).await.unwrap();
+                }
+                break;
+            }
+        }
+    });
+    let (tx, rx) = mpsc::channel(4);
+    let (view, mut previews) = watch::channel(View::default());
+    let p = Processor::load(&c).unwrap();
+    let driver = async {
+        tx.send(Chunk::Audio(vec![0; 4800])).await.unwrap();
+        let preview = timeout(
+            Duration::from_secs(1),
+            previews.wait_for(|view| !view.transcript.is_empty()),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .transcript
+        .clone();
+        assert!(preview.chars().count() <= 8000);
+        assert!(preview.ends_with("PyTorch, ∇β\nfinished"));
+        tx.send(Chunk::End(true)).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(network::live(&c, &p, "", rx, &view), driver);
+    assert_eq!(result.unwrap(), final_text);
+    assert!(view.borrow().transcript.chars().count() <= 8000);
+    assert!(view.borrow().transcript.ends_with("PyTorch, ∇β\nfinished"));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn excessive_partial_items_fail_during_capture() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let c = config(format!("ws://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        ws.send(Message::Text(json!({"type":"session.updated"}).to_string()))
+            .await
+            .unwrap();
+        for index in 0..33 {
+            ws.send(Message::Text(json!({"type":"conversation.item.input_audio_transcription.delta","item_id":format!("item-{index}"),"delta":"Draft"}).to_string())).await.unwrap();
+        }
+    });
+    let (_tx, rx) = mpsc::channel(4);
+    let (view, _) = watch::channel(View::default());
+    let p = Processor::load(&c).unwrap();
+    let error = timeout(Duration::from_secs(1), network::live(&c, &p, "", rx, &view))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Too many unsolicited transcript items")
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn unsolicited_commit_cannot_finish_a_running_capture() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let c = config(format!("ws://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        for event in [
+            json!({"type":"session.updated"}),
+            json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"other","transcript":"Unrequested text"}),
+            json!({"type":"input_audio_buffer.committed","item_id":"other"}),
+        ] {
+            ws.send(Message::Text(event.to_string())).await.unwrap();
+        }
+    });
+    let (_tx, rx) = mpsc::channel(4);
+    let (view, _) = watch::channel(View::default());
+    let p = Processor::load(&c).unwrap();
+    let error = timeout(Duration::from_secs(1), network::live(&c, &p, "", rx, &view))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("before recording stopped"));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn conflicting_commit_acknowledgements_cannot_switch_the_final_item() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut c = config(format!("ws://{}", listener.local_addr().unwrap()));
+    c.set("LIVE_FINAL_TIMEOUT_S", "1");
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        ws.send(Message::Text(json!({"type":"session.updated"}).to_string()))
+            .await
+            .unwrap();
+        while let Some(Ok(message)) = ws.next().await {
+            let event: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if event["type"] == "input_audio_buffer.commit" {
+                for event in [
+                    json!({"type":"input_audio_buffer.committed","item_id":"ours"}),
+                    json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"other","transcript":"Unrequested text"}),
+                    json!({"type":"input_audio_buffer.committed","item_id":"other"}),
+                ] {
+                    ws.send(Message::Text(event.to_string())).await.unwrap();
+                }
+                break;
+            }
+        }
+    });
+    let (tx, rx) = mpsc::channel(4);
+    tx.send(Chunk::Audio(vec![0; 4800])).await.unwrap();
+    tx.send(Chunk::End(true)).await.unwrap();
+    let (view, _) = watch::channel(View::default());
+    let p = Processor::load(&c).unwrap();
+    let error = timeout(Duration::from_secs(1), network::live(&c, &p, "", rx, &view))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("Conflicting transcript commit"));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn closed_setup_fails_without_waiting_for_setup_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let c = config(format!("ws://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        ws.close(None).await.unwrap();
+    });
+    let (_tx, rx) = mpsc::channel(4);
+    let (view, _) = watch::channel(View::default());
+    let p = Processor::load(&c).unwrap();
+    let error = timeout(Duration::from_secs(1), network::live(&c, &p, "", rx, &view))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("closed during setup"));
+    server.await.unwrap();
+}

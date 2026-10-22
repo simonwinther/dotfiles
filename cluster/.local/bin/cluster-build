@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+case "${1:-}" in
+  ''|--check) ;;
+  *) printf 'Usage: cluster-build [--check]\n' >&2; exit 2 ;;
+esac
+(( $# <= 1 )) || { printf 'Usage: cluster-build [--check]\n' >&2; exit 2; }
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+source_root="$(dirname "$(dirname "$script")")/share/cluster"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/cluster"
+mkdir -p "$cache_root/build" "$cache_root/bin"
+exec 9>"$cache_root/build.lock"
+flock -x 9
+cp "$source_root/Cargo.toml" "$cache_root/build/Cargo.toml"
+cp "$source_root/Cargo.lock" "$cache_root/build/Cargo.lock"
+mkdir -p "$cache_root/build/src"
+cp -R "$source_root/src/." "$cache_root/build/src/"
+export CARGO_TARGET_DIR="$cache_root/target"
+host_target="$(rustc -vV | sed -n 's/^host: //p')"
+target="${CLUSTER_BUILD_TARGET:-$host_target}"
+if [[ "${1:-}" == --check && "$target" != "$host_target" ]]; then
+  printf 'cluster-build: Run --check on the target architecture.\n' >&2
+  exit 2
+fi
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=+crt-static"
+if [[ "${1:-}" == --check ]]; then
+  cargo fmt --manifest-path "$cache_root/build/Cargo.toml" -- --check
+  nice -n 10 cargo clippy --locked --manifest-path "$cache_root/build/Cargo.toml" --target "$target" --all-targets -- -D warnings
+  nice -n 10 cargo test --locked --manifest-path "$cache_root/build/Cargo.toml" --target "$target" --all-targets
+fi
+nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --target "$target" --bin cluster-native
+binary="$CARGO_TARGET_DIR/$target/release/cluster-native"
+program_headers="$(LC_ALL=C readelf -l "$binary")"
+dynamic_entries="$(LC_ALL=C readelf -d "$binary")"
+if grep -q 'INTERP' <<< "$program_headers" || grep -q '(NEEDED)' <<< "$dynamic_entries"; then
+  printf 'cluster-build: Build has a dynamic loader; a static Linux build is required.\n' >&2
+  exit 1
+fi
+if [[ "${1:-}" == --check ]]; then
+  PYTHONDONTWRITEBYTECODE=1 CLUSTER_TEST_BINARY="$binary" CLUSTER_SOURCE_ROOT="$repo_root" \
+    python3 -m unittest discover -s "$repo_root/cluster/tests" -v
+fi
+destination="$cache_root/bin/cluster-native"
+if [[ "$target" != "$host_target" ]]; then destination="$destination-$target"; fi
+install -m 755 "$binary" "$destination.new"
+mv -f "$destination.new" "$destination"
+printf 'Rust cluster tools installed in %s/bin\n' "$cache_root"

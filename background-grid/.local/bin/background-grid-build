@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+case "${1:-}" in
+  ''|--check) ;;
+  *) printf 'Usage: background-grid-build [--check]\n' >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then
+  printf 'Usage: background-grid-build [--check]\n' >&2
+  exit 2
+fi
+
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+source_root="$(dirname "$(dirname "$script")")/share/background-grid"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/background-grid"
+mkdir -p "$cache_root/build" "$cache_root/bin"
+exec 9>"$cache_root/build.lock"
+flock -x 9
+
+# Build output, compiled artifacts, and executables stay outside dotfiles.
+cp "$source_root/Cargo.toml" "$cache_root/build/Cargo.toml"
+cp "$source_root/Cargo.lock" "$cache_root/build/Cargo.lock"
+cp -R "$source_root/src" "$cache_root/build/"
+cp -R "$source_root/tests" "$cache_root/build/"
+export CARGO_TARGET_DIR="$cache_root/target"
+if [[ "${1:-}" == --check ]]; then
+  cargo fmt --manifest-path "$cache_root/build/Cargo.toml" -- --check
+  nice -n 10 cargo clippy --locked --manifest-path "$cache_root/build/Cargo.toml" --all-targets -- -D warnings
+  nice -n 10 cargo test --locked --manifest-path "$cache_root/build/Cargo.toml" --all-targets
+fi
+nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --bin background-grid-native
+install -m 755 "$CARGO_TARGET_DIR/release/background-grid-native" "$cache_root/bin/background-grid-native.new"
+mv -f "$cache_root/bin/background-grid-native.new" "$cache_root/bin/background-grid-native"
+printf 'Rust wallpaper picker installed in %s/bin\n' "$cache_root"

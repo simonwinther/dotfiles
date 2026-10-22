@@ -1,13 +1,9 @@
-#!/bin/bash
-
-# --- Network guard
-if ! ping -c 1 -W 1 8.8.8.8 &>/dev/null; then
-  echo "{ \"text\": \"󰤮  No net\", \"tooltip\": \"Waiting for network\", \"class\": \"weather\", \"color\": \"${COLOR_ERR}\" }"
-  exit 0
-fi
+#!/usr/bin/env bash
 
 # SETTINGS
-APIKEY=$(cat "$HOME/.owm-key")
+key_file="${DESKTOP_WEATHER_KEY_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/desktop/secrets/weather-key}"
+if [[ ! -r "$key_file" ]]; then printf '%s\n' '{"text":"󰖐 —","tooltip":"Weather key is not configured","class":"weather"}'; exit 0; fi
+APIKEY=$(<"$key_file")
 CITY_NAME="Copenhagen"
 COUNTRY_CODE="DK"
 LANG="en"
@@ -32,7 +28,7 @@ COLOR_WHITE="#cdd6f4"
 COLOR_MUTED="#585b70"
 
 # Preserve the original dark palette and use Latte colors in light mode.
-if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/current/theme/light.mode" ]]; then
+if [[ -f "${XDG_STATE_HOME:-$HOME/.local/state}/desktop/theme/light.mode" ]]; then
   COLOR_CLOUD="#6c6f85"
   COLOR_THUNDER="#df8e1d"
   COLOR_LIGHT_RAIN="#1e66f5"
@@ -65,7 +61,7 @@ ENCODED_CITY=$(printf '%s' "$CITY_NAME" | jq -sRr @uri)
 
 # API Call
 URL="https://api.openweathermap.org/data/2.5/weather?appid=$APIKEY&units=$UNITS&lang=$LANG&q=${ENCODED_CITY},${COUNTRY_CODE}"
-RESPONSE=$(curl -s "$URL")
+RESPONSE=$(curl --silent --max-time 8 "$URL")
 
 if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r .cod)" != "200" ]; then
   echo "{ \"text\": \" \", \"tooltip\": \"Weather data unavailable\", \"class\": \"weather\", \"color\": \"${COLOR_ERR}\" }"

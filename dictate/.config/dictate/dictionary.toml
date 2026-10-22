@@ -1,10 +1,22 @@
-# Add the terms you actually use. These are sent as transcription hints.
+# Terms are transcription hints, not mandatory word replacements.
+# Keep this focused on the vocabulary you actually use.
 # Save this file; changes apply to the next recording.
 terms = [
   "PyTorch", "NumPy", "pandas", "scikit-learn", "XGBoost",
   "Hugging Face", "CUDA", "LoRA", "embeddings", "gradient descent",
   "TensorFlow", "TensorBoard", "SciPy", "matplotlib", "Jupyter",
   "backpropagation", "overfitting", "underfitting", "large language model",
+  "Python", "JupyterLab", "JAX", "Polars", "PyArrow", "Seaborn", "Plotly",
+  "LightGBM", "CatBoost", "MLflow", "Optuna", "Weights & Biases",
+  "machine learning", "neural network", "linear classifier", "linear regression",
+  "logistic regression", "random forest", "support vector machine", "k-means",
+  "principal component analysis", "cross-validation", "train-test split",
+  "hyperparameter", "learning rate", "batch size", "loss function",
+  "cross-entropy", "mean squared error", "regularization", "weight decay",
+  "stochastic gradient descent", "optimizer", "SHAP", "attention", "transformer",
+  "fine-tuning", "weights and biases", "precision-recall curve", "ROC AUC",
+  "F1 score", "confusion matrix", "confidence interval", "Bayesian inference",
+  "maximum likelihood", "p-value",
 ]
 
 # Exact word/phrase corrections applied locally after transcription.
@@ -31,6 +43,12 @@ terms = [
 "jupiter notebook" = "Jupyter notebook"
 "jupiter notebooks" = "Jupyter notebooks"
 "jupiter lab" = "JupyterLab"
+"jupyter lab" = "JupyterLab"
+"ml flow" = "MLflow"
+"light g b m" = "LightGBM"
+"lightgbm" = "LightGBM"
+"py arrow" = "PyArrow"
+"pyarrow" = "PyArrow"
 
 # Technical phrases. Avoid changing ordinary words like "torch" or "sequel".
 "gradient decent" = "gradient descent"

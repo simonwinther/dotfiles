@@ -85,7 +85,9 @@ pub fn monitor_names() -> Option<HashSet<String>> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    let raw = std::fs::read(config_dir.join("waybar/config.jsonc")).ok()?;
+    let config_path = std::env::var_os("WORKSPACES_SLIDER_CONFIG").map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("waybar/config.jsonc"));
+    let raw = std::fs::read(config_path).ok()?;
     let config: serde_json::Value = serde_json::from_slice(&raw).ok()?;
     eligible_monitors(&monitors, &config)
 }
@@ -94,15 +96,28 @@ fn eligible_monitors(monitors: &serde_json::Value, config: &serde_json::Value) -
     Some(monitors.as_array()?.iter()
         .filter(|monitor| monitor["disabled"].as_bool() != Some(true))
         .filter(|monitor| !monitor["mirrorOf"].as_str().is_some_and(|name| name != "none"))
-        .filter_map(|monitor| monitor["name"].as_str())
-        .filter(|name| match &config["output"] {
-            serde_json::Value::Null => true,
-            serde_json::Value::String(output) => output == name,
-            serde_json::Value::Array(outputs) => outputs.iter().any(|output| output.as_str() == Some(name)),
-            _ => false,
-        })
-        .map(str::to_owned)
+        .filter(|monitor| output_matches(&config["output"], monitor))
+        .filter_map(|monitor| monitor["name"].as_str().map(str::to_owned))
         .collect())
+}
+
+fn output_matches(selectors: &serde_json::Value, monitor: &serde_json::Value) -> bool {
+    let name = monitor["name"].as_str().unwrap_or("");
+    let description = monitor["description"].as_str().unwrap_or("").split(" (").next().unwrap_or("");
+    let matches = |s: &str| !s.is_empty() && (s == name || s == description);
+    match selectors {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(s) => s.strip_prefix('!').map_or_else(|| matches(s), |s| !matches(s)),
+        serde_json::Value::Array(outputs) => {
+            for selector in outputs.iter().filter_map(|v| v.as_str()) {
+                if let Some(excluded) = selector.strip_prefix('!') {
+                    if matches(excluded) { return false; }
+                } else if selector == "*" || matches(selector) { return true; }
+            }
+            false
+        }
+        _ => false,
+    }
 }
 
 /// One monitor's active workspace and occupancy across all monitors.
@@ -198,7 +213,7 @@ pub fn listen(send: impl Fn(Event) + Send + 'static) {
                         | "moveworkspacev2"
                         | "focusedmon"
                         | "focusedmonv2"
-                        // Omarchy reloads Hyprland after switching its theme.
+                        // Desktop reloads Hyprland after switching its theme.
                         | "configreloaded" => send(Event::Changed),
                         _ => {}
                     }
@@ -215,6 +230,19 @@ pub fn listen(send: impl Fn(Event) + Send + 'static) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn physical_description_survives_connector_changes_and_excludes_portrait() {
+        let id = "Ancor Communications Inc VG248 J5LMQS024117";
+        let outputs = serde_json::json!([format!("!{id}"), "*"]);
+        for port in ["DVI-D-1", "HDMI-A-3"] {
+            let monitor = serde_json::json!({"name": port, "description": id});
+            assert!(!output_matches(&outputs, &monitor));
+            assert!(output_matches(&serde_json::json!([id]), &monitor));
+        }
+        let other = serde_json::json!({"name": "DP-1", "description": "AOC 32G2WG3 0x00000568"});
+        assert!(output_matches(&outputs, &other));
+    }
 
     #[test]
     fn only_full_bar_outputs_get_pills() {

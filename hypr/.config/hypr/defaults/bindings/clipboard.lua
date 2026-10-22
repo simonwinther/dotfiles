@@ -16,6 +16,6 @@ hl.bind(
 )
 hl.bind(
     "SUPER + CTRL + V",
-    hl.dsp.exec_cmd("omarchy-launch-walker -m clipboard"),
+    hl.dsp.exec_cmd("desktopctl launcher -m clipboard"),
     { description = "Clipboard manager" }
 )

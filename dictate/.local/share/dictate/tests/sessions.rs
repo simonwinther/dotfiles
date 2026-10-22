@@ -45,7 +45,7 @@ impl Desktop {
             })
             .collect();
         fs::write(root.join("microphone.pcm"), pcm).unwrap();
-        fs::write(root.join("config/dictate/config.env"),format!("OPENAI_API_KEY=test-key-for-loopback-only\nOPENAI_REALTIME_URL='{endpoint}'\nOPENAI_API_URL=http://127.0.0.1:1/transcriptions\nDICTIONARY_FILE=''\nSHOW_LOADING=0\nDUCK_VOLUME=0\nAUTO_PASTE=0\nFFMPEG_PREPROCESS=0\nMIN_RECORDING_MS=100\nMIN_AUDIO_BYTES=1\nSKIP_SILENCE=0\nMAX_RECORDING_MS=5000\nHTTP_CONNECT_TIMEOUT_S=1\nLIVE_FINAL_TIMEOUT_S=0.2\nLAST_LOG_FILE={}\nLAST_TRANSCRIPT_FILE={}\n{extra}\n",root.join("last.log").display(),root.join("last.txt").display())).unwrap();
+        fs::write(root.join("config/dictate/config.env"),format!("OPENAI_API_KEY=test-key-for-loopback-only\nOPENAI_REALTIME_URL='{endpoint}'\nOPENAI_API_URL=http://127.0.0.1:1/transcriptions\nDICTIONARY_FILE=''\nSHOW_LOADING=0\nDUCK_VOLUME=0\nAUTO_PASTE=0\nFFMPEG_PREPROCESS=0\nMIN_RECORDING_MS=100\nMIN_AUDIO_BYTES=1\nSKIP_SILENCE=0\nMAX_RECORDING_MS=5000\nHTTP_CONNECT_TIMEOUT_S=1\nLIVE_FINAL_TIMEOUT_S=1\nLAST_LOG_FILE={}\nLAST_TRANSCRIPT_FILE={}\n{extra}\n",root.join("last.log").display(),root.join("last.txt").display())).unwrap();
         Self { root }
     }
     fn command(&self) -> Command {
@@ -63,6 +63,7 @@ impl Desktop {
             .env("DICTATE_TEST_COPY_FAIL", self.root.join("fail-copy"))
             .env("DICTATE_TEST_CLIPBOARD", self.root.join("clipboard.txt"))
             .env("DICTATE_TEST_VOLUME", self.root.join("volume.txt"))
+            .env("DICTATE_TEST_STOPPED", self.root.join("recorder-stopped"))
             .env("DICTATE_TEST_PASTE", self.root.join("paste.txt"));
         c
     }
@@ -115,6 +116,44 @@ impl Desktop {
             &fs::read(self.root.join("runtime/dictate/native-session.json")).unwrap(),
         )
         .unwrap()
+    }
+    async fn wait_audio_ms(&self, milliseconds: u64) {
+        let state = self.state();
+        let audio = PathBuf::from(state["audio_file"].as_str().unwrap());
+        // The test microphone emits mono PCM16 at the mode's default rate.
+        let (header, rate) = if state["mode"] == "live" {
+            (0, 24_000)
+        } else {
+            (44, 16_000)
+        };
+        let minimum_bytes = header + milliseconds * rate * 2 / 1000;
+        timeout(Duration::from_secs(2), async {
+            while !fs::metadata(&audio).is_ok_and(|m| m.len() >= minimum_bytes) {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("recorder must capture the required audio duration before stopping");
+    }
+    async fn kill_worker_after_audio(&self, header_bytes: u64) {
+        let state = self.state();
+        let audio = PathBuf::from(state["audio_file"].as_str().unwrap());
+        timeout(Duration::from_secs(2), async {
+            while !fs::metadata(&audio).is_ok_and(|m| m.len() > header_bytes) {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("recorder must write audio before interrupting the worker");
+        let owner: Identity = serde_json::from_value(state["owner"].clone()).unwrap();
+        owner.signal(libc::SIGKILL);
+        timeout(Duration::from_secs(2), async {
+            while owner.alive() {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("worker must exit before stale-session recovery runs");
     }
 }
 impl Drop for Desktop {
@@ -189,7 +228,7 @@ async fn live_session_preserves_shortcut_flow_and_delivers_final_text() {
         .await
         .unwrap()
         .unwrap();
-    sleep(Duration::from_millis(150)).await;
+    desktop.wait_audio_ms(100).await;
     assert!(desktop.ok(&["status"]).await.contains("recording (live)"));
     assert!(!desktop.call(&["batch", "start"]).await.status.success());
     desktop.ok(&["live", "toggle"]).await;
@@ -220,16 +259,280 @@ async fn cancelling_streaming_never_commits_or_changes_clipboard() {
     assert!(desktop.recovery().is_none());
     assert_eq!(server.await.unwrap(), 0);
 }
+
 #[tokio::test]
-async fn final_timeout_preserves_audio_but_never_pastes_partial_text() {
-    let (url, first, server) = realtime(None).await;
-    let desktop = Desktop::new(&url, "");
+async fn recorder_closing_stdout_without_exiting_preserves_audio_and_is_reaped() {
+    let (url, first, server) = realtime(Some("Must not paste")).await;
+    let desktop = Desktop::new(&url, "MAX_RECORDING_MS=0");
+    fs::write(desktop.root.join("clipboard.txt"), "previous clipboard").unwrap();
+    fs::write(
+        desktop.root.join("tools/pw-record"),
+        "#!/bin/sh\ntrap '' INT TERM\ncat \"$DICTATE_TEST_PCM\"\nprintf '%s' \"$$\" > \"$DICTATE_TEST_STOPPED\"\nexec 1>&-\nexec sleep 60\n",
+    )
+    .unwrap();
     desktop.ok(&["live", "start"]).await;
     timeout(Duration::from_secs(2), first)
         .await
         .unwrap()
         .unwrap();
-    sleep(Duration::from_millis(150)).await;
+    timeout(Duration::from_secs(2), desktop.idle())
+        .await
+        .expect("closed recorder output must not leave the session waiting for exit");
+    let pid = fs::read_to_string(desktop.root.join("recorder-stopped"))
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+    assert!(
+        !PathBuf::from(format!("/proc/{pid}")).exists(),
+        "recorder must be reaped"
+    );
+    let recovery = desktop.recovery().expect("captured audio must survive");
+    assert!(recovery["transcript"].is_null());
+    assert!(recovery["recording_ms"].as_u64().unwrap() > 0);
+    assert!(
+        recovery["reason"]
+            .as_str()
+            .unwrap()
+            .contains("did not exit after closing its output")
+    );
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "previous clipboard"
+    );
+    assert_eq!(server.await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn quiet_recorder_exit_one_before_stop_preserves_audio_without_committing() {
+    let (url, first, server) = realtime(Some("Must not paste")).await;
+    let desktop = Desktop::new(&url, "");
+    fs::write(desktop.root.join("clipboard.txt"), "previous clipboard").unwrap();
+    fs::write(
+        desktop.root.join("tools/pw-record"),
+        "#!/bin/sh\ncat \"$DICTATE_TEST_PCM\"\nsleep 0.05\nexit 1\n",
+    )
+    .unwrap();
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.idle().await;
+    let recovery = desktop.recovery().expect("captured audio must survive");
+    let reason = recovery["reason"].as_str().unwrap();
+    assert!(reason.contains("exited unexpectedly"), "{reason}");
+    assert!(reason.contains("exit status: 1"), "{reason}");
+    assert!(recovery["transcript"].is_null());
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "previous clipboard"
+    );
+    assert_eq!(server.await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn quiet_pipewire_exit_one_after_requested_stop_delivers_final_text() {
+    let (url, first, server) = realtime(Some("Completed normally.")).await;
+    let desktop = Desktop::new(&url, "");
+    fs::write(
+        desktop.root.join("tools/pw-record"),
+        "#!/bin/sh\ntrap 'exit 1' INT\nwhile :; do cat \"$DICTATE_TEST_PCM\" || exit 1; sleep 0.02; done\n",
+    )
+    .unwrap();
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.wait_audio_ms(100).await;
+    desktop.ok(&["live", "stop"]).await;
+    desktop.idle().await;
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "Completed normally."
+    );
+    assert!(desktop.recovery().is_none());
+    assert_eq!(server.await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn recorder_failure_after_stop_preserves_audio_without_committing() {
+    for status in [1, 42] {
+        let (url, first, server) = realtime(Some("Must not paste")).await;
+        let desktop = Desktop::new(&url, "");
+        fs::write(desktop.root.join("clipboard.txt"), "previous clipboard").unwrap();
+        fs::write(
+            desktop.root.join("tools/pw-record"),
+            format!("#!/bin/sh\ntrap 'printf \"PipeWire test: input disconnected\\n\" >&2; exit {status}' INT\nwhile :; do cat \"$DICTATE_TEST_PCM\" || exit 1; sleep 0.02; done\n"),
+        )
+        .unwrap();
+        desktop.ok(&["live", "start"]).await;
+        timeout(Duration::from_secs(2), first)
+            .await
+            .unwrap()
+            .unwrap();
+        desktop.wait_audio_ms(100).await;
+        desktop.ok(&["live", "stop"]).await;
+        desktop.idle().await;
+        let recovery = desktop
+            .recovery()
+            .expect("captured audio must survive recorder failure");
+        assert!(recovery["transcript"].is_null());
+        let reason = recovery["reason"].as_str().unwrap();
+        assert!(
+            reason.contains(&format!("exit status: {status}")),
+            "{reason}"
+        );
+        assert!(
+            reason.contains("PipeWire test: input disconnected"),
+            "{reason}"
+        );
+        assert_eq!(
+            fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+            "previous clipboard"
+        );
+        assert_eq!(server.await.unwrap(), 0);
+    }
+}
+
+#[tokio::test]
+async fn api_failure_keeps_its_cause_when_recorder_shutdown_also_fails() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let desktop = Desktop::new(&format!("ws://{}", listener.local_addr().unwrap()), "");
+    fs::write(
+        desktop.root.join("tools/pw-record"),
+        "#!/bin/sh\ntrap 'exit 42' INT\nwhile :; do cat \"$DICTATE_TEST_PCM\" || exit 1; sleep 0.02; done\n",
+    )
+    .unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        ws.send(Message::Text(json!({"type":"session.updated"}).to_string()))
+            .await
+            .unwrap();
+        while let Some(Ok(Message::Text(text))) = ws.next().await {
+            let event: Value = serde_json::from_str(&text).unwrap();
+            if event["type"] == "input_audio_buffer.append" {
+                ws.send(Message::Text(
+                    json!({"type":"error","error":{"message":"Model unavailable test"}})
+                        .to_string(),
+                ))
+                .await
+                .unwrap();
+                break;
+            }
+        }
+    });
+    desktop.ok(&["live", "start"]).await;
+    desktop.idle().await;
+    server.await.unwrap();
+    let recovery = desktop.recovery().expect("captured audio must survive");
+    let reason = recovery["reason"].as_str().unwrap();
+    assert!(reason.contains("Model unavailable test"), "{reason}");
+    assert!(!reason.contains("exit status: 42"), "{reason}");
+    assert!(recovery["transcript"].is_null());
+    assert!(!desktop.root.join("clipboard.txt").exists());
+}
+
+#[tokio::test]
+async fn stop_drains_recorder_while_network_setup_is_backpressured() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let (setup_tx, setup_rx) = oneshot::channel();
+    let (resume_tx, resume_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        ws.next().await.unwrap().unwrap();
+        setup_tx.send(()).unwrap();
+        resume_rx.await.unwrap();
+        ws.send(Message::Text(json!({"type":"session.updated"}).to_string()))
+            .await
+            .unwrap();
+        let mut received = Vec::new();
+        while let Some(Ok(message)) = ws.next().await {
+            let v: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            match v["type"].as_str().unwrap() {
+                "input_audio_buffer.append" => {
+                    use base64::Engine;
+                    received.extend(
+                        base64::engine::general_purpose::STANDARD
+                            .decode(v["audio"].as_str().unwrap())
+                            .unwrap(),
+                    );
+                }
+                "input_audio_buffer.commit" => {
+                    ws.send(Message::Text(
+                        json!({"type":"input_audio_buffer.committed","item_id":"ours"}).to_string(),
+                    ))
+                    .await
+                    .unwrap();
+                    ws.send(Message::Text(json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"ours","transcript":"All audio arrived."}).to_string())).await.unwrap();
+                    break;
+                }
+                event => panic!("Unexpected event: {event}"),
+            }
+        }
+        received
+    });
+    let desktop = Desktop::new(&url, "HTTP_CONNECT_TIMEOUT_S=10\nMAX_RECORDING_MS=0");
+    // Fill more than the entire bounded network queue before setup completes.
+    fs::write(
+        desktop.root.join("microphone.pcm"),
+        [1, 2].repeat(4_800 * 600),
+    )
+    .unwrap();
+    fs::write(
+        desktop.root.join("tools/pw-record"),
+        "#!/bin/sh\ntrap 'printf stopped > \"$DICTATE_TEST_STOPPED\"; exit 0' INT TERM\ncat \"$DICTATE_TEST_PCM\"\nwhile :; do sleep 0.01; done\n",
+    )
+    .unwrap();
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), setup_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let audio = PathBuf::from(desktop.state()["audio_file"].as_str().unwrap());
+    // Saturating the queue processes two minutes of synthetic audio in a debug
+    // build. Give that setup work room under parallel load; the actual stop
+    // responsiveness assertion below still has a 500 ms deadline.
+    timeout(Duration::from_secs(5), async {
+        while fs::metadata(&audio).unwrap().len() < 4_800 * 1024 {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    desktop.ok(&["live", "stop"]).await;
+    timeout(Duration::from_millis(500), async {
+        while !desktop.root.join("recorder-stopped").exists()
+            || desktop.state()["recording_ms"].as_u64().unwrap() == 0
+        {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("stop must reach the microphone before network setup resumes");
+    let recorded = fs::read(audio).unwrap();
+    resume_tx.send(()).unwrap();
+    desktop.idle().await;
+    assert_eq!(server.await.unwrap(), recorded);
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "All audio arrived."
+    );
+}
+#[tokio::test]
+async fn final_timeout_preserves_audio_but_never_pastes_partial_text() {
+    let (url, first, server) = realtime(None).await;
+    let desktop = Desktop::new(&url, "LIVE_FINAL_TIMEOUT_S=0.2");
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.wait_audio_ms(100).await;
     desktop.ok(&["live", "stop"]).await;
     desktop.idle().await;
     assert!(!desktop.root.join("clipboard.txt").exists());
@@ -254,7 +557,7 @@ async fn failed_clipboard_retries_cached_text_without_a_second_upload() {
         .await
         .unwrap()
         .unwrap();
-    sleep(Duration::from_millis(150)).await;
+    desktop.wait_audio_ms(100).await;
     desktop.ok(&["live", "stop"]).await;
     desktop.idle().await;
     assert_eq!(
@@ -313,6 +616,8 @@ async fn batch_capture_uploads_once_and_automatic_limit_stops_recording() {
         "ws://127.0.0.1:1",
         &format!("OPENAI_API_URL={endpoint}\nMAX_RECORDING_MS=300"),
     );
+    let pcm = fs::read(desktop.root.join("microphone.pcm")).unwrap();
+    fs::write(desktop.root.join("microphone.pcm"), pcm.repeat(4)).unwrap();
     desktop.ok(&["batch", "start"]).await;
     desktop.idle().await;
     server.await.unwrap();
@@ -330,11 +635,7 @@ async fn killed_worker_recovers_recording_on_next_status() {
         .await
         .unwrap()
         .unwrap();
-    sleep(Duration::from_millis(60)).await;
-    let state = desktop.state();
-    let owner: Identity = serde_json::from_value(state["owner"].clone()).unwrap();
-    owner.signal(libc::SIGKILL);
-    sleep(Duration::from_millis(30)).await;
+    desktop.kill_worker_after_audio(0).await;
     assert!(desktop.ok(&["status"]).await.contains("recovery available"));
     assert!(desktop.recovery().is_some());
     assert!(!desktop.root.join("clipboard.txt").exists());
@@ -351,7 +652,7 @@ async fn terminal_paste_targets_focused_window_and_uses_lua_provider() {
         .await
         .unwrap()
         .unwrap();
-    sleep(Duration::from_millis(150)).await;
+    desktop.wait_audio_ms(100).await;
     desktop.ok(&["live", "stop"]).await;
     desktop.idle().await;
     let dispatched = fs::read_to_string(desktop.root.join("paste.txt")).unwrap();
@@ -401,14 +702,54 @@ async fn native_volume_ducks_and_restores_the_original_sink() {
 }
 
 #[tokio::test]
+async fn cancelling_during_volume_fade_restores_without_waiting_for_fade_in() {
+    let (url, first, server) = realtime(None).await;
+    let desktop = Desktop::new(
+        &url,
+        "DUCK_VOLUME=1\nVOLUME_DUCK_FADE_IN_MS=4000\nVOLUME_DUCK_FADE_OUT_MS=0\nVOLUME_DUCK_FADE_STEPS=4",
+    );
+    fs::write(desktop.root.join("volume.txt"), "0.75").unwrap();
+    let wpctl = desktop.root.join("tools/wpctl");
+    fs::write(&wpctl,"#!/bin/sh\ncase \"$1\" in\ninspect) printf 'id 42, type PipeWire:Interface:Node\\n    object.serial = \"stable-serial-42\"\\n' ;;\nget-volume) printf 'Volume: '; cat \"$DICTATE_TEST_VOLUME\" ;;\nset-volume) printf '%s' \"$3\" > \"$DICTATE_TEST_VOLUME\" ;;\nset-mute) exit 0 ;;\n*) exit 1 ;;\nesac\n").unwrap();
+    fs::set_permissions(&wpctl, fs::Permissions::from_mode(0o755)).unwrap();
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    let saved_volume = desktop.root.join("runtime/dictation-volume-duck/state.env");
+    timeout(Duration::from_secs(1), async {
+        while !saved_volume.exists()
+            || !fs::read_to_string(desktop.root.join("volume.txt"))
+                .ok()
+                .and_then(|value| value.parse::<f64>().ok())
+                .is_some_and(|value| value < 0.75)
+        {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("fade must have saved the original volume and applied its first step");
+    timeout(Duration::from_secs(1), async {
+        desktop.ok(&["cancel"]).await;
+        desktop.idle().await;
+    })
+    .await
+    .expect("cancelling must interrupt fade-in and restore volume promptly");
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("volume.txt")).unwrap(),
+        "0.7500"
+    );
+    assert!(!saved_volume.exists());
+    assert!(!desktop.root.join("clipboard.txt").exists());
+    assert_eq!(server.await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn interrupted_batch_header_is_repaired_for_recovery() {
     let desktop = Desktop::new("ws://127.0.0.1:1", "");
     desktop.ok(&["batch", "start"]).await;
-    sleep(Duration::from_millis(80)).await;
-    let state = desktop.state();
-    let owner: Identity = serde_json::from_value(state["owner"].clone()).unwrap();
-    owner.signal(libc::SIGKILL);
-    sleep(Duration::from_millis(30)).await;
+    desktop.kill_worker_after_audio(44).await;
     desktop.ok(&["status"]).await;
     let base = desktop.root.join("state/dictate/recovery");
     let pointer: Value =

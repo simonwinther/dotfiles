@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source_dir="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/workspaces-slider-rs"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/workspaces-slider"
+mkdir -p "$cache"
+exec 9>"$cache/build.lock"
+flock 9
+nice -n 10 cargo build --locked --release --manifest-path "$source_dir/Cargo.toml" --target-dir "$cache/target"

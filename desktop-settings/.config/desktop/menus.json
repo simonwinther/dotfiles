@@ -1,0 +1,173 @@
+{
+  "main": {
+    "title": "Go…",
+    "items": {
+      "󰀻  Apps": ["launcher"],
+      "󰧑  Learn": ["menu", "learn"],
+      "󱓞  Trigger": ["menu", "trigger"],
+      "  Style": ["menu", "style"],
+      "  Setup": ["menu", "setup"],
+      "  About": ["about"],
+      "  System": ["menu", "system"]
+    }
+  },
+  "learn": {
+    "items": {
+      "  Keybindings": ["keybindings"],
+      "  Desktop guide": ["guide"],
+      "  NixOS": ["launch", "browser", "https://nixos.org/learn/"],
+      "  Hyprland": ["launch", "browser", "https://wiki.hypr.land/"],
+      "  Neovim": ["launch", "browser", "https://www.lazyvim.org/keymaps"],
+      "󱆃  Bash": ["launch", "browser", "https://www.gnu.org/software/bash/manual/"]
+    }
+  },
+  "trigger": {
+    "items": {
+      "󰔛  Reminder": ["menu", "reminder"],
+      "  Capture": ["menu", "capture"],
+      "󰧸  Transcode": ["transcode"],
+      "  Clipboard": ["clipboard"],
+      "  Share": ["menu", "share"],
+      "󰔎  Toggle": ["menu", "toggle"],
+      "  Hardware": ["menu", "hardware"]
+    }
+  },
+  "style": {
+    "items": {
+      "󰸌  Theme": ["menu", "theme"],
+      "󰟵  Lock screen": ["menu", "lock-screen"],
+      "  Font": ["menu", "font"],
+      "  Background": ["wallpaper", "grid"],
+      "  Hyprland": ["config", "Hyprland"],
+      "󱄄  Screensaver": ["menu", "screensaver"],
+      "  Terminal colors": ["menu", "terminal-colors"],
+      "  About": ["menu", "about-art"]
+    }
+  },
+  "terminal-colors": {
+    "items": {
+      "󰸌  Follow desktop theme": ["appearance", "terminal-colors", "desktop"],
+      "  Personal light/dark": ["appearance", "terminal-colors", "personal"]
+    }
+  },
+  "lock-screen": {
+    "items": {
+      "  Choose background…": ["appearance", "lock-background"],
+      "󰁯  Follow wallpaper": ["appearance", "lock-background", "reset"],
+      "  Lock now": ["lock", "--only"]
+    }
+  },
+  "screensaver": {
+    "items": {
+      "󱄄  Start": ["screensaver", "start"],
+      "󰸌  Naruto": ["screensaver", "set", "naruto"],
+      "󰸌  Tomoe Sharingan": ["screensaver", "set", "tomoe-sharingan"],
+      "󰘦  Matrix": ["screensaver", "set", "matrix"],
+      "  Edit custom artwork": ["screensaver", "edit"],
+      "  Set from image": ["screensaver", "image"],
+      "  Restore default": ["screensaver", "reset"],
+      "󱫖  Automatic screensaver": ["toggle", "screensaver"]
+    }
+  },
+  "setup": {
+    "items": {
+      "󰍹  Desktop controls": ["exec", "desktop-ring", "menu"],
+      "  Audio": ["launch", "audio"],
+      "  Wi-Fi": ["launch", "wifi"],
+      "󰂯  Bluetooth": ["launch", "bluetooth"],
+      "󱐋  Power profile": ["menu", "power-profile"],
+      "󰍹  Monitors": ["config", "Monitors"],
+      "  Keybindings": ["config", "Keybindings"],
+      "  Input": ["config", "Input"],
+      "  Defaults": ["menu", "defaults"],
+      "  Configuration": ["menu", "config"]
+    }
+  },
+  "reminder": {
+    "items": {
+      "󰔛  Set one": ["menu", "reminder-set"],
+      "󰔛  Show all": ["reminder", "show"],
+      "󰔛  Clear all": ["reminder", "clear"]
+    }
+  },
+  "capture": {
+    "items": {
+      "  Screenshot": ["capture", "screenshot"],
+      "󰆞  Region": ["capture", "screenshot", "region"],
+      "  Window": ["capture", "screenshot", "windows"],
+      "󰍹  Full output": ["capture", "screenshot", "fullscreen"],
+      "  Edit last screenshot": ["capture", "edit-latest"],
+      "  Screenrecord": ["menu", "screenrecord"],
+      "󰴑  Extract text": ["capture", "ocr"],
+      "󰃉  Color": ["exec", "hyprpicker", "-a"]
+    }
+  },
+  "screenrecord": {
+    "items": {
+      "  Desktop audio / stop": ["capture", "record"],
+      "󰆞  Region / stop": ["capture", "record", "region"],
+      "󰖁  No audio / stop": ["capture", "record", "screen", "--silent"],
+      "󰍬  Desktop + mic / stop": ["capture", "record", "screen", "--microphone"]
+    }
+  },
+  "share": {
+    "items": {
+      "  Clipboard": ["share", "clipboard"],
+      "  File": ["share", "file"],
+      "  Folder": ["share", "folder"],
+      "  LocalSend": ["exec", "localsend"],
+      "󰏲  Send to iPhone": ["exec", "send-to-iphone"],
+      "  Files from iPhone": ["iphone-folder"]
+    }
+  },
+  "toggle": {
+    "items": {
+      "󱄄  Automatic screensaver": ["toggle", "screensaver"],
+      "󰔎  Night light": ["toggle", "nightlight"],
+      "󱫖  Idle lock": ["toggle", "idle"],
+      "󰂛  Notifications": ["toggle", "notifications"],
+      "󰍜  Top bar": ["toggle", "bar"],
+      "󱂬  Workspace layout": ["toggle", "layout"],
+      "  Window gaps": ["toggle", "gaps"],
+      "  Single window ratio": ["toggle", "square"],
+      "󰟸  Touchpad": ["toggle", "touchpad"],
+      "󰍹  Monitor settings": ["config", "Monitors"]
+    }
+  },
+  "hardware": {
+    "items": {
+      "󰍹  Display controls": ["exec", "desktop-ring", "menu"],
+      "  Wi-Fi": ["launch", "wifi"],
+      "󰂯  Bluetooth": ["launch", "bluetooth"],
+      "  Audio": ["launch", "audio"],
+      "󰟸  Touchpad": ["toggle", "touchpad"]
+    }
+  },
+  "system": {
+    "items": {
+      "󱄄  Screensaver": ["screensaver", "start"],
+      "  Lock": ["lock"],
+      "󰒲  Sleep": ["power", "suspend"],
+      "󰍃  Log out": ["power", "logout"],
+      "  Restart": ["power", "reboot"],
+      "  Shut down": ["power", "poweroff"]
+    }
+  },
+  "about-art": {
+    "title": "About artwork…",
+    "items": {
+      "  Edit text": ["about", "edit"],
+      "  Set from image": ["about", "image"],
+      "  Restore default": ["about", "reset"],
+      "  Preview": ["about"]
+    }
+  },
+  "defaults": {
+    "title": "Defaults (edit source)…",
+    "items": {
+      "  Browser and editor": ["config", "Application launchers"],
+      "  Terminal": ["config", "Default terminal"],
+      "  File and URL handlers": ["config", "File and URL handlers"]
+    }
+  }
+}

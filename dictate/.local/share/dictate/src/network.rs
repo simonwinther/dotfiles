@@ -1,12 +1,15 @@
 use crate::{config::Config, storage, text::Processor};
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 use tokio::{
     sync::{mpsc, watch},
-    time::{Instant, timeout},
+    time::{Instant, timeout, timeout_at},
 };
 use tokio_tungstenite::{
     connect_async_with_config,
@@ -22,6 +25,19 @@ pub enum Chunk {
     Audio(Vec<u8>),
     End(bool),
 }
+
+/// The capture task has the detailed cause; distinguish this from API failures.
+#[derive(Debug)]
+pub(crate) struct CaptureFailed(&'static str);
+
+impl std::fmt::Display for CaptureFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for CaptureFailed {}
+
 pub fn keywords(c: &Config, p: &Processor, live: bool) -> Result<Vec<String>> {
     let csv = if live {
         c.inherited("LIVE_KEYWORDS", "OPENAI_KEYWORDS")
@@ -29,6 +45,7 @@ pub fn keywords(c: &Config, p: &Processor, live: bool) -> Result<Vec<String>> {
         c.get("OPENAI_KEYWORDS")
     };
     let mut words = Vec::<String>::new();
+    let mut seen = BTreeSet::new();
     for word in csv
         .split(',')
         .chain(p.dictionary.terms.iter().map(String::as_str))
@@ -39,10 +56,7 @@ pub fn keywords(c: &Config, p: &Processor, live: bool) -> Result<Vec<String>> {
             !word.contains(['<', '>', '\r', '\n']),
             "Keywords must be single lines without < or >"
         );
-        if !words
-            .iter()
-            .any(|v| v.to_lowercase() == word.to_lowercase())
-        {
+        if seen.insert(word.to_lowercase()) {
             words.push(word.into());
         }
     }
@@ -140,6 +154,110 @@ fn check_event(v: &Value) -> Result<()> {
     Ok(())
 }
 
+const FINAL_TIMEOUT: &str =
+    "Timed out waiting for final transcription; partial text was not delivered";
+const TRANSCRIPT_LIMIT: usize = 4 * 1024 * 1024;
+const TRANSCRIPT_ITEMS: usize = 32;
+const PREVIEW_CHARS: usize = 8000;
+
+enum TranscriptItem {
+    Partial(String),
+    Final(String),
+}
+impl TranscriptItem {
+    fn text(&self) -> &str {
+        match self {
+            Self::Partial(text) | Self::Final(text) => text,
+        }
+    }
+}
+#[derive(Default)]
+struct LiveTranscripts {
+    items: BTreeMap<String, TranscriptItem>,
+    bytes: usize,
+}
+impl LiveTranscripts {
+    fn reserve(&mut self, id: &str, old_length: usize, new_length: usize) -> Result<()> {
+        ensure!(!id.is_empty(), "Missing transcript item id");
+        let new_item = !self.items.contains_key(id);
+        ensure!(
+            !new_item || self.items.len() < TRANSCRIPT_ITEMS,
+            "Too many unsolicited transcript items"
+        );
+        let bytes = self.bytes - old_length + new_length + if new_item { id.len() } else { 0 };
+        ensure!(bytes <= TRANSCRIPT_LIMIT, "Transcript exceeded size limit");
+        self.bytes = bytes;
+        Ok(())
+    }
+    fn delta(&mut self, id: &str, delta: &str) -> Result<Option<&str>> {
+        if matches!(self.items.get(id), Some(TranscriptItem::Final(_))) {
+            return Ok(None);
+        }
+        let old_length = self.items.get(id).map_or(0, |item| item.text().len());
+        self.reserve(id, old_length, old_length + delta.len())?;
+        let TranscriptItem::Partial(text) = self
+            .items
+            .entry(id.into())
+            .or_insert_with(|| TranscriptItem::Partial(String::new()))
+        else {
+            unreachable!()
+        };
+        text.push_str(delta);
+        Ok(Some(text))
+    }
+    fn complete(&mut self, id: &str, text: &str) -> Result<()> {
+        let old_length = self.items.get(id).map_or(0, |item| item.text().len());
+        self.reserve(id, old_length, text.len())?;
+        self.items
+            .insert(id.into(), TranscriptItem::Final(text.into()));
+        Ok(())
+    }
+    fn take_final(&mut self, id: &str) -> Option<String> {
+        if !matches!(self.items.get(id), Some(TranscriptItem::Final(_))) {
+            return None;
+        }
+        let Some(TranscriptItem::Final(text)) = self.items.remove(id) else {
+            unreachable!()
+        };
+        self.bytes -= id.len() + text.len();
+        Some(text)
+    }
+}
+
+fn live_preview(p: &Processor, text: &str) -> String {
+    // Only the last 4000 characters are displayed. Retain extra context for spoken
+    // punctuation, and avoid rescanning the whole recording on every delta.
+    let start = text
+        .char_indices()
+        .rev()
+        .nth(PREVIEW_CHARS - 1)
+        .map_or(0, |(index, _)| index);
+    p.preview(&text[start..])
+}
+
+async fn live_send<S>(
+    ws: &mut S,
+    message: Message,
+    c: &Config,
+    final_deadline: Option<Instant>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    let upload_deadline = Instant::now() + c.seconds("HTTP_CONNECT_TIMEOUT_S");
+    let deadline = final_deadline.map_or(upload_deadline, |d| d.min(upload_deadline));
+    timeout_at(deadline, ws.send(message))
+        .await
+        .with_context(|| {
+            if final_deadline.is_some_and(|d| Instant::now() >= d) {
+                FINAL_TIMEOUT
+            } else {
+                "Realtime upload stalled"
+            }
+        })??;
+    Ok(())
+}
+
 pub async fn live(
     c: &Config,
     p: &Processor,
@@ -171,12 +289,16 @@ pub async fn live(
                 .next()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("Realtime connection closed during setup"))??;
-            if let Message::Text(text) = message {
-                let v: Value = serde_json::from_str(&text)?;
-                check_event(&v)?;
-                if v["type"] == "session.updated" {
-                    return Ok::<_, anyhow::Error>(());
+            match message {
+                Message::Text(text) => {
+                    let v: Value = serde_json::from_str(&text)?;
+                    check_event(&v)?;
+                    if v["type"] == "session.updated" {
+                        return Ok::<_, anyhow::Error>(());
+                    }
                 }
+                Message::Close(_) => bail!("Realtime connection closed during setup"),
+                _ => (),
             }
         }
     })
@@ -185,19 +307,18 @@ pub async fn live(
     storage::log(c, "event=live_connected");
     let mut sent = 0usize;
     let mut committed = None::<String>;
-    let mut completed = BTreeMap::<String, String>::new();
-    let mut partials = BTreeMap::<String, String>::new();
+    let mut transcripts = LiveTranscripts::default();
     let mut deadline = None::<Instant>;
     let mut ended = false;
     let mut first = true;
     loop {
         if deadline.is_some_and(|d| Instant::now() >= d) {
-            bail!("Timed out waiting for final transcription; partial text was not delivered");
+            bail!(FINAL_TIMEOUT);
         }
         if let Some(id) = &committed
-            && let Some(text) = completed.remove(id)
+            && let Some(text) = transcripts.take_final(id)
         {
-            view.send_modify(|v| v.transcript = p.preview(&text));
+            view.send_modify(|v| v.transcript = live_preview(p, &text));
             return Ok(text);
         }
         let wait = deadline
@@ -209,15 +330,16 @@ pub async fn live(
                     Some(Chunk::Audio(bytes))=>{
                         ensure!(bytes.len()%2==0,"Partial PCM16 sample");sent+=bytes.len();
                         let event=json!({"type":"input_audio_buffer.append","audio":STANDARD.encode(bytes)});
-                        timeout(c.seconds("HTTP_CONNECT_TIMEOUT_S"),ws.send(Message::Text(event.to_string()))).await.context("Realtime upload stalled")??;
+                        live_send(&mut ws, Message::Text(event.to_string()), c, deadline).await?;
                     }
                     Some(Chunk::End(valid))=>{
-                        ensure!(valid,"Microphone recorder exited unexpectedly");
+                        if !valid{return Err(CaptureFailed("Microphone recorder exited unexpectedly").into());}
                         if sent as u64*1000<48000*c.millis("MIN_RECORDING_MS").max(100){return Ok(String::new());}
-                        ws.send(Message::Text(json!({"type":"input_audio_buffer.commit"}).to_string())).await?;
-                        ended=true;deadline=Some(Instant::now()+c.seconds("LIVE_FINAL_TIMEOUT_S"));storage::log(c,&format!("event=live_commit audio_bytes={sent}"));
+                        ended=true;deadline=Some(Instant::now()+c.seconds("LIVE_FINAL_TIMEOUT_S"));
+                        live_send(&mut ws, Message::Text(json!({"type":"input_audio_buffer.commit"}).to_string()), c, deadline).await?;
+                        storage::log(c,&format!("event=live_commit audio_bytes={sent}"));
                     }
-                    None=>bail!("Audio capture ended before a completed turn"),
+                    None=>return Err(CaptureFailed("Audio capture ended before a completed turn").into()),
                 }
             }
             message=ws.next()=>{
@@ -226,26 +348,32 @@ pub async fn live(
                         let v:Value=serde_json::from_str(&text)?;check_event(&v)?;
                         let id=v["item_id"].as_str().unwrap_or("").to_owned();
                         match v["type"].as_str().unwrap_or(""){
-                            "input_audio_buffer.committed"=>{ensure!(!id.is_empty(),"Missing committed item id");committed=Some(id);},
+                            "input_audio_buffer.committed"=>{
+                                ensure!(ended,"Unexpected transcript commit before recording stopped");
+                                ensure!(!id.is_empty(),"Missing committed item id");
+                                ensure!(committed.as_ref().is_none_or(|previous| previous == &id),"Conflicting transcript commit acknowledgements");
+                                committed=Some(id);
+                            },
                             "conversation.item.input_audio_transcription.delta"=>{
                                 if first{storage::log(c,"event=live_first_delta");first=false;}
-                                let preview=partials.entry(id).or_default();preview.push_str(v["delta"].as_str().unwrap_or(""));
-                                ensure!(preview.len()<=4*1024*1024,"Transcript exceeded size limit");
-                                view.send_modify(|view|view.transcript=p.preview(preview));
+                                let delta=v["delta"].as_str().ok_or_else(||anyhow::anyhow!("Missing transcript delta"))?;
+                                if let Some(preview)=transcripts.delta(&id,delta)? {
+                                    view.send_modify(|view|view.transcript=live_preview(p,preview));
+                                }
                             }
                             "conversation.item.input_audio_transcription.completed"=>{
                                 let text=v["transcript"].as_str().ok_or_else(||anyhow::anyhow!("Missing final transcript"))?;
-                                completed.insert(id,text.into());ensure!(completed.len()<=32,"Too many unsolicited transcript items");
+                                transcripts.complete(&id,text)?;
                             }
                             _=>(),
                         }
                     }
                     Message::Close(_)=>bail!("Realtime connection closed before the final transcript"),
-                    Message::Ping(data)=>ws.send(Message::Pong(data)).await?,
+                    Message::Ping(data)=>live_send(&mut ws, Message::Pong(data), c, deadline).await?,
                     _=>(),
                 }
             }
-            _=tokio::time::sleep(wait),if deadline.is_some()=>bail!("Timed out waiting for final transcription; partial text was not delivered"),
+            _=tokio::time::sleep(wait),if deadline.is_some()=>bail!(FINAL_TIMEOUT),
         }
     }
 }
@@ -327,4 +455,111 @@ pub async fn batch(c: &Config, p: &Processor, language: &str, path: &Path) -> Re
         ),
     );
     Ok(text.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn transcript_storage_limits_all_items_and_releases_replaced_partials() {
+        let mut transcripts = LiveTranscripts::default();
+        let half = "a".repeat(TRANSCRIPT_LIMIT / 2);
+        transcripts.delta("ours", &half).unwrap();
+        assert!(transcripts.delta("other", &half).is_err());
+        // The final replaces the partial, rather than retaining both copies.
+        transcripts.complete("ours", "Final").unwrap();
+        assert_eq!(transcripts.bytes, "ours".len() + "Final".len());
+        assert!(transcripts.delta("ours", "Stale draft").unwrap().is_none());
+        transcripts.delta("other", &half).unwrap();
+        assert_eq!(transcripts.take_final("ours").unwrap(), "Final");
+        assert_eq!(transcripts.bytes, "other".len() + half.len());
+        assert!(transcripts.delta("", "Missing id").is_err());
+
+        let mut transcripts = LiveTranscripts::default();
+        for index in 0..TRANSCRIPT_ITEMS {
+            transcripts.delta(&index.to_string(), "word").unwrap();
+        }
+        assert!(transcripts.complete("extra", "text").is_err());
+        assert!(transcripts.delta("extra", "text").is_err());
+        // An existing item remains writable when all item slots are occupied.
+        transcripts.complete("0", "Final").unwrap();
+        assert_eq!(transcripts.take_final("0").unwrap(), "Final");
+    }
+
+    #[test]
+    fn vocabulary_context_reaches_live_and_batch_without_duplicate_hints() {
+        let mut c = Config::default();
+        c.set("DICTIONARY_FILE", "");
+        c.set(
+            "OPENAI_PROMPT",
+            "English and Danish data science discussion.",
+        );
+        c.set("OPENAI_KEYWORDS", " PyTorch, ROC-AUC, pytorch ");
+        let mut p = Processor::load(&c).unwrap();
+        p.dictionary.terms = vec![
+            "PyTorch".into(),
+            " cross-validation ".into(),
+            "ROC-AUC".into(),
+        ];
+        let hints = vec!["PyTorch", "ROC-AUC", "cross-validation"];
+        let update = live_update(&c, &p, "").unwrap();
+        let live = &update["session"]["audio"]["input"]["transcription"];
+        assert_eq!(live["keywords"], json!(hints));
+        assert_eq!(live["prompt"], c.get("OPENAI_PROMPT"));
+        let fields = batch_fields(&c, &p, "").unwrap();
+        assert_eq!(
+            fields
+                .iter()
+                .filter(|(key, _)| key == "keywords[]")
+                .map(|(_, value)| value.as_str())
+                .collect::<Vec<_>>(),
+            hints
+        );
+        assert!(fields.contains(&("prompt".into(), c.get("OPENAI_PROMPT").into())));
+        // Explicit live overrides still take precedence, including an empty prompt.
+        c.set("LIVE_PROMPT", "");
+        c.set("LIVE_KEYWORDS", "JAX");
+        let update = live_update(&c, &p, "").unwrap();
+        let live = &update["session"]["audio"]["input"]["transcription"];
+        assert!(live.get("prompt").is_none());
+        assert_eq!(
+            live["keywords"],
+            json!(["JAX", "PyTorch", "cross-validation", "ROC-AUC"])
+        );
+    }
+
+    #[tokio::test]
+    async fn stalled_control_writes_respect_upload_and_final_deadlines() {
+        for (message, final_deadline) in [
+            (Message::Pong(vec![1]), None),
+            (
+                Message::Text(json!({"type":"input_audio_buffer.commit"}).to_string()),
+                Some(Instant::now()),
+            ),
+        ] {
+            let mut c = Config::default();
+            c.set("HTTP_CONNECT_TIMEOUT_S", "0.01");
+            let mut stalled = Box::pin(futures_util::sink::unfold((), |(), _: Message| {
+                std::future::pending::<std::result::Result<(), tokio_tungstenite::tungstenite::Error>>(
+                )
+            }));
+            let error = timeout(
+                Duration::from_secs(1),
+                live_send(&mut stalled, message, &c, final_deadline),
+            )
+            .await
+            .expect("stalled writes must have a deadline")
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                if final_deadline.is_some() {
+                    FINAL_TIMEOUT
+                } else {
+                    "Realtime upload stalled"
+                }
+            );
+        }
+    }
 }

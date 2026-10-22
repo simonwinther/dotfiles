@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Chess
+Comment=Chess
+Exec=desktopctl launch webapp https://www.chess.com/home
+Terminal=false
+Type=Application
+Icon=Chess
+StartupNotify=true

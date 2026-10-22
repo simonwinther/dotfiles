@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=GitHub
+Comment=GitHub
+Exec=desktopctl launch webapp https://github.com/
+Terminal=false
+Type=Application
+Icon=GitHub
+StartupNotify=true

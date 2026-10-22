@@ -1,8 +1,2 @@
-#!/usr/bin/env bash
-
-set -euo pipefail
-
-# Keep the sliders independent of this launcher's shell or terminal. Starting
-# an active service is idempotent, including repeated Hyprland startup hooks.
-systemctl --user daemon-reload
-exec systemctl --user start workspaces-slider.service
+#!/usr/bin/env sh
+exec systemctl --user start desktop-workspaces.service

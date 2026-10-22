@@ -69,8 +69,8 @@ startup order, bar restarts, or monitor reconnects.
 
 ## Appearance
 
-The original dark palette is preserved. When Omarchy's current theme has a
-`light.mode` marker, the pill uses Catppuccin Latte instead. Omarchy's Hyprland
+The original dark palette is preserved. When Desktop's current theme has a
+`light.mode` marker, the pill uses Catppuccin Latte instead. Desktop's Hyprland
 reload updates the running pill without restarting it or changing its animation.
 The usual workspace refresh also checks the appearance.
 

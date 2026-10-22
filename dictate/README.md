@@ -58,6 +58,24 @@ dictate eval score SUITE.toml TRANSCRIPTS.json [--output REPORT.json]
 reports use the same format as the Python version, including word error rate,
 technical-term recall, and number recall.
 
+## Data science vocabulary
+
+The personal dictionary and starter dictionary contain 65 focused hints for
+machine learning, statistics, and Python tools, including linear classifiers,
+cross-validation, regularization, PyTorch, JAX, and Weights & Biases. A short
+`OPENAI_PROMPT` in the personal configuration describes everyday English/Danish
+dictation that often discusses these subjects. Both live and batch requests
+receive the hints; explicit `LIVE_PROMPT` overrides still take precedence.
+This follows OpenAI's [transcription context guidance](https://developers.openai.com/api/docs/guides/realtime-transcription#add-transcription-context).
+
+Hints help recognition without forcing the terms into ordinary speech. The 42
+local corrections cover specific spelling and grammar mistakes; ordinary
+"weights and biases" remains unchanged. There is no extra cleanup API request.
+Edit `~/.config/dictate/dictionary.toml` and run `dictate dictionary check`;
+changes apply to the next recording without rebuilding. Existing punctuation
+commands remain available. For literal words such as "training period", set
+`PUNCTUATION_MODE=explicit` and say "punctuation comma" for a command.
+
 ## Latency and desktop behavior
 
 The CLI and recording worker do not load GTK. Microphone bytes flow directly
@@ -66,6 +84,45 @@ audio journal supports recovery. Transcript previews and waveform levels reach
 the overlay over a pipe; there is no polling of growing audio or preview files.
 Personal corrections and punctuation use small phrase tries, keeping Unicode
 regex compilation out of recording startup.
+
+Live upload reads the existing audio journal independently of microphone
+capture, so a full network queue cannot block stop/cancel or recording limits.
+Queued samples retain their original order without unbounded memory buffering.
+WebSocket audio, commit, and keepalive writes have deadlines; the final
+transcript deadline includes sending the commit. Failed uploads keep the
+recording available for retry.
+
+Long transcripts reuse the overlay's cached text layout while the visible tail
+is unchanged. Live preview processing examines at most the last 8,000 characters;
+the complete final transcript is still saved, copied, and pasted. Incoming
+transcript storage has an aggregate size and item-count limit, and stale draft
+events cannot overwrite final text.
+
+The recording overlay skips repaints when its waveform, transcript, timer, and
+displayed cost are unchanged. A regression scenario requires 10 repaints for
+625 input polls during ten quiet seconds instead of repainting every poll.
+The waveform and finishing animation keep their smooth cadence. Desktop event
+bursts share one monitor refresh, independent monitor queries run concurrently,
+and sessions with the overlay disabled do no monitor tracking.
+
+Stop and cancel interrupt volume fade-in. The personal configuration uses a
+150 ms fade-in, a 200 ms fade-out, and eight steps, reducing the time before
+another recording can start. The original volume and shared browser-dictation
+coordination are preserved. A recorder that closes its audio pipe without
+exiting has a bounded shutdown; failure retains audio for retry without
+delivering an incomplete recording.
+
+PipeWire 1.6.x reports exit status 1 even after a normal requested recording
+stop. A quiet, requested stop is accepted; unexpected exit or recorder error
+output still preserves audio for recovery. Failure messages keep the recorder's
+actual cause, exit status, and bounded diagnostic output instead of replacing
+them with a generic microphone error. Diagnostics add no per-audio-frame work.
+
+Measured on 17/10/2026, cancellation-to-ready median fell from 1,486 ms to
+195 ms with the interruptible fade and shorter personal fade settings. This
+used three trials after a warmup, synthetic PCM, a loopback WebSocket, and a
+simulated audio sink. Every trial restored the original volume. These numbers
+measure local session cleanup, excluding network and model response time.
 
 Measured on 15/10/2026 with the installed launchers and the existing personal
 dictionary (19 terms, 36 corrections):
@@ -80,7 +137,7 @@ a loopback WebSocket server. Overlay, ducking, and paste were disabled for both
 versions. The first-audio improvement is 13.7×; network and model transcription
 latency are outside this measurement. The benchmark never contacted OpenAI.
 
-The separate overlay renders at 60 Hz through native Wayland layer-shell. Its
+The separate overlay animates at up to 60 Hz through native Wayland layer-shell. Its
 rounded cyan frame and black background match the previous overlay. It follows
 the active application's monitor, stays above other windows, accepts no keyboard
 focus, and lets pointer clicks through. It needs no additional Hyprland rules.

@@ -1,0 +1,15 @@
+{
+  "defaultTheme": "tokyoled",
+  "defaultFont": "JetBrainsMono Nerd Font",
+  "browser": "chromium",
+  "editor": "nvim",
+  "screenshots": "Pictures",
+  "recordings": "Videos",
+  "themeDirectories": [
+    "~/.config/desktop/themes"
+  ],
+  "wallpaperDirectories": [
+    "~/.local/share/wallpapers/tokyoled"
+  ],
+  "defaultWallpaper": "~/.local/share/wallpapers/tokyoled/digital-art/background.png"
+}

@@ -6,17 +6,7 @@ hl.config({
     },
 })
 
--- Window rules migrated from omarchy-supplement/hypr/hyprland-overrides.conf
-hl.window_rule({
-    match = { class = "^(Stretchly)$" },
-    name = "stretchly-giant",
-    float = true,
-    monitor = "DP-2",
-    move = { 0, 0 },
-    size = { 1920, 1080 },
-    pin = true,
-})
-
+-- Window rules migrated from legacy-overrides/hypr/hyprland-overrides.conf
 hl.window_rule({
     match = { class = "^global\\.snip$" },
     name = "global-snip",

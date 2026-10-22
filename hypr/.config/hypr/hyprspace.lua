@@ -1,4 +1,10 @@
-hl.plugin.load(os.getenv("HOME") .. "/.local/share/hyprspace/hyprspace.so")
+local plugin = os.getenv("HYPRSPACE_PLUGIN")
+if not plugin then
+    local paths = io.popen("desktopctl path hyprspace 2>/dev/null")
+    if paths then plugin = paths:read("*l"); paths:close() end
+end
+if not plugin or plugin == "" then return end
+hl.plugin.load(plugin)
 
 hl.bind("SUPER + A", function()
     return hl.plugin.hyprspace.overview()
@@ -46,8 +52,9 @@ if hl.get_config("plugin.hyprspace.follow_mouse") ~= nil then
                     workspace_labels = true,
                     label_color = "rgba(cdd6f4ff)",
                     title_bg_color = "rgba(1e1e2ee6)",
-                    -- Prepared pickers and scratchpads stay outside the overview.
-                    include_special = false,
+                    -- Keep scratchpad and hidden visible, but omit prepared pickers.
+                    include_special = true,
+                    exclude_workspaces = "special:pdf-picker,special:file-picker",
                     all_monitors = true,
                     font = "Sans 12",
                     fullscreen_border = "rgba(89b4faff)",

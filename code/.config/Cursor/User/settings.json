@@ -1,0 +1,4 @@
+{ "workbench.colorTheme": "Tokyo Night",
+    "window.commandCenter": true, 
+    "keyboard.dispatch": "keyCode"
+}

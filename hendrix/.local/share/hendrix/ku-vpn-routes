@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# HENDRIX_SPLIT_TUNNEL_V1: fixed, narrow routes; public DNS stays on Wi-Fi.
+set -e
+[[ ${TUNDEV:-} == kuvpn ]] || exit 1
+
+# Override the server's full-tunnel routes on every connect and disconnect.
+export CISCO_SPLIT_INC=3 CISCO_SPLIT_EXC=0
+export CISCO_SPLIT_INC_0_ADDR=10.84.3.0
+export CISCO_SPLIT_INC_0_MASK=255.255.255.0 CISCO_SPLIT_INC_0_MASKLEN=24
+export CISCO_SPLIT_INC_1_ADDR=10.83.2.74
+export CISCO_SPLIT_INC_1_MASK=255.255.255.255 CISCO_SPLIT_INC_1_MASKLEN=32
+export CISCO_SPLIT_INC_2_ADDR=10.83.2.75
+export CISCO_SPLIT_INC_2_MASK=255.255.255.255 CISCO_SPLIT_INC_2_MASKLEN=32
+export CISCO_IPV6_SPLIT_INC=0 CISCO_IPV6_SPLIT_EXC=0
+
+# Configure resolved ourselves: the generic script must never add global DNS.
+export INTERNAL_IP4_DNS='' INTERNAL_IP6_DNS=''
+if [[ ${reason:-} == disconnect ]]; then
+  resolvectl revert "$TUNDEV" || true
+fi
+${VPNC_SCRIPT:-/etc/vpnc/vpnc-script}
+case ${reason:-} in
+  connect|reconnect)
+    resolvectl default-route "$TUNDEV" no
+    resolvectl domain "$TUNDEV" '~unicph.domain'
+    resolvectl dns "$TUNDEV" 10.83.2.74 10.83.2.75
+    ;;
+esac

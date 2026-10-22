@@ -4,6 +4,7 @@ mod hypr;
 mod render;
 mod supervisor;
 mod termination;
+mod sizing;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -39,7 +40,7 @@ use smithay_client_toolkit::reexports::client::{
 use tiny_skia::Pixmap;
 
 use render::{
-    center_for, Renderer, FIRST_CENTER, PANEL_HEIGHT, PANEL_TOP, PANEL_WIDTH, SLOT_WIDTH,
+    center_for, Renderer, PANEL_HEIGHT, PANEL_TOP, PANEL_WIDTH, SLOT_WIDTH,
     WORKSPACE_COUNT,
 };
 
@@ -104,6 +105,7 @@ fn main() {
         qh: qh.clone(),
         monitor: name,
         scale: 1,
+        ui_scale: sizing::configured_scale(),
         configured: false,
         frame_pending: false,
         active: snapshot.active.clamp(1, WORKSPACE_COUNT),
@@ -138,7 +140,7 @@ fn main() {
     };
     app.scale = app.output_state.info(&output).map(|info| info.scale_factor).unwrap_or(1).max(1);
 
-    let Some(renderer) = Renderer::new(app.scale as f32) else {
+    let Some(renderer) = Renderer::for_surface(app.ui_scale, app.scale) else {
         return;
     };
     let buffer_bytes = (renderer.width() * renderer.height() * 4) as usize;
@@ -160,9 +162,9 @@ fn main() {
         Some(format!("waybar-workspace-slider-{}", app.monitor)),
         Some(&output),
     );
-    layer.set_size(PANEL_WIDTH as u32, PANEL_HEIGHT as u32);
+    layer.set_size((PANEL_WIDTH * app.ui_scale).round() as u32, (PANEL_HEIGHT * app.ui_scale).round() as u32);
     layer.set_anchor(Anchor::TOP);
-    layer.set_margin(PANEL_TOP, 0, 0, 0);
+    layer.set_margin((PANEL_TOP as f32 * app.ui_scale).round() as i32, 0, 0, 0);
     // Draw over Waybar's reserved strip instead of below it.
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
@@ -250,6 +252,7 @@ struct App {
 
     monitor: String,
     scale: i32,
+    ui_scale: f32,
     configured: bool,
     frame_pending: bool,
 
@@ -318,8 +321,7 @@ impl App {
     }
 
     fn workspace_at(&self, x: f64) -> i32 {
-        let workspace = ((x as f32 - FIRST_CENTER) / SLOT_WIDTH).round() as i32 + 1;
-        workspace.clamp(1, WORKSPACE_COUNT)
+        sizing::workspace_at(x, self.ui_scale)
     }
 
     fn draw(&mut self, qh: &QueueHandle<Self>) {
@@ -386,7 +388,7 @@ impl CompositorHandler for App {
             return;
         }
         self.scale = factor;
-        if let Some(renderer) = Renderer::new(factor as f32) {
+        if let Some(renderer) = Renderer::for_surface(self.ui_scale, factor) {
             self.pixmap = Pixmap::new(renderer.width(), renderer.height());
             self.renderer = Some(renderer);
         }

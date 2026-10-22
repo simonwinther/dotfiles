@@ -19,6 +19,17 @@ struct Incoming {
     revision: u64,
     alive: bool,
 }
+#[derive(Clone, Copy, PartialEq)]
+struct DisplayCost {
+    ceiling: f64,
+    decimals: i32,
+    dkk: bool,
+}
+#[derive(Clone, Copy, PartialEq)]
+struct DisplayStamp {
+    seconds: u64,
+    cost: Option<DisplayCost>,
+}
 struct Overlay {
     incoming: Arc<Mutex<Incoming>>,
     view: View,
@@ -31,6 +42,63 @@ struct Overlay {
     last_text: String,
     monitor: String,
     began: Instant,
+    last_display: Option<DisplayStamp>,
+}
+fn recording(view: &View) -> bool {
+    matches!(view.phase.as_str(), "starting" | "recording")
+}
+fn display_stamp(view: &View, now_ms: u64) -> DisplayStamp {
+    let elapsed = if recording(view) {
+        now_ms.saturating_sub(view.start_ms)
+    } else {
+        view.recording_ms
+    };
+    let cost = if view.cost_rate > 0. && view.cost_rate.is_finite() {
+        let usd = elapsed as f64 / 60000. * view.cost_rate;
+        let dkk = view.currency.eq_ignore_ascii_case("DKK");
+        let amount = if dkk { usd * view.exchange } else { usd };
+        let decimals = if amount < 0.01 {
+            4
+        } else if amount < 1. {
+            3
+        } else {
+            2
+        };
+        let ceiling = (amount * 10f64.powi(decimals)).ceil() / 10f64.powi(decimals);
+        Some(DisplayCost {
+            ceiling,
+            decimals,
+            dkk,
+        })
+    } else {
+        None
+    };
+    DisplayStamp {
+        seconds: elapsed / 1000,
+        cost,
+    }
+}
+impl Overlay {
+    fn advance_frame(&mut self, now_ms: u64, content_changed: bool) -> bool {
+        let recording = recording(&self.view);
+        let mut bars_changed = false;
+        if recording {
+            for (i, bar) in self.bars.iter_mut().enumerate() {
+                let target = self.view.bars.get(i).copied().unwrap_or(0.) as f64;
+                let delta = target - *bar;
+                // Stop repainting once movement is below 0.024 pixels at full bar height.
+                if delta.abs() >= 0.001 {
+                    let factor = if delta > 0. { 0.65 } else { 0.22 };
+                    *bar += delta * factor;
+                    bars_changed = true;
+                }
+            }
+        }
+        let display = display_stamp(&self.view, now_ms);
+        let display_changed = self.last_display != Some(display);
+        self.last_display = Some(display);
+        content_changed || !recording || bars_changed || display_changed
+    }
 }
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -114,6 +182,7 @@ fn main() {
             last_text: String::new(),
             monitor: String::new(),
             began: Instant::now(),
+            last_display: None,
         });
         let data = (&mut *overlay) as *mut Overlay as *mut c_void;
         gtk::gtk_drawing_area_set_draw_func(area.cast(), Some(draw), data, None);
@@ -145,7 +214,12 @@ unsafe extern "C" fn tick(data: *mut c_void) -> i32 {
         }
         return 0;
     }
+    let mut content_changed = false;
     if data.revision != o.revision {
+        content_changed = o.view.phase != data.view.phase
+            || o.view.live != data.view.live
+            || o.view.transcript != data.view.transcript
+            || o.view.monitor != data.view.monitor;
         o.view = data.view.clone();
         o.revision = data.revision;
     }
@@ -164,13 +238,10 @@ unsafe extern "C" fn tick(data: *mut c_void) -> i32 {
             }
         }
     }
-    for i in 0..42 {
-        let target = o.view.bars.get(i).copied().unwrap_or(0.) as f64;
-        let factor = if target > o.bars[i] { 0.65 } else { 0.22 };
-        o.bars[i] += (target - o.bars[i]) * factor;
-    }
-    unsafe {
-        gtk::gtk_widget_queue_draw(o.area);
+    if o.advance_frame(epoch_ms(), content_changed) {
+        unsafe {
+            gtk::gtk_widget_queue_draw(o.area);
+        }
     }
     1
 }
@@ -223,7 +294,7 @@ unsafe extern "C" fn draw(
     cr.set_source_rgb(0.094, 0.835, 1.);
     cr.set_line_width(1.);
     let _ = cr.stroke();
-    let recording = matches!(o.view.phase.as_str(), "starting" | "recording");
+    let recording = recording(&o.view);
     if o.view.live {
         label(
             &cr,
@@ -256,14 +327,14 @@ unsafe extern "C" fn draw(
                 pango::pango_layout_set_width(o.layout, (width - 36) * 1024);
                 pango::pango_layout_set_wrap(o.layout, pango::PANGO_WRAP_WORD_CHAR);
             }
+            let start = text
+                .char_indices()
+                .rev()
+                .nth(3999)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let text = &text[start..];
             if text != o.last_text {
-                let start = text
-                    .char_indices()
-                    .rev()
-                    .nth(3999)
-                    .map(|(i, _)| i)
-                    .unwrap_or(0);
-                let text = &text[start..];
                 pango::pango_layout_set_text(o.layout, text.as_ptr().cast(), text.len() as i32);
                 o.last_text = text.to_owned();
             }
@@ -308,12 +379,8 @@ unsafe extern "C" fn draw(
         );
         let _ = cr.fill();
     }
-    let elapsed = if recording {
-        epoch_ms().saturating_sub(o.view.start_ms)
-    } else {
-        o.view.recording_ms
-    };
-    let seconds = elapsed / 1000;
+    let display = display_stamp(&o.view, epoch_ms());
+    let seconds = display.seconds;
     label(
         &cr,
         &format!("{:02}:{:02}", seconds / 60, seconds % 60),
@@ -322,18 +389,12 @@ unsafe extern "C" fn draw(
         10.,
         (0.69, 0.7, 0.83),
     );
-    if o.view.cost_rate > 0. && o.view.cost_rate.is_finite() {
-        let usd = elapsed as f64 / 60000. * o.view.cost_rate;
-        let dkk = o.view.currency.eq_ignore_ascii_case("DKK");
-        let amount = if dkk { usd * o.view.exchange } else { usd };
-        let decimals = if amount < 0.01 {
-            4
-        } else if amount < 1. {
-            3
-        } else {
-            2
-        };
-        let ceiling = (amount * 10f64.powi(decimals)).ceil() / 10f64.powi(decimals);
+    if let Some(DisplayCost {
+        ceiling,
+        decimals,
+        dkk,
+    }) = display.cost
+    {
         let cost = if dkk {
             format!("≤{ceiling:.precision$} kr", precision = decimals as usize).replace('.', ",")
         } else {
@@ -352,6 +413,149 @@ mod tests {
             surface: *mut cairo::ffi::cairo_surface_t,
             filename: *const std::ffi::c_char,
         ) -> i32;
+    }
+
+    fn frame_overlay(view: View) -> Overlay {
+        Overlay {
+            incoming: Arc::new(Mutex::new(Incoming {
+                view: view.clone(),
+                revision: 1,
+                alive: true,
+            })),
+            view,
+            revision: 1,
+            bars: [0.; 42],
+            window: ptr::null_mut(),
+            area: ptr::null_mut(),
+            main_loop: ptr::null_mut(),
+            layout: ptr::null_mut(),
+            last_text: String::new(),
+            monitor: String::new(),
+            began: Instant::now(),
+            last_display: None,
+        }
+    }
+
+    #[test]
+    fn settled_recording_redraws_only_when_visible_time_changes() {
+        let mut overlay = frame_overlay(View {
+            phase: "recording".into(),
+            start_ms: 1000,
+            ..Default::default()
+        });
+        let redraws = (1000..11000)
+            .step_by(16)
+            .filter(|&now| overlay.advance_frame(now, false))
+            .count();
+        assert_eq!(redraws, 10, "625 input polls need only ten timer repaints");
+        assert!(
+            overlay.advance_frame(10984, true),
+            "text updates repaint immediately"
+        );
+    }
+
+    #[test]
+    fn recording_waveform_settles_and_resumes_for_new_audio() {
+        let mut overlay = frame_overlay(View {
+            bars: vec![0.5; 42],
+            ..Default::default()
+        });
+        assert!(overlay.advance_frame(0, false));
+        for _ in 0..40 {
+            overlay.advance_frame(0, false);
+        }
+        assert!(!overlay.advance_frame(0, false));
+        assert!(overlay.bars.iter().all(|&bar| (0.5 - bar).abs() < 0.001));
+        overlay.view.bars.fill(0.);
+        assert!(overlay.advance_frame(0, false));
+        for _ in 0..40 {
+            overlay.advance_frame(0, false);
+        }
+        assert!(!overlay.advance_frame(0, false));
+        assert!(overlay.bars.iter().all(|&bar| bar < 0.001));
+    }
+
+    #[test]
+    fn cost_changes_and_finishing_animation_continue_to_redraw() {
+        let mut overlay = frame_overlay(View {
+            cost_rate: 0.006,
+            currency: "USD".into(),
+            ..Default::default()
+        });
+        assert!(overlay.advance_frame(0, false));
+        assert!(overlay.advance_frame(16, false));
+        assert!(!overlay.advance_frame(32, false));
+        assert!(overlay.advance_frame(1001, false));
+        assert_eq!(overlay.last_display.unwrap().cost.unwrap().ceiling, 0.0002);
+        overlay.view.phase = "processing".into();
+        assert!(overlay.advance_frame(1001, false));
+        assert!(overlay.advance_frame(1017, false));
+    }
+
+    #[test]
+    fn long_transcript_reuses_layout_until_visible_tail_changes() {
+        let tail = "∇é🙂 ".repeat(1000);
+        let view = View {
+            transcript: format!("Earlier context: {tail}"),
+            ..Default::default()
+        };
+        let mut overlay = Overlay {
+            incoming: Arc::new(Mutex::new(Incoming {
+                view: view.clone(),
+                revision: 1,
+                alive: true,
+            })),
+            view,
+            revision: 1,
+            bars: [0.; 42],
+            window: ptr::null_mut(),
+            area: ptr::null_mut(),
+            main_loop: ptr::null_mut(),
+            layout: ptr::null_mut(),
+            last_text: String::new(),
+            monitor: String::new(),
+            began: Instant::now(),
+            last_display: None,
+        };
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 430, 204).unwrap();
+        let context = Context::new(&surface).unwrap();
+        let render = |overlay: &mut Overlay| unsafe {
+            draw(
+                ptr::null_mut(),
+                context.to_raw_none(),
+                430,
+                204,
+                (overlay as *mut Overlay).cast(),
+            );
+        };
+        render(&mut overlay);
+        assert_eq!(
+            overlay.last_text, tail,
+            "tail must retain complete UTF-8 characters"
+        );
+        let serial = unsafe { pango::pango_layout_get_serial(overlay.layout) };
+        render(&mut overlay);
+        assert_eq!(
+            unsafe { pango::pango_layout_get_serial(overlay.layout) },
+            serial
+        );
+        overlay.view.transcript = format!("Corrected earlier context: {tail}");
+        render(&mut overlay);
+        assert_eq!(
+            unsafe { pango::pango_layout_get_serial(overlay.layout) },
+            serial
+        );
+        overlay.view.transcript.push('β');
+        render(&mut overlay);
+        assert_ne!(
+            unsafe { pango::pango_layout_get_serial(overlay.layout) },
+            serial
+        );
+        assert_eq!(overlay.last_text.chars().count(), 4000);
+        assert!(overlay.last_text.ends_with(" β"));
+        unsafe {
+            gobject::g_object_unref(overlay.layout.cast());
+        }
     }
 
     #[test]
@@ -374,6 +578,7 @@ mod tests {
             last_text: String::new(),
             monitor: String::new(),
             began: Instant::now(),
+            last_display: None,
         };
         let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 430, 204).unwrap();
         {

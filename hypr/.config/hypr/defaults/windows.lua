@@ -51,7 +51,6 @@ hl.window_rule({ match = { tag = "firefox-based-browser" }, opacity = "1.0 0.985
 hl.window_rule({ match = { title = ".*is sharing.*" }, workspace = "special silent" })
 -- Remove 1px border around hyprshot screenshots
 hl.layer_rule({ match = { namespace = "selection" }, no_anim = true })
--- Disable mouse focus (see https://github.com/basecamp/omarchy/pull/5183#issuecomment-4189299971)
 hl.window_rule({ match = { class = "^(jetbrains-.*)$" }, name = "jetbrains-focus", no_follow_mouse = true })
 -- Float LocalSend and fzf file picker
 hl.window_rule({ match = { class = "(Share|localsend)" }, float = true })
@@ -95,7 +94,7 @@ hl.window_rule({ match = { tag = "floating-window" }, size = { 875, 600 } })
 
 hl.window_rule({
     match = {
-        class = "(org.omarchy.bluetui|org.omarchy.impala|org.omarchy.wiremix|org.omarchy.btop|org.omarchy.terminal|org.omarchy.bash|org.codeberg.dnkl.foot|org.gnome.NautilusPreviewer|org.gnome.Evince|com.gabm.satty|Omarchy|About|TUI.float|imv|mpv)",
+        class = "(org.desktop.bluetui|org.desktop.impala|org.desktop.wiremix|org.desktop.btop|org.desktop.terminal|org.desktop.bash|org.codeberg.dnkl.foot|org.gnome.NautilusPreviewer|org.gnome.Evince|com.gabm.satty|Desktop|About|TUI.float|imv|mpv)",
     },
     tag = "+floating-window",
 })
@@ -109,9 +108,9 @@ hl.window_rule({
 hl.window_rule({ match = { class = "org.gnome.Calculator" }, float = true })
 
 -- Fullscreen screensaver
-hl.window_rule({ match = { class = "org.omarchy.screensaver" }, fullscreen = true })
-hl.window_rule({ match = { class = "org.omarchy.screensaver" }, float = true })
-hl.window_rule({ match = { class = "org.omarchy.screensaver" }, animation = "slide" })
+hl.window_rule({ match = { class = "org.desktop.screensaver" }, fullscreen = true })
+hl.window_rule({ match = { class = "org.desktop.screensaver" }, float = true })
+hl.window_rule({ match = { class = "org.desktop.screensaver" }, animation = "slide" })
 
 -- No transparency on media windows
 hl.window_rule({
@@ -134,8 +133,6 @@ hl.window_rule({ match = { tag = "pop" }, rounding = 8 })
 hl.window_rule({ match = { tag = "noidle" }, idle_inhibit = "always" })
 -- Prevent Telegram from stealing focus on new messages
 hl.window_rule({ match = { class = "org.telegram.desktop" }, focus_on_activate = false })
--- Float Typora print dialog
-hl.window_rule({ match = { class = "^Typora$", title = "^Print$" }, float = true, center = true })
 -- Define terminal tag to style them uniformly
 hl.window_rule({ match = { class = "(Alacritty|kitty|com.mitchellh.ghostty|foot)" }, tag = "+terminal" })
 hl.window_rule({ match = { tag = "terminal" }, tag = "-default-opacity" })

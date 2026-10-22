@@ -1,0 +1,19 @@
+@import "../desktop-clipboard/style.css";
+
+.box-wrapper {
+  padding: 12px;
+}
+
+.preview {
+  padding: 10px;
+  margin-left: 0;
+  margin-top: 4px;
+}
+
+.preview label {
+  font-size: 13px;
+}
+
+.clipboard-card .item-text-box {
+  padding: 6px 0;
+}

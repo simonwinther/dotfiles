@@ -1,0 +1,9 @@
+# Keep the existing native provider; do not run a second clipboard watcher.
+max_items = 100
+ocr = false
+ignore_symbols = false
+pinned_on_top = true
+auto_cleanup = 0
+command = "wl-copy"
+text_editor_cmd = "desktopctl launch editor %FILE%"
+image_editor_cmd = "satty --filename %FILE%"

@@ -5,11 +5,7 @@
 # Font
 # ------------------------------------------------------------
 
-# Omarchy will literally overwrite anything that I put here.
-# They have a file where they strictly overwrite any color in any
-# app if you don't use their set font command in the terminal.
-# This is also why I want to switch to nix.
-# I'll keep it here tho for nix.
+# Personal font and color settings are kept in this portable package.
 
 font-family = "JetBrainsMono Nerd Font"
 font-style = "Regular"
@@ -30,6 +26,9 @@ font-feature = "liga"
 # Automatic: light:SimonLight,dark:SimonDark follows system appearance.
 # Keep color values in the theme files so they do not override switching.
 theme = light:SimonLight,dark:SimonDark
+
+# Interactive font/theme choices are generated outside Home Manager's links.
+config-file = ?~/.local/state/desktop/theme/ghostty.conf
 
 # Make Ghostty UI/chrome follow the active appearance too.
 window-theme = auto

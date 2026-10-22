@@ -1,0 +1,8 @@
+{
+  "org.gnome.nautilus.preferences": {
+    "default-folder-viewer": "icon-view"
+  },
+  "org.gnome.nautilus.icon-view": {
+    "default-zoom-level": "small-plus"
+  }
+}

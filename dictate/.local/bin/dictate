@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -n ${DESKTOP_DICTATE_BIN:-} ]]; then exec "$DESKTOP_DICTATE_BIN" "$@"; fi
+if command -v dictate-native >/dev/null 2>&1; then exec dictate-native "$@"; fi
+
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/dictate"
 if [[ ! -x "$cache_root/bin/dictate" ]]; then
   "${BASH_SOURCE[0]%/*}/dictate-build"

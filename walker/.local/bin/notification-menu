@@ -2,6 +2,6 @@
 
 set -euo pipefail
 
-exec omarchy-launch-walker \
+exec desktopctl launcher \
   -m menus:notifications \
   -p "Search notifications…"

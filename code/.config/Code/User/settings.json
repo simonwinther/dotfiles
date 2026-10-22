@@ -1,0 +1,283 @@
+{
+  "keyboard.dispatch": "keyCode",
+  "latex-workshop.intellisense.useTabStops.enabled": true,
+  // 🔤 ---- Spell Checking ----
+  "cSpell.userWords": ["linecap", "Mostafa", "Pressable"],
+  "cSpell.language": "en,da",
+  // ---- End Spell Checking ---- 🔤
+
+  // 🐍 ---- Python ---
+  "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.indexing": true,
+  "python.analysis.autoImportCompletions": true,
+  "[python]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": "ms-python.black-formatter",
+  },
+  "python.languageServer": "Pylance",
+  // ---- End Python ---- 🐍
+
+  // 📰 ---- LaTeX ----
+  "[latex]": {
+    "editor.defaultFormatter": "James-Yu.latex-workshop",
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "editor.tabCompletion": "on",
+  },
+  "latex-workshop.latex.autoBuild.run": "onSave",
+  "files.autoSave": "off", //For less lagging when typing
+  "latex-workshop.formatting.latex": "latexindent",
+  "latex-workshop.intellisense.triggers.latex": ["-", "/"],
+  "editor.suggest.snippetsPreventQuickSuggestions": false, // for . showing up intellisense could add above too
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.synctex.afterBuild.enabled": true,
+  "ltex.enabled": true,
+  "ltex.additionalRules.enablePickyRules": true,
+  "ltex.latex.commands": {
+    "\\tableofcontents[]": "ignore",
+    "\\@ifclassloaded{}{}{}": "ignore",
+    "\\includeonly{}": "ignore",
+    "\\texttt{}": "dummy", // Inline formatting for code.
+    "\\newbool{}": "ignore",
+    "\\setbool{}": "ignore",
+    "\\setbool{}{}": "ignore",
+    // Macros and environments definitions
+    "\\newcommand{}{}": "ignore",
+    "\\renewcommand{}{}": "ignore",
+    "\\newenvironment{}[][]{}{}": "ignore",
+    "\\newenvironment{}[]{}{}": "ignore",
+    "\\newenvironment{}": "ignore",
+    "\\NewDocumentCommand{}{}{}": "ignore",
+    "\\NewEnviron{}[]{}": "ignore",
+    "\\newtheoremstyle{}{}{}{}{}{}{}{}{}": "ignore",
+    "\\DeclarePairedDelimiterX{}[]{}{}": "ignore",
+    "\\DeclarePairedDelimiter{}{}{}": "ignore",
+    // Beamer
+    "\\setbeamertemplate{}[]{}": "ignore",
+    "\\setbeamercolor{}{}": "ignore",
+    "\\setbeamerfont{}{}": "ignore",
+    "\\usebeamercolor[]{}": "ignore",
+    "\\usebeamertemplate{}[]": "ignore",
+    "\\setbeamertemplate{}{}": "ignore",
+    "\\setbeamertemplate{}[]": "ignore",
+    "\\usebeamertemplate{}[]{}": "ignore",
+    "\\setbeamerfont{}": "ignore",
+    "\\addtolength{}{}": "ignore",
+    "\\movie{}{}": "ignore",
+    "\\movie[]{}{}": "ignore",
+    // Citations and references
+    "\\cite{}": "dummy",
+    "\\nocite{}": "ignore",
+    "\\cref[]{}": "dummy",
+    "\\crefformat{}{}": "ignore",
+    "\\Crefformat{}{}": "ignore",
+    "\\crefmultiformat{}{}{}{}{}": "ignore",
+    "\\Crefmultiformat{}{}{}{}{}": "ignore",
+    "\\crtcrefreference{}": "dummy",
+    // Changes annotations
+    "\\deleted{}": "ignore",
+    "\\todo{}": "ignore",
+    "\\todo[]{}": "ignore",
+    // Macros to hide LTeX false-positive
+    "\\ltexignore{}": "ignore",
+    "\\ltexdummy{}": "dummy",
+    "\\ltexvoweldummy{}": "vowelDummy",
+    // ...
+  },
+  "ltex.dictionary": {
+    "en-US": [
+      "general_words_to_ignore :))) add simon her men generelle ikke specifikt til projekt den fucker med som qubits eller så noget",
+    ],
+  },
+  "ltex.bibtex.fields": {
+    // Abstracts in bibliography entries typically are not typed by the user and are rarely inserted into the document,
+    // but tend to have a lot of LTeX+ warnings, so I disable warnings for the abstracts.
+    "abstract": false,
+  },
+  "pasteImage.insertPattern": "\\begin{center}\n\t\t\\includegraphics[width=\\linewidth]{pasted-images/${imageFileName}}\n\t\\end{center}",
+  "pasteImage.filePathConfirmInputBoxMode": "onlyName",
+  "pasteImage.encodePath": "none",
+  "pasteImage.basePath": "${currentFileDir}",
+  "pasteImage.showFilePathConfirmInputBox": true,
+  "pasteImage.defaultName": "${currentFileNameWithoutExt}-HH-mm-ss",
+  "pasteImage.path": "${currentFileDir}/pasted-images",
+  // ---- End LaTeX ---- 📰
+
+  //💚 ---- Vim ----
+  "vscode-neovim.handleKeys": {
+    "<C-p>": false,
+    "<C-x>": false,
+    "<C-d>": false,
+    "<C-i>": false,
+    "<C-a>": false,
+    "<C-j>": false,
+    "<C-w>": false,
+    "<C-b>": false,
+    "<tab>": false,
+  },
+  "vim.handleKeys": {
+    "<C-p>": false,
+    "<C-x>": false,
+    "<C-d>": false,
+    "<C-i>": false,
+    "<C-a>": false,
+    "<C-j>": false,
+    "<C-w>": false,
+    "<C-b>": false,
+    "<tab>": false,
+  },
+  "vim.useSystemClipboard": false, //normally true, but i want to see if i can learn vim clipboard keybinds..
+  "vim.hlsearch": true,
+  // ---- End Vim ---- 💚
+
+  // 🈂️ ---- Language Settings ----
+  "[javascript]": {
+    "editor.formatOnSave": false,
+  },
+  "[javascriptreact]": {
+    "editor.formatOnSave": false,
+  },
+  "[fsharp]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "Ionide.Ionide-fsharp",
+  },
+  "[c]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "xaver.clang-format",
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+  },
+  "go.toolsManagement.autoUpdate": true,
+  "editor.inlineSuggest.enabled": true,
+  "editor.fontSize": 12,
+  "editor.lineNumbers": "relative",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "never",
+  },
+  "editor.fontFamily": "Fira Code",
+  "editor.fontLigatures": true,
+  "editor.suggestOnTriggerCharacters": true, //trigger on . i think???
+  // ---- End VS Code Editor Settings ---- ⚙️💻
+
+  // 🥛 ---- GlassIt Settings ----
+  "glassit.alpha": 210, // 0-255
+  // ---- End GlassIt Settings ----  🥛
+
+  // ---- 🧩 GitHub and Git Settings ----
+  "github.copilot.enable": {
+    "*": true,
+    "plaintext": true,
+    "markdown": true,
+    "scminput": false,
+    "python": false,
+    "latex": false,
+    "c": true,
+  },
+  "git.enableSmartCommit": true,
+  "git.ignoreMissingGitWarning": true,
+  "github.copilot.nextEditSuggestions.enabled": false,
+  "git.autofetch": true,
+  // ---- End GitHub Settings ---- 🧩
+
+  //TODO: Haven't sorted below 🧙‍♂️
+  //Consider making profiles so i can minimize the amount of extensions
+  "workbench.colorCustomizations": {
+    "bookmarks.lineBackground": "#17cb7a39",
+  },
+  "keyboard.mapAltGrToCtrlAlt": true,
+  "workbench.colorTheme": "Tokyo Night",
+  "cmake.configureOnOpen": true,
+  "jupyter.askForKernelRestart": false,
+  "settingsSync.ignoredSettings": [],
+  "remote.SSH.remotePlatform": {
+    "gpu-cluster-mstfa": "linux",
+    "192.168.0.225": "linux",
+  },
+  "vscode_custom_css.imports": [
+    "file:///c:/Users/simon/.vscode/extensions/brandonkirbyson.vscode-animations-2.0.7/dist/updateHandler.js",
+  ],
+  "animations.Enabled": true,
+  "cSpell.ignoreWords": [
+    "Qubits",
+    "Qubit",
+    "qubit",
+    "qubits",
+    "Qubits",
+    "qubits",
+    "Mostafa",
+    "Pressable",
+  ],
+  "powermode.enabled": false,
+  "editor.minimap.enabled": false,
+  "editor.formatOnSave": true,
+  "workbench.editor.empty.hint": "hidden",
+  "files.exclude": {
+    "**/.hydra": true,
+    "**/.ipynb_checkpoints": true,
+    "**/.vscode": true,
+    "**/.VSCodeCounter": true,
+    "**/__pycache__": true,
+    "**/.bin": false,
+    "**/.pytest_cache": true,
+  },
+  "docker.extension.enableComposeLanguageServer": false,
+  "workbench.sideBar.location": "right",
+  "window.customTitleBarVisibility": "windowed",
+  "errorLens.enabled": true,
+  "[haskell]": {
+    "editor.defaultFormatter": "haskell.haskell",
+  },
+  "cSpell.enabledSchemes": {
+    "comment": true,
+    "file": true,
+    "gist": true,
+    "repo": true,
+    "sftp": true,
+    "untitled": true,
+    "vscode-notebook-cell": true,
+    "vscode-scm": true,
+    "vscode-userdata": true,
+    "vscode-vfs": true,
+    "vsls": true,
+    "overleaf-workshop": true,
+  },
+  "vscode-neovim.ctrlKeysForNormalMode": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "o",
+    "r",
+    "t",
+    "u",
+    "v",
+    "w",
+    "y",
+    "z",
+    "/",
+    "]",
+    "right",
+    "left",
+    "up",
+    "down",
+    "backspace",
+    "delete",
+  ],
+  "extensions.experimental.affinity": {
+    "asvetliakov.vscode-neovim": 1,
+  },
+  "remote.autoForwardPortsSource": "hybrid",
+  "terminal.integrated.fontFamily": "monospace",
+}

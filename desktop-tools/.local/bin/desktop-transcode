@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script=$(readlink -f -- "${BASH_SOURCE[0]}")
+exec bash "$(dirname -- "$script")/../share/desktop-tools/transcode.sh" "$@"

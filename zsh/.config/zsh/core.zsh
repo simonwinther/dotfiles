@@ -2,8 +2,8 @@
 
 # Export
 export PATH="$HOME/sdk/flutter/bin:$PATH"
-export PATH=/home/simon/.opencode/bin:$PATH
-export CHROME_EXECUTABLE=/usr/bin/chromium
+export PATH=$HOME/.opencode/bin:$PATH
+export CHROME_EXECUTABLE=chromium
 
 # ──────────────────────────── GHCUP ────────────────────────────
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
@@ -34,6 +34,7 @@ export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
 # Lazy loading NVM
 export NVM_DIR="$HOME/.nvm"
 
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
 nvm() {
   unset -f nvm node npm npx
   [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
@@ -43,6 +44,7 @@ nvm() {
 node() { nvm >/dev/null; command node "$@"; }
 npm()  { nvm >/dev/null; command npm  "$@"; }
 npx()  { nvm >/dev/null; command npx  "$@"; }
+fi
 
 # ──────────────────────────── SDKMAN ────────────────────────────
 # Lazy loading SDKMAN
@@ -104,5 +106,5 @@ ZSH_AUTOSUGGEST_USE_ASYNC=1
 ZSH_AUTOSUGGEST_MANUAL_REBIND=1
 
 source ~/.config/zsh/vi-mode.zsh
-source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
-source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+source "${ZSH_AUTOSUGGESTIONS_FILE:-/usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh}" 2>/dev/null
+source "${ZSH_SYNTAX_HIGHLIGHTING_FILE:-/usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh}" 2>/dev/null

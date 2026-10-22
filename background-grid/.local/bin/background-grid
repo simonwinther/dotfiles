@@ -1,2 +1,14 @@
 #!/bin/sh
-exec /usr/bin/python "$HOME/.config/background-grid/picker.py" "$@"
+set -eu
+if command -v background-grid-native >/dev/null 2>&1; then
+    exec background-grid-native "$@"
+fi
+
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/background-grid/bin/background-grid-native"
+if [ ! -x "$binary" ]; then
+    message='Run background-grid-build once to compile the Rust wallpaper picker.'
+    printf '%s\n' "background-grid: $message" >&2
+    notify-send -a 'Backgrounds' 'Wallpaper picker needs a build' "$message" 2>/dev/null || true
+    exit 1
+fi
+exec "$binary" "$@"

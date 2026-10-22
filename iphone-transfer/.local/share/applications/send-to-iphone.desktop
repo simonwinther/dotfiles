@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Send to iPhone
+Comment=Choose files to send to your iPhone over Tailscale
+Exec=send-to-iphone %F
+Icon=phone
+Terminal=false
+Categories=Network;
+Keywords=file;files;photo;photos;share;sharing;tailscale;taildrop;iphone;
+StartupNotify=false

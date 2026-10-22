@@ -4,9 +4,9 @@ set -euo pipefail
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 appearance=dark
 
-# Match Neovim's Omarchy appearance detection, including embedded terminals.
+# Match Neovim's Desktop appearance detection, including embedded terminals.
 # Read on every invocation so future diff renders follow theme changes.
-if [[ -f "$config_home/omarchy/current/theme/light.mode" ]]; then
+if [[ -f "${XDG_STATE_HOME:-$HOME/.local/state}/desktop/theme/light.mode" ]]; then
   appearance=light
 fi
 

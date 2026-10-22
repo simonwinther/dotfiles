@@ -1,27 +1,30 @@
--- Lua copies of the Omarchy defaults, followed by personal overrides.
-require("defaults.autostart")
-require("defaults.bindings.media")
-require("defaults.bindings.clipboard")
-require("defaults.bindings.tiling-v2")
-require("defaults.bindings.utilities")
+-- Shared Lua configuration for Hyprland 0.56.2.
 require("defaults.envs")
 require("defaults.looknfeel")
 require("defaults.input")
 require("defaults.windows")
-
--- Omarchy still writes theme and toggle data in its own configuration format.
-local config_data = require("config-data")
-config_data.apply("~/.config/omarchy/current/theme/hyprland.conf")
-
-require("monitors")
+require("defaults.bindings.media")
+require("defaults.bindings.clipboard")
+require("defaults.bindings.tiling-v2")
+require("defaults.bindings.utilities")
+local data = require("config-data")
+local state = os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")
+data.apply(state .. "/desktop/theme/hyprland.conf")
+local config = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
+local cursor = io.open(config .. "/desktop/cursor.lua", "r")
+if cursor then cursor:close(); dofile(config .. "/desktop/cursor.lua") end
+local host = io.open(config .. "/desktop/monitors.lua", "r")
+if host then host:close(); dofile(config .. "/desktop/monitors.lua")
+else hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" }) end
 require("input")
 require("bindings")
+local ring_bindings = io.open(config .. "/desktop/ring-bindings.lua", "r")
+if ring_bindings then ring_bindings:close(); dofile(config .. "/desktop/ring-bindings.lua") end
+local rebuild_bindings = io.open(config .. "/desktop/rebuild-bindings.lua", "r")
+if rebuild_bindings then rebuild_bindings:close(); dofile(config .. "/desktop/rebuild-bindings.lua") end
 require("looknfeel")
-require("autostart")
 require("windows")
-
-config_data.toggles()
-
--- Keep these overrides last so their unbinds take precedence.
+data.toggles()
 require("hyprspace")
 require("background-grid")
+require("autostart")

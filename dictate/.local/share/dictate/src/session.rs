@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     fs,
-    io::{Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom, Write},
     os::fd::AsRawFd,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
     time::Duration,
@@ -54,6 +54,46 @@ struct Capture {
     duration: u64,
     bytes: u64,
     db: f64,
+}
+
+#[derive(Clone, Copy, Default)]
+struct CaptureProgress {
+    bytes: u64,
+    ended: Option<bool>,
+}
+
+/// Read queued audio from the recovery journal, so network backpressure never
+/// prevents the recorder from draining or handling stop and recording limits.
+async fn forward_audio(
+    path: PathBuf,
+    mut progress: watch::Receiver<CaptureProgress>,
+    sender: mpsc::Sender<Chunk>,
+) -> Result<()> {
+    let mut source = None;
+    let mut sent = 0;
+    loop {
+        let snapshot = *progress.borrow_and_update();
+        while sent < snapshot.bytes {
+            if source.is_none() {
+                source = Some(storage::read_file(&path)?);
+            }
+            let length = (snapshot.bytes - sent).min(4800) as usize;
+            let mut bytes = vec![0; length];
+            source.as_mut().unwrap().read_exact(&mut bytes)?;
+            if sender.send(Chunk::Audio(bytes)).await.is_err() {
+                return Ok(());
+            }
+            sent += length as u64;
+        }
+        if let Some(valid) = snapshot.ended {
+            let _ = sender.send(Chunk::End(valid)).await;
+            return Ok(());
+        }
+        if progress.changed().await.is_err() {
+            let _ = sender.send(Chunk::End(false)).await;
+            return Ok(());
+        }
+    }
 }
 
 fn phase(state: &Shared, view: &watch::Sender<View>, value: &str) -> Result<()> {
@@ -406,7 +446,9 @@ pub async fn worker(fd: i32) -> Result<()> {
     } else {
         None
     };
-    let tracking = tokio::spawn(track_monitor(view_tx.clone()));
+    let tracking = c
+        .yes("SHOW_LOADING")
+        .then(|| tokio::spawn(track_monitor(view_tx.clone())));
     let mut task = tokio::spawn(pipeline(
         launch,
         state.clone(),
@@ -436,7 +478,9 @@ pub async fn worker(fd: i32) -> Result<()> {
             _=sigint.recv()=>{let _=request_control(&Request{action:"cancel".into(),..Default::default()},&state,&settings,&view_tx,&control_tx);}
         }
     };
-    tracking.abort();
+    if let Some(tracking) = tracking {
+        tracking.abort();
+    }
     view_tx.send_modify(|v| v.phase = "finished".into());
     if let Some(mut overlay) = overlay
         && timeout(Duration::from_millis(500), &mut overlay)
@@ -525,6 +569,22 @@ fn request_control(
     }
 }
 
+fn recorder_diagnostics(audio: &Path) -> Result<String> {
+    let mut file = storage::read_file(&audio.with_extension("err"))?;
+    let length = file.metadata()?.len();
+    if length == 0 {
+        return Ok(String::new());
+    }
+    let limit = length.min(4096);
+    file.seek(SeekFrom::End(-(limit as i64)))?;
+    let mut bytes = Vec::with_capacity(limit as usize);
+    Read::take(file, limit).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" "))
+}
+
 async fn capture(
     c: Config,
     live: bool,
@@ -547,6 +607,8 @@ async fn capture(
     let format = if live { "s16" } else { c.get("RECORD_FORMAT") };
     let audio = state.lock().unwrap().audio_file.clone();
     let mut file = storage::private_file(&audio, false)?;
+    let (progress, progress_rx) = watch::channel(CaptureProgress::default());
+    let forwarding = live.then(|| tokio::spawn(forward_audio(audio.clone(), progress_rx, sender)));
     if !live {
         file.write_all(&audio::wav_header(0, rate, channels as u16, format)?)?;
     }
@@ -606,11 +668,14 @@ async fn capture(
                     let n=n?;if n==0{break;}pending.extend_from_slice(&buffer[..n]);let len=pending.len()/frame*frame;if len==0{continue;}
                     let chunk=&pending[..len];file.write_all(chunk)?;bytes+=len as u64;meter.append(chunk,format,channels);
                     if last_frame.elapsed()>=Duration::from_millis(16){let bars=meter.bars();view.send_modify(|v|v.bars=bars);last_frame=Instant::now();}
-                    if live&& sender.send(Chunk::Audio(chunk.to_vec())).await.is_err(){// Network failed: keep draining into the recovery journal.
-                    }pending.drain(..len);
+                    if live{progress.send_replace(CaptureProgress{bytes,ended:None});}pending.drain(..len);
                 }
                 _=control.changed()=>(),
-                _=tokio::time::sleep(remaining),if forced.is_some()=>{child.kill().await?;forced=None;},
+                _=tokio::time::sleep(remaining),if forced.is_some()=>{
+                    child.start_kill()?;
+                    timeout(Duration::from_secs(1),child.wait()).await.context("Microphone recorder could not be reaped")??;
+                    bail!("Microphone recorder did not stop");
+                },
                 _=tokio::time::sleep(maximum_wait),if max>0 && !stopping=>(),
             }
             if !stopping && max>0 && began.elapsed().as_millis()>=max as u128{
@@ -619,8 +684,32 @@ async fn capture(
                 view.send_modify(|v|{v.phase="processing".into();v.recording_ms=began.elapsed().as_millis() as u64;});
             }
         }
-        let _=child.wait().await?;ensure!(stopping,"Microphone recorder exited unexpectedly");Ok(())
+        // A recorder may close stdout without exiting. Keep its shutdown bounded
+        // even though there is no longer any audio to drain or select on.
+        let grace=forced.map(|d|d.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_millis(200));
+        let status=match timeout(grace,child.wait()).await{
+            Ok(status)=>status?,
+            Err(_)=>{
+                child.start_kill()?;
+                timeout(Duration::from_secs(1),child.wait()).await.context("Microphone recorder could not be reaped")??;
+                bail!("Microphone recorder did not exit after closing its output");
+            }
+        };
+        ensure!(stopping,"Microphone recorder exited unexpectedly ({status})");
+        // pw-record 1.6.x returns 1 after a normal requested SIGINT because only
+        // playback drains mark its exit successful. Actual stream failures write
+        // diagnostics; do not confuse a quiet, requested stop with those failures.
+        let quiet_pipewire_stop=status.code()==Some(1) && recorder_diagnostics(&audio)?.is_empty();
+        ensure!(status.success() || quiet_pipewire_stop || status.code()==Some(128+libc::SIGINT) || std::os::unix::process::ExitStatusExt::signal(&status)==Some(libc::SIGINT),"Microphone recorder failed: {status}");
+        Ok(())
     }.await;
+    let result = result.map_err(|error| {
+        let message = match recorder_diagnostics(&audio) {
+            Ok(details) if !details.is_empty() => format!("{error:#}; recorder: {details}"),
+            _ => format!("{error:#}"),
+        };
+        anyhow::anyhow!(message)
+    });
     if !live {
         file.seek(SeekFrom::Start(0))?;
         file.write_all(&audio::wav_header(bytes, rate, channels as u16, format)?)?;
@@ -632,7 +721,13 @@ async fn capture(
         s.recording_ms = duration;
         s.save()?;
     }
-    let _ = sender.send(Chunk::End(result.is_ok())).await;
+    progress.send_replace(CaptureProgress {
+        bytes,
+        ended: Some(result.is_ok()),
+    });
+    if let Some(forwarding) = forwarding {
+        forwarding.await.context("Audio forwarding task failed")??;
+    }
     result?;
     Ok(Capture {
         duration,
@@ -666,14 +761,23 @@ async fn pipeline(
     let ducker = if !launch.retry {
         let duck_config = c.clone();
         let mut rx = controls.clone();
-        let ui = view.subscribe();
+        let mut ui = view.subscribe();
         Some(tokio::spawn(async move {
-            let _ = desktop::duck(&duck_config, true).await;
-            let mut ui = ui;
-            while *rx.borrow() == Control::Record
-                && matches!(ui.borrow().phase.as_str(), "starting" | "recording")
-            {
-                tokio::select! {_=rx.changed()=>(),_=ui.changed()=>()}
+            let stopped = async {
+                while *rx.borrow() == Control::Record
+                    && matches!(ui.borrow().phase.as_str(), "starting" | "recording")
+                {
+                    tokio::select! {
+                        changed=rx.changed()=>{if changed.is_err(){break;}},
+                        changed=ui.changed()=>{if changed.is_err(){break;}},
+                    }
+                }
+            };
+            tokio::pin!(stopped);
+            tokio::select! {
+                biased;
+                _=&mut stopped=>(),
+                _=desktop::duck(&duck_config, true)=>stopped.await,
             }
             let _ = desktop::duck(&duck_config, false).await;
         }))
@@ -710,8 +814,13 @@ async fn pipeline(
                 if result.as_ref().is_none_or(|r|r.is_err())&& *controls.borrow()!=Control::Cancel{control.send_replace(Control::Stop);}
                 let captured=(&mut capture_task).await.context("Capture task failed")?;
                 if result.is_none(){return Ok(());}
-                // Preserve a network error even when capture also failed while shutting down.
-                let raw=result.unwrap()?;let captured=captured?;duration=captured.duration;text=p.process(&raw);
+                // Capture's detailed cause replaces only its generic network marker.
+                // Genuine network errors keep priority over recorder shutdown errors.
+                let raw=match result.unwrap(){
+                    Err(error) if error.is::<network::CaptureFailed>()=>return Err(captured.err().unwrap_or(error)),
+                    result=>result?,
+                };
+                let captured=captured?;duration=captured.duration;text=p.process(&raw);
             }else{
                 // Batch capture does not send audio into this bounded channel.
                 drop(receiver);
@@ -859,6 +968,40 @@ async fn overlay(mut view: watch::Receiver<View>, c: Config) {
         let _ = child.kill().await;
     }
 }
+/// Group a burst of desktop events into one refresh of the current monitor.
+/// Reading during the debounce window avoids accumulating a stale event backlog.
+async fn next_monitor_change<R: tokio::io::AsyncBufRead + Unpin>(
+    lines: &mut tokio::io::Lines<R>,
+) -> std::io::Result<bool> {
+    while let Some(line) = lines.next_line().await? {
+        if ![
+            "activewindowv2",
+            "focusedmon",
+            "workspace",
+            "movewindow",
+            "monitor",
+            "configreloaded",
+        ]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+        {
+            continue;
+        }
+        let until = Instant::now() + Duration::from_millis(80);
+        loop {
+            if Instant::now() >= until {
+                return Ok(true);
+            }
+            match tokio::time::timeout_at(until, lines.next_line()).await {
+                Ok(Ok(Some(_))) => (),
+                Ok(Err(error)) => return Err(error),
+                Ok(Ok(None)) | Err(_) => return Ok(true),
+            }
+        }
+    }
+    Ok(false)
+}
+
 async fn track_monitor(view: watch::Sender<View>) {
     if let Some(name) = desktop::focused_monitor().await {
         view.send_modify(|v| v.monitor = name);
@@ -876,32 +1019,65 @@ async fn track_monitor(view: watch::Sender<View>) {
     loop {
         if let Ok(socket) = UnixStream::connect(&path).await {
             let mut lines = BufReader::new(socket).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if [
-                    "activewindowv2",
-                    "focusedmon",
-                    "workspace",
-                    "movewindow",
-                    "monitor",
-                    "configreloaded",
-                ]
-                .iter()
-                .any(|prefix| line.starts_with(prefix))
-                {
-                    tokio::time::sleep(Duration::from_millis(80)).await;
-                    if let Some(name) = desktop::focused_monitor().await {
-                        view.send_if_modified(|v| {
-                            if v.monitor == name {
-                                false
-                            } else {
-                                v.monitor = name;
-                                true
-                            }
-                        });
-                    }
+            while let Ok(true) = next_monitor_change(&mut lines).await {
+                if let Some(name) = desktop::focused_monitor().await {
+                    view.send_if_modified(|v| {
+                        if v.monitor == name {
+                            false
+                        } else {
+                            v.monitor = name;
+                            true
+                        }
+                    });
                 }
             }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn desktop_event_bursts_request_one_monitor_refresh() {
+        let (input, mut output) = tokio::io::duplex(16 * 1024);
+        let mut lines = BufReader::new(input).lines();
+        output
+            .write_all("activewindowv2>>0x1\nworkspace>>1\n".repeat(100).as_bytes())
+            .await
+            .unwrap();
+        assert!(
+            timeout(Duration::from_secs(1), next_monitor_change(&mut lines))
+                .await
+                .unwrap()
+                .unwrap()
+        );
+        assert!(
+            timeout(Duration::from_millis(20), next_monitor_change(&mut lines))
+                .await
+                .is_err(),
+            "the entire burst must be drained rather than replayed as stale monitor changes"
+        );
+        output.write_all(b"activewindowv2>>0x2\n").await.unwrap();
+        drop(output);
+        assert!(next_monitor_change(&mut lines).await.unwrap());
+        assert!(!next_monitor_change(&mut lines).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn unrelated_desktop_events_do_not_request_monitor_refresh() {
+        let (input, mut output) = tokio::io::duplex(1024);
+        output
+            .write_all(b"windowtitle>>text\nurgent>>0x1\n")
+            .await
+            .unwrap();
+        drop(output);
+        assert!(
+            !next_monitor_change(&mut BufReader::new(input).lines())
+                .await
+                .unwrap()
+        );
     }
 }

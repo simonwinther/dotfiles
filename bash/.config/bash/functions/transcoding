@@ -1,0 +1,33 @@
+# Transcoding helpers have moved to desktopctl transcode.
+
+transcode-video-1080p() {
+  desktopctl transcode "$1" mp4 1080p
+}
+
+transcode-video-4K() {
+  desktopctl transcode "$1" mp4 4k
+}
+
+transcode-video-gif() {
+  desktopctl transcode "$1" gif 1080p
+}
+
+img2jpg() {
+  desktopctl transcode "$1" jpg high
+}
+
+img2jpg-small() {
+  desktopctl transcode "$1" jpg low
+}
+
+img2jpg-medium() {
+  desktopctl transcode "$1" jpg medium
+}
+
+img2jpg-large() {
+  desktopctl transcode "$1" jpg high
+}
+
+img2png() {
+  desktopctl transcode "$1" png high
+}

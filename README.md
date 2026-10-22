@@ -1,90 +1,9 @@
-# dotfiles
+# Portable desktop configuration
 
-My personal configuration files for Arch Linux, managed with GNU Stow.
+The `nixos-portable` branch preserves the shared desktop tools, plain configuration, and appearance assets used by the NixOS workstation. It is pinned as the `dotfiles/` submodule in https://github.com/simonwinther/nixos-config. The existing `master` branch remains available for the Arch configuration.
 
-The [cluster package](cluster/README.md) checks remote tools, installs missing ones
-without sudo, and syncs only Neovim and tmux over SSH: `cluster setup my-cluster`.
-The same package includes `cluster link`, `cluster submit`, and `cluster logs`
-for submitting from paired Git checkouts and reading Slurm output from your PC.
+On NixOS, Home Manager owns the configuration links. On other distributions, use GNU Stow for the packages you select. Do not let both manage the same target. Runtime credentials, private keys, build output and caches stay outside this repository.
 
-[LAST_UPDATED](LAST_UPDATED) records each package or tool's last update as
-`component: DD/MM/YYYY`. Initial dates come from Git history; changes update the
-relevant entry in the same commit. Check it when deciding what needs maintenance.
+When cloning the NixOS repository, use `git clone --recurse-submodules`. After updating it, use `git submodule update --init --recursive` to populate the exact committed dotfiles revision.
 
-The [wallpaper grid](background-grid/README.md) package includes the visual picker,
-folder categories, keyboard navigation, wallpaper transitions, and setup steps
-for both PCs.
-
-The [file picker](file-picker/README.md) puts any local file on the clipboard for
-ChatGPT with Super+Alt+Z, or opens a drag card with Ctrl+G. Super+Z opens the PDF
-picker. Its Rust source, styling, keybindings, and window rules are managed with
-Stow; build with `file-picker-build`.
-
-[Rust dictation](dictate/README.md) streams a live transcript with Super+D and
-cancels with Super+Ctrl+Shift+X. Its source and configuration live in the `dictate`
-Stow package; build with `dictate-build`. Both tools keep compiled binaries and
-Cargo build files in the local cache so the same packages can be used on both PCs.
-
-## Setup
-
-Symlink the configs (using stow)
-```
-stow nvim zsh ghostty tmux # etc...
-```
-
-I would like to make a full fledged installer script at some point, but I am also considering switching to NixOS so it may not be worth the effort, doesn't take 'long' to install manually with pacman and yay anyway.
-
-## Sync desktop styling to the other PC
-
-From the existing checkout on an Omarchy PC:
-
-```sh
-git pull --ff-only
-stow -n -v hypr waybar ghostty oh-my-posh
-stow -R hypr waybar ghostty oh-my-posh
-CARGO_TARGET_DIR="$HOME/.cache/workspaces-slider-rs-target" cargo build --release --locked --manifest-path waybar/.config/waybar/workspaces-slider-rs/Cargo.toml
-install -Dm755 "$HOME/.cache/workspaces-slider-rs-target/release/workspaces-slider" "$HOME/.local/bin/workspaces-slider"
-```
-
-The workspace slider must be rebuilt after source changes; its binary is not
-stored in Git. Building needs Rust/Cargo, a C compiler, pkg-config, and Wayland
-development files. The slider and bar use JetBrainsMono Nerd Font. The Hyprland
-configuration uses the Lua API, so the other PC needs a compatible Hyprland
-version (validated here with 0.56.2). Resolve any conflicts reported by the Stow
-dry run before restowing.
-
-Log out and back in after syncing to start the rebuilt slider and load the
-desktop configuration. Keep `~/.local/bin` before `/usr/bin` in `PATH` so the
-Waybar theme launcher is used. Switch appearance through `omarchy theme set`:
-light themes such as `Catppuccin Latte` select the light bar, weather, workspace
-slider, and shell prompt; dark themes select their dark versions. Ghostty's
-`SimonLight` and `SimonDark` themes follow the system appearance set by Omarchy.
-
-### Catppuccin Latte borders and shadows
-
-The `latte-borders` package customizes only Catppuccin Latte: a deeper pink,
-purple, and blue active border, a soft gray inactive border, and a reduced
-inactive shadow. Border size and rounding continue to come from the Hyprland
-configuration.
-
-After pulling these changes on the other Omarchy PC, run from this checkout:
-
-```sh
-stow --no-folding -n -R -v latte-borders
-stow --no-folding -R latte-borders
-omarchy theme set "Catppuccin Latte"
-hyprctl configerrors
-```
-
-Resolve any conflicts in the dry run before restowing. `--no-folding` keeps the
-theme directory real, with Stow managing its configuration file. Reapplying
-Latte copies this override into Omarchy's current theme; reloading Hyprland
-alone does not copy it. This requires Omarchy's theme setter to support user
-overrides in `~/.config/omarchy/themes/` (as it does on this PC). Other themes
-keep their own settings. No generated theme files or binaries are stored in
-this package.
-
-
-## Look 'n feel (updated: Sunday 11th of January 2026)
-
-![The Look: Taken Sunday 11th of January](assets/current_look.png)
+The package READMEs describe individual tools.

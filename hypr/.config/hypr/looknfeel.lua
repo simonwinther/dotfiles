@@ -1,4 +1,4 @@
--- Change the default Omarchy look'n'feel
+-- Change the default Desktop look'n'feel
 
 -- https://wiki.hyprland.org/Configuring/Variables/#general
 hl.config({

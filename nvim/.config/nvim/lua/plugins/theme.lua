@@ -18,7 +18,7 @@ return {
     config = function(_, opts)
       local function sync_appearance()
         local config_home = vim.env.XDG_CONFIG_HOME or (vim.env.HOME .. "/.config")
-        local light = vim.uv.fs_stat(config_home .. "/omarchy/current/theme/light.mode") ~= nil
+        local light = vim.uv.fs_stat((vim.env.XDG_STATE_HOME or (vim.env.HOME .. "/.local/state")) .. "/desktop/theme/light.mode") ~= nil
         local background = light and "light" or "dark"
         if vim.o.background ~= background then
           vim.o.background = background
@@ -37,7 +37,7 @@ return {
         group = vim.api.nvim_create_augroup("UserSystemAppearance", { clear = true }),
         callback = sync_appearance,
         nested = true,
-        desc = "Follow Omarchy light/dark appearance",
+        desc = "Follow Desktop light/dark appearance",
       })
     end,
   },

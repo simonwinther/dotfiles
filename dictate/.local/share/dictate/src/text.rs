@@ -328,6 +328,38 @@ mod tests {
         );
     }
     #[test]
+    fn scientific_dictionary_preserves_values_and_ordinary_speech() {
+        let dictionary: Dictionary =
+            toml::from_str(include_str!("../dictionary.example.toml")).unwrap();
+        let corrections = Phrases::new(
+            dictionary
+                .replacements
+                .iter()
+                .map(|(source, target)| (source.as_str(), target.as_str())),
+            false,
+        );
+        let p = Processor {
+            dictionary,
+            corrections,
+            mode: "off".into(),
+            cleanup: true,
+        };
+        assert_eq!(
+            p.process("Log 1e-4, 0.95, n_samples=32 and R² in ml flow; use light g b m, py arrow and jupyter lab."),
+            "Log 1e-4, 0.95, n_samples=32 and R² in MLflow; use LightGBM, PyArrow and JupyterLab."
+        );
+        let ordinary = "The torch is by the window. Weights and biases can affect decisions. My flow chart shows an arrow.";
+        assert_eq!(p.process(ordinary), ordinary);
+        assert_eq!(
+            p.process("mlflowchart and lightgbm2"),
+            "mlflowchart and lightgbm2"
+        );
+        assert_eq!(
+            p.process("ml\n\nflow and py\narrow"),
+            "ml\n\nflow and py\narrow"
+        );
+    }
+    #[test]
     fn longest_valid_phrase_with_word_boundaries() {
         let phrases = Phrases::new(
             [("pie torch", "PyTorch"), ("torch", "Torch"), ("pie", "Pie")],

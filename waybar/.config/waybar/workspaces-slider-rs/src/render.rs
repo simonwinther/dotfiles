@@ -31,11 +31,11 @@ const fn rgb(hex: u32) -> [f32; 3] {
 
 impl Palette {
     fn current() -> Self {
-        let config = std::env::var_os("XDG_CONFIG_HOME")
+        let config = std::env::var_os("XDG_STATE_HOME")
             .filter(|value| !value.is_empty())
             .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
-        let light = config.is_some_and(|path| path.join("omarchy/current/theme/light.mode").is_file());
+            .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state")));
+        let light = config.is_some_and(|path| path.join("desktop/theme/light.mode").is_file());
         Self::for_mode(light)
     }
 
@@ -91,7 +91,9 @@ pub struct Renderer {
 }
 
 fn load_font() -> Option<Font> {
-    let mut path = FONT_CANDIDATES.iter().map(std::path::PathBuf::from).find(|p| p.exists());
+    let mut path = std::env::var_os("WORKSPACES_SLIDER_FONT").map(std::path::PathBuf::from)
+        .or_else(|| std::process::Command::new("fc-match").args(["--format=%{file}", "JetBrainsMono Nerd Font:style=Bold"]).output().ok().filter(|o| o.status.success()).and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| std::path::PathBuf::from(s.trim())))
+        .or_else(|| FONT_CANDIDATES.iter().map(std::path::PathBuf::from).find(|p| p.exists()));
     if path.is_none() {
         // Fall back to any bold JetBrainsMono in the usual font trees.
         for dir in ["/usr/share/fonts", "/usr/local/share/fonts"] {
@@ -127,6 +129,16 @@ fn find_font(dir: &std::path::Path, depth: usize) -> Option<std::path::PathBuf> 
 }
 
 impl Renderer {
+    /// Align buffer dimensions to the integer Wayland buffer scale even when
+    /// the UI's logical height is fractional (for example 36 * 1.2).
+    pub fn for_surface(ui_scale: f32, buffer_scale: i32) -> Option<Self> {
+        let device = buffer_scale.max(1) as u32;
+        let mut renderer = Self::new(ui_scale * device as f32)?;
+        renderer.width = (PANEL_WIDTH * ui_scale).round() as u32 * device;
+        renderer.height = (PANEL_HEIGHT * ui_scale).round() as u32 * device;
+        Some(renderer)
+    }
+
     pub fn new(scale: f32) -> Option<Self> {
         let font = load_font()?;
         let px = FONT_PX * scale;

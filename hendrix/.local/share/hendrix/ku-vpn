@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# HENDRIX_SPLIT_TUNNEL_V1
+set -euo pipefail
+# KU's DNS can stall public lookups while its own VPN is connected.
+vpn_resolve=()
+if ! timeout 5 getent ahostsv4 vpn.ku.dk >/dev/null; then
+  vpn_resolve=(--resolve=vpn.ku.dk:130.225.226.62)
+fi
+exec openconnect --protocol=anyconnect --non-inter \
+  --passwd-on-stdin --user=zlp616 --interface=kuvpn \
+  --disable-ipv6 --script=ku-vpn-routes \
+  --reconnect-timeout=86400 "${vpn_resolve[@]}" vpn.ku.dk

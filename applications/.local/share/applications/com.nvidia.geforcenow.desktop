@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Name=NVIDIA GeForce NOW
+GenericName=NVIDIA GeForce NOW
+Exec=flatpak run com.nvidia.geforcenow
+Icon=com.nvidia.geforcenow
+Type=Application
+Categories=Network;Game;

@@ -1,4 +1,4 @@
--- Read data files written by the installed Omarchy theme and toggle commands.
+-- Read data files written by the installed Desktop theme and toggle commands.
 -- Hyprland configuration, bindings, and rules live in the Lua modules.
 local M = {}
 
@@ -72,7 +72,7 @@ function M.apply(path)
             sections[#sections] = nil
         elseif line ~= "" then
             local key, value = line:match("^([^=]+)=%s*(.*)$")
-            assert(key, "Unsupported Omarchy data in " .. path .. ": " .. line)
+            assert(key, "Unsupported Desktop data in " .. path .. ": " .. line)
             key, value = trim(key), trim(value)
             value = value:gsub("%$([%w_]+)", variables)
             if key:sub(1, 1) == "$" then
@@ -107,11 +107,11 @@ end
 function M.toggles()
     local files = assert(
         io.popen(
-            'for file in "$HOME"/.local/state/omarchy/toggles/hypr/*.conf; do test ! -f "$file" || printf "%s\\n" "$file"; done'
+            'for file in "${XDG_STATE_HOME:-$HOME/.local/state}"/desktop/toggles/hypr/*.conf; do test ! -f "$file" || printf "%s\\n" "$file"; done'
         )
     )
     for path in files:lines() do
-        M.apply(path)
+        if not path:match("/internal%-display.conf$") then M.apply(path) end
     end
     files:close()
 end

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Gemini
+Comment=Gemini
+Exec=desktopctl launch webapp https://gemini.google.com/app
+Terminal=false
+Type=Application
+Icon=Gemini
+StartupNotify=true
