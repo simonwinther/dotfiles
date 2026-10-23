@@ -13,19 +13,23 @@ async function refresh(tabId) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.frameId !== 0 || !PAGE.test(sender.url || "") || !sender.tab?.id) return;
-  if (message?.type === "project-picker-error") {
-    void status(sender.tab.id, typeof message.error === "string" ? message.error.slice(0, 200) : "Sync failed");
-    return;
-  }
-  if (message?.type !== "project-picker-snapshot") return;
-  chrome.runtime.sendNativeMessage(HOST, message.snapshot).then(async (reply) => {
+  if (sender.frameId !== 0 || !PAGE.test(sender.url || "") || !Number.isInteger(sender.tab?.id)) return;
+  if (!["project-picker-snapshot", "project-picker-status", "project-picker-error"].includes(message?.type)) return;
+  const payload = message.type === "project-picker-snapshot" ? message.snapshot :
+    { action: "status", code: message.code || "unexpected" };
+  chrome.runtime.sendNativeMessage(HOST, payload).then(async (reply) => {
     if (!reply?.ok) {
       await status(sender.tab.id, reply?.error || "The native helper rejected the update.");
       respond({ ok: false });
       return;
     }
-    await status(sender.tab.id);
+    if (message.type === "project-picker-error") {
+      await status(sender.tab.id, typeof message.error === "string" ? message.error.slice(0, 200) : "Sync failed");
+    } else if (message.type === "project-picker-status") {
+      await chrome.action.setTitle({ tabId: sender.tab.id, title: "Syncing projects…" });
+    } else {
+      await status(sender.tab.id);
+    }
     respond({ ok: true });
   }).catch(async () => {
     await status(sender.tab.id, "Cannot update the local cache. Check the native helper registration.");
@@ -46,4 +50,11 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 
 chrome.action.onClicked.addListener((tab) => {
   if (PAGE.test(tab.url || "")) void refresh(tab.id);
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const tabs = await chrome.tabs.query({ url: "https://chatgpt.com/*" });
+  await Promise.allSettled(tabs.map((tab) => chrome.scripting.executeScript({
+    target: { tabId: tab.id }, files: ["api.js", "content.js"],
+  })));
 });
