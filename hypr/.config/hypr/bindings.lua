@@ -176,8 +176,8 @@ hl.bind(
 
 hl.bind(
 	"SUPER + SHIFT + A",
-	hl.dsp.exec_cmd('desktopctl launch webapp "https://chatgpt.com"'),
-	{ description = "ChatGPT" }
+	hl.dsp.exec_cmd("project-picker"),
+	{ description = "Project picker" }
 )
 hl.bind(
 	"SUPER + SHIFT + ALT + A",

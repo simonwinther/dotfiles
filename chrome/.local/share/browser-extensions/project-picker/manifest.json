@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Project Picker Sync",
+  "version": "0.1.0",
+  "description": "Keep the desktop project picker up to date while browsing.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkcrHShHYNNVnEUXLU/TTr0smFWHp4w1uTY14RHYumgKL3cvu/Jx+5sLTCU+S6mDQuCZfFLAJVC3pIB/5QXh9DXWyzvh7u1v726PpewyQF6a8alpDdI5qEEEfolS7mrnoZkqQVKTEjfb/C6sejZ+f01oQA7L+gQLiAokrWD4Tm3xUnF4VvVSoYHMhBKtLbZnXDMZ6OVJE1smTi3aeZvzomkrXGbbIDax7eg/B6F3HkvLoCeoAUyqw95n5nxHXIPKt+XQHzhEltXjCUIuAVVAvnNCp/MS7Vkm7CX0uAYDYpN5Ctn426cR6kX/depj/1kkAUNWkNvRVrNaXxxe/7OY1awIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Sync project picker"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "api.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
