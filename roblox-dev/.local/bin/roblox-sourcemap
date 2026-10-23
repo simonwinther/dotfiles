@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+  printf 'Usage: roblox-sourcemap [PROJECT_OR_DIRECTORY] [--watch]\nWrites the map to ~/.cache/roblox-dev/sourcemaps/, outside the project.\n'
+  exit 0
+fi
+project=$(realpath -e -- "${1:-.}")
+[[ -d $project ]] && project="$project/default.project.json"
+[[ -f $project ]] || { printf 'Project JSON does not exist: %s\n' "$project" >&2; exit 2; }
+if (($# > 2)) || [[ -n ${2:-} && $2 != --watch ]]; then
+  printf 'Usage: roblox-sourcemap [PROJECT_OR_DIRECTORY] [--watch]\n' >&2
+  exit 2
+fi
+cache=${XDG_CACHE_HOME:-"$HOME/.cache"}/roblox-dev/sourcemaps
+mkdir -p -- "$cache"
+key=$(printf '%s' "$project" | sha256sum)
+output="$cache/${key%% *}.json"
+printf 'Sourcemap: %s\n' "$output"
+args=(sourcemap "$project" --include-non-scripts --output "$output")
+[[ ${2:-} == --watch ]] && args+=(--watch)
+exec rojo "${args[@]}"

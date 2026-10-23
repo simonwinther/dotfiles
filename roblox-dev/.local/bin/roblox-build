@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+  printf 'Usage: roblox-build [PROJECT_OR_DIRECTORY] [OUTPUT.rbxlx|OUTPUT.rbxl]\nDefault output: ~/roblox-builds/PROJECT-DIRECTORY.rbxlx\n'
+  exit 0
+fi
+if (($# > 2)); then
+  printf 'Usage: roblox-build [PROJECT_OR_DIRECTORY] [OUTPUT]\n' >&2
+  exit 2
+fi
+project=$(realpath -e -- "${1:-.}")
+if [[ -d $project ]]; then
+  project_dir=$project
+else
+  project_dir=$(dirname -- "$project")
+fi
+output=${2:-"$HOME/roblox-builds/$(basename -- "$project_dir").rbxlx"}
+mkdir -p -- "$(dirname -- "$output")"
+exec rojo build "$project" --output "$output"

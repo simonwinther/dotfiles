@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec nvim --cmd 'lua vim.opt.runtimepath:append(vim.fn.expand("~/.local/share/roblox-dev/nvim"))' -c 'lua dofile(vim.fn.expand("~/.local/share/roblox-dev/nvim/after/plugin/roblox.lua"))' "$@"

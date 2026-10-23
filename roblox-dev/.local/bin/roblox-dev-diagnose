@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -uo pipefail
+roblox-dev-check
+printf '\nKernel:\n'
+uname -srmo
+printf '\nGPU / Vulkan:\n'
+vulkaninfo --summary 2>/dev/null | sed -n '/Devices:/,$p'
+printf '\nVinegar filesystem permissions:\n'
+flatpak override --user --show org.vinegarhq.Vinegar
+printf '\nNTSync users:\n'
+lsof -n /dev/ntsync 2>/dev/null | head -15
+printf '\nRecent Vinegar warnings/errors (URLs redacted):\n'
+python - <<'PY'
+from pathlib import Path
+import re
+logs = Path.home() / '.var/app/org.vinegarhq.Vinegar/cache/vinegar/logs'
+files = list(logs.glob('*.log'))
+if files:
+    latest = max(files, key=lambda p: p.stat().st_mtime)
+    print(latest)
+    messages = [line for line in latest.read_text(errors='replace').splitlines() if ' ERR ' in line or ' WRN ' in line]
+    for line in messages[-20:]:
+        print(re.sub(r'https?://\S+', '<URL>', line))
+PY
+printf '\nPortal warnings:\n'
+journalctl --user -u xdg-desktop-portal.service --since '15 minutes ago' --no-pager -p warning | tail -15

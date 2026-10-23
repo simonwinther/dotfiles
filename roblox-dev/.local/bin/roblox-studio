@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+  printf 'Usage: roblox-studio [PLACE.rbxl|PLACE.rbxlx]\n'
+  exit 0
+fi
+if (($# == 0)); then
+  exec flatpak run org.vinegarhq.Vinegar
+fi
+if (($# != 1)); then
+  printf 'Usage: roblox-studio [PLACE.rbxl|PLACE.rbxlx]\n' >&2
+  exit 2
+fi
+place=$(realpath -e -- "$1")
+case "$place" in
+  *.rbxl|*.rbxlx) ;;
+  *) printf 'Expected an existing .rbxl or .rbxlx place.\n' >&2; exit 2 ;;
+esac
+exec flatpak run --file-forwarding org.vinegarhq.Vinegar @@ "$place" @@

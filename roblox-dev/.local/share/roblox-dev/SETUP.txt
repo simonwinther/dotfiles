@@ -1,0 +1,25 @@
+Roblox development tools
+
+roblox-studio [PLACE.rbxl or PLACE.rbxlx] opens Studio through Vinegar.
+roblox-studio-settings opens Vinegar settings.
+blender launches the Blender Flatpak.
+roblox-rojo-serve [PROJECT] [PORT] starts Rojo on localhost only.
+roblox-build [PROJECT] [OUTPUT] defaults to ~/roblox-builds, outside the project.
+roblox-nvim [FILES] uses the existing Neovim setup with additional Luau support.
+roblox-sourcemap [PROJECT] [--watch] keeps generated maps under ~/.cache.
+roblox-dev-check and roblox-dev-diagnose report the installation state.
+
+Rokit tool pins are recorded in rokit-tools.toml. The global manifest is seeded
+only if absent; project tool manifests remain independent. No game is created,
+copied, opened or served by setup. Sign into Studio separately on each PC.
+
+Studio configuration is seeded from ~/.config/roblox-dev/vinegar.toml only if
+absent. Its virtual desktop contains Wine dialogs; browser login is enabled.
+NixOS installs the matching Rojo 7.7.1 local plugin and Luau parser/resources.
+Blender and Vinegar can use ~/dev/roblox and ~/roblox-builds. Setting up these
+permissions does not create or copy the game directory.
+
+On other distributions install Rokit 1.2.0 from its official release, use the
+recorded global manifest, and install the tools with rokit install. Install the
+Blender and Vinegar Flatpaks, matching Rojo Studio plugin and Luau parser as well.
+Keep account data and credentials outside this package.

@@ -1,0 +1,6 @@
+[studio]
+renderer = "DXVK"
+discord_rpc = false
+gamemode = false
+webview = ""
+virtual_desktop = "1440x780"

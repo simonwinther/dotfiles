@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -uo pipefail
+for tool in rokit rojo stylua selene wally lune luau-lsp; do
+  if command -v "$tool" >/dev/null; then
+    "$tool" --version
+  else
+    printf 'MISSING: %s\n' "$tool"
+  fi
+done
+for app in org.vinegarhq.Vinegar org.blender.Blender org.vinegarhq.Sober; do
+  flatpak info "$app" 2>/dev/null | sed -n -E '/^[[:space:]]*(ID|Version|Runtime|Commit):/p'
+done
+printf '\nSession: %s / %s\n' "${XDG_SESSION_TYPE:-unknown}" "${XDG_CURRENT_DESKTOP:-unknown}"
+if [[ -c /dev/ntsync ]]; then printf 'NTSync: available\n'; else printf 'NTSync: unavailable\n'; fi
+printf '\nPortals:\n'
+systemctl --user is-active xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
+printf '\nRojo listeners:\n'
+ss -ltnp | awk 'NR == 1 || /rojo/'
+printf '\nFull setup notes: ~/.local/share/roblox-dev/SETUP.txt\n'

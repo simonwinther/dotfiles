@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+  printf 'Usage: roblox-rojo-serve [PROJECT_OR_DIRECTORY] [PORT]\nBinds to 127.0.0.1 only. Uses the project port unless PORT is supplied.\n'
+  exit 0
+fi
+project=${1:-.}
+if (($# > 2)); then
+  printf 'Usage: roblox-rojo-serve [PROJECT_OR_DIRECTORY] [PORT]\n' >&2
+  exit 2
+fi
+if [[ -n ${2:-} ]]; then
+  [[ $2 =~ ^[0-9]+$ ]] && ((10#$2 >= 1 && 10#$2 <= 65535)) || {
+    printf 'PORT must be between 1 and 65535.\n' >&2; exit 2;
+  }
+  exec rojo serve --address 127.0.0.1 --port "$2" "$project"
+fi
+exec rojo serve --address 127.0.0.1 "$project"
