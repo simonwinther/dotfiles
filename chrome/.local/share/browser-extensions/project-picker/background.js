@@ -16,7 +16,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.frameId !== 0 || !PAGE.test(sender.url || "") || !Number.isInteger(sender.tab?.id)) return;
   if (!["project-picker-snapshot", "project-picker-status", "project-picker-error"].includes(message?.type)) return;
   const payload = message.type === "project-picker-snapshot" ? message.snapshot :
-    { action: "status", code: message.code || "unexpected" };
+    { action: "status", code: message.code || "unexpected", stage: message.stage, kind: message.kind };
   chrome.runtime.sendNativeMessage(HOST, payload).then(async (reply) => {
     if (!reply?.ok) {
       await status(sender.tab.id, reply?.error || "The native helper rejected the update.");
@@ -39,17 +39,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 });
 
 chrome.webRequest.onCompleted.addListener((details) => {
-  if (details.method !== "GET" && details.method !== "OPTIONS" && details.statusCode < 400) {
+  const path = new URL(details.url).pathname;
+  const projectChange = /^\/backend-api\/(?:gizmos|projects)(?:\/|$)/.test(path) &&
+    !["GET", "HEAD", "OPTIONS"].includes(details.method);
+  if (details.statusCode >= 200 && details.statusCode < 300 &&
+      (details.method === "DELETE" || projectChange)) {
     void refresh(details.tabId);
   }
-}, { urls: ["https://chatgpt.com/backend-api/gizmos", "https://chatgpt.com/backend-api/gizmos/*"] });
+}, { urls: ["https://chatgpt.com/backend-api/*"] });
 
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url && PAGE.test(change.url)) void refresh(tabId);
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  if (PAGE.test(tab.url || "")) void refresh(tab.id);
+  if (PAGE.test(tab.url || "")) {
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["api.js", "content.js"] })
+      .then(() => refresh(tab.id)).catch(() => status(tab.id, "Refresh this page to start syncing."));
+  }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {

@@ -7,7 +7,7 @@
   function errorCode(error) {
     if (typeof error?.code === "string") return error.code;
     if (error?.name === "TimeoutError") return "timeout";
-    if (error?.name === "TypeError") return "network";
+    if (error?.name === "TypeError" && /failed to fetch|networkerror|load failed/i.test(error.message)) return "network";
     if (error?.name === "SyntaxError") return "invalid_response";
     return "unexpected";
   }
@@ -54,17 +54,20 @@
     const headers = { Authorization: `Bearer ${token}` };
     let workspaceId = "personal";
     let workspaceName = "Personal";
-    if (selectedAccount) {
+    if (selectedAccount && selectedAccount !== "personal") {
       const accounts = await request("/backend-api/accounts/check/v4-2023-04-27", headers);
       const account = accounts.accounts?.[selectedAccount]?.account ||
         Object.values(accounts.accounts || {}).map((entry) => entry.account)
           .find((entry) => entry?.account_id === selectedAccount);
-      if (typeof account?.account_id !== "string" || !account.account_id) {
+      if (account?.structure === "personal" && account.account_id == null) {
+        workspaceName = account.name || "Personal";
+      } else if (typeof account?.account_id !== "string" || !account.account_id) {
         throw failure("workspace_unknown", "Could not identify the selected workspace.");
+      } else {
+        workspaceId = account.account_id;
+        workspaceName = account.name || "Workspace";
+        headers["ChatGPT-Account-ID"] = workspaceId;
       }
-      workspaceId = account.account_id;
-      workspaceName = account.name || "Personal";
-      headers["ChatGPT-Account-ID"] = workspaceId;
     }
     const projects = new Map();
     const cursors = new Set();
@@ -94,16 +97,23 @@
 
   function requester(fetcher, signal) {
     return async (path, headers = {}) => {
-      const response = await fetcher(path, {
-        method: "GET", credentials: "include", cache: "no-store", redirect: "error",
-        headers: { Accept: "application/json", ...headers },
-        signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw failure(`http_${response.status}`, `Project sync request failed (HTTP ${response.status}).`);
+      const stage = path === "/api/auth/session" ? "session" :
+        path.startsWith("/backend-api/accounts/") ? "workspace" : "projects";
+      try {
+        const response = await fetcher(path, {
+          method: "GET", credentials: "include", cache: "no-store", redirect: "error",
+          headers: { Accept: "application/json", ...headers },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw failure(`http_${response.status}`, `Project sync request failed (HTTP ${response.status}).`);
+        }
+        return await response.json();
+      } catch (error) {
+        error.stage = stage;
+        throw error;
       }
-      return response.json();
     };
   }
 

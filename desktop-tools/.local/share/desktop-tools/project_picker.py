@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -39,7 +40,12 @@ def save_status(value, path=None):
     if not isinstance(code, str) or (code not in STATUS_MESSAGES and not re.fullmatch(r"http_[1-5][0-9]{2}", code)):
         raise ValueError("Unknown sync status")
     path = path or cache_path().with_name("status.json")
-    atomic_write(path, json.dumps({"code": code, "at": int(time.time() * 1000)}) + "\n")
+    result = {"code": code, "at": int(time.time() * 1000)}
+    if value.get("stage") in {"session", "workspace", "projects"}:
+        result["stage"] = value["stage"]
+    if value.get("kind") in {"TypeError", "SyntaxError", "TimeoutError", "Error"}:
+        result["kind"] = value["kind"]
+    atomic_write(path, json.dumps(result) + "\n")
     return {"ok": True}
 
 
@@ -53,7 +59,8 @@ def sync_status(path, since=0):
             return "Sync interrupted · Refresh the website to retry"
         if re.fullmatch(r"http_[1-5][0-9]{2}", code):
             return f"Sync failed · Website request returned HTTP {code[5:]}"
-        return STATUS_MESSAGES[code]
+        details = [value[key] for key in ("stage", "kind") if key in value]
+        return STATUS_MESSAGES[code] + (" · " + " / ".join(details) if details else "")
     except (OSError, ValueError, KeyError, TypeError):
         return ""
 
@@ -198,26 +205,27 @@ def open_project(url):
 
 
 def choose():
-    projects, header = entries()
-    rows = [f"{index}\t{label(project['name'])}" for index, project in enumerate(projects)]
-    environment = os.environ.copy()
-    for key in ("FZF_DEFAULT_OPTS", "FZF_DEFAULT_OPTS_FILE"):
-        environment.pop(key, None)
-    result = subprocess.run([
-        "fzf", "--reverse", "--border=rounded", "--prompt=Projects > ",
-        "--delimiter=\t", "--with-nth=2..", "--no-multi", "--no-expect",
-        "--no-print-query", "--header=" + header,
-        "--color=border:green,prompt:green,pointer:green,hl:green,hl+:bright-green",
-    ], input="\n".join(rows) + "\n", text=True, stdout=subprocess.PIPE, env=environment)
-    if result.returncode in (1, 130):
+    binary = shutil.which("project-picker-tui")
+    if not binary:
+        candidate = cache_path().parent / "bin/project-picker-tui"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            binary = str(candidate)
+    if not binary:
+        raise ValueError("Rust picker unavailable; install the native package or run project-picker-build")
+    result = subprocess.run([binary, "--cache", str(cache_path())],
+                            text=True, stdout=subprocess.PIPE)
+    if result.returncode == 130:
         return 0
     if result.returncode:
         raise ValueError("Project search failed")
-    selected = result.stdout.rstrip("\n")
-    if selected not in rows:
-        raise ValueError("Project search returned an unknown entry")
-    url = projects[int(selected.split("\t", 1)[0])]["url"]
-    open_project(url)
+    selected = result.stdout.strip()
+    if not selected:
+        return 0
+    projects, _ = entries()
+    project = next((project for project in projects if project["id"] == selected), None)
+    if project is None:
+        raise ValueError("This project is no longer available; reopen the picker")
+    open_project(project["url"])
     return 0
 
 
@@ -238,7 +246,7 @@ def main(argv=None):
             return 0
         if args.choose:
             return choose()
-        os.execvp("desktopctl", ["desktopctl", "terminal", "--float", "project-picker", "--choose"])
+        os.execvp("desktopctl", ["desktopctl", "terminal", "--float", "--app-id", "project.picker", "project-picker", "--choose"])
     except (ValueError, OSError) as error:
         print(f"project-picker: {error}", file=sys.stderr)
         return 1

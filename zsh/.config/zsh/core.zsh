@@ -27,6 +27,10 @@ setopt inc_append_history
 setopt hist_ignore_space
 setopt hist_reduce_blanks
 
+if (( $+commands[atuin] )); then
+  eval "$(atuin init zsh --disable-up-arrow --disable-ctrl-r --disable-ai)"
+fi
+
 # ──────────────────────────── TEXINPUTS ────────────────────────────
 export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
 

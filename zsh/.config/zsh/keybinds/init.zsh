@@ -16,7 +16,13 @@ bindkey -s '^[f' 'rcd\n'
 bindkey -s '^[F' 'gcd\n'
 
 # <Alt + [r]un>: Search and run command from history
-bindkey '^[r' fzf-history-logic
+if (( $+commands[atuin] )); then
+  bindkey -M viins '^[r' atuin-search
+  bindkey -M vicmd '^[r' atuin-search
+  bindkey -M emacs '^[r' atuin-search
+else
+  bindkey '^[r' fzf-history-logic
+fi
 
 # <Alt + [v]im> Open nvim 
 bindkey -s '^[v' 'nvim\n'
