@@ -1,12 +1,12 @@
 (() => {
-  if (globalThis.projectPickerSyncInstalled) return;
-  globalThis.projectPickerSyncInstalled = true;
+  if (globalThis.projectPickerSyncVersion === "0.1.1") return;
+  globalThis.projectPickerSyncVersion = "0.1.1";
   let pending;
   let running;
   let lastAttempt = 0;
   let again = false;
 
-  const active = () => document.visibilityState === "visible" && document.hasFocus();
+  const active = () => document.visibilityState === "visible";
 
   async function sync() {
     pending = undefined;
@@ -16,16 +16,17 @@
     running = new AbortController();
     const controller = running;
     try {
+      const ready = await chrome.runtime.sendMessage({ type: "project-picker-status", code: "syncing" });
+      if (ready?.ok === false) return;
       const snapshot = await ProjectPickerAPI.collect({
         request: ProjectPickerAPI.requester(fetch.bind(globalThis), controller.signal),
         cookie: () => document.cookie,
         signal: controller.signal,
       });
-      if (!active()) return;
       await chrome.runtime.sendMessage({ type: "project-picker-snapshot", snapshot });
     } catch (error) {
       if (!controller.signal.aborted) {
-        await chrome.runtime.sendMessage({ type: "project-picker-error", error: error.message }).catch(() => {});
+        await chrome.runtime.sendMessage({ type: "project-picker-error", code: ProjectPickerAPI.errorCode(error), error: error.message }).catch(() => {});
       }
     } finally {
       running = undefined;
@@ -45,7 +46,6 @@
     if (active()) schedule();
     else {
       clearTimeout(pending);
-      running?.abort();
     }
   }
 
@@ -53,7 +53,6 @@
     if (message?.type === "project-picker-refresh") schedule(true);
   });
   window.addEventListener("focus", focusChanged);
-  window.addEventListener("blur", focusChanged);
   document.addEventListener("visibilitychange", focusChanged);
   setInterval(() => schedule(), 5 * 60 * 1000);
   schedule();

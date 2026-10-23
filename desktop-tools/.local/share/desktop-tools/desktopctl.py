@@ -1345,7 +1345,8 @@ def integrate():
         manifest = read_json(CONFIG / "desktop" / template)
         if not manifest:
             continue
-        manifest["path"] = shutil.which(executable) or str(HOME / ".local/bin" / executable)
+        local = HOME / ".local/bin" / executable
+        manifest["path"] = str(local) if local.is_file() else shutil.which(executable) or str(local)
         for browser in ("chromium", "google-chrome"):
             target = CONFIG / browser / "NativeMessagingHosts" / (manifest["name"] + ".json")
             if not target.is_symlink():

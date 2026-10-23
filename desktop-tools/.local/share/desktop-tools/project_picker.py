@@ -20,6 +20,42 @@ from desktopctl import atomic_write
 MAIN_PAGE = "https://chatgpt.com"
 EXTENSION_ORIGIN = "chrome-extension://lfiijailpfkonkfmfkcjfagnopohffge/"
 MAX_MESSAGE = 4 * 1024 * 1024
+STATUS_MESSAGES = {
+    "syncing": "Syncing projects…",
+    "auth_required": "Sync failed · Sign in to the website",
+    "workspace_unknown": "Sync failed · Could not identify the selected workspace",
+    "invalid_response": "Sync failed · The website returned an unsupported project list",
+    "pagination": "Sync failed · Project pagination did not finish",
+    "account_changed": "Sync interrupted · Account or workspace changed",
+    "network": "Sync failed · Browser network request failed",
+    "timeout": "Sync failed · Browser request timed out",
+    "unexpected": "Sync failed · Check the extension's status in Chromium",
+    "ok": "Projects synced",
+}
+
+
+def save_status(value, path=None):
+    code = value.get("code")
+    if not isinstance(code, str) or (code not in STATUS_MESSAGES and not re.fullmatch(r"http_[1-5][0-9]{2}", code)):
+        raise ValueError("Unknown sync status")
+    path = path or cache_path().with_name("status.json")
+    atomic_write(path, json.dumps({"code": code, "at": int(time.time() * 1000)}) + "\n")
+    return {"ok": True}
+
+
+def sync_status(path, since=0):
+    try:
+        value = json.loads(path.read_text())
+        code = value["code"]
+        if value["at"] <= since or code == "ok":
+            return ""
+        if code == "syncing" and time.time() * 1000 - value["at"] > 120000:
+            return "Sync interrupted · Refresh the website to retry"
+        if re.fullmatch(r"http_[1-5][0-9]{2}", code):
+            return f"Sync failed · Website request returned HTTP {code[5:]}"
+        return STATUS_MESSAGES[code]
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
 
 
 def cache_path():
@@ -101,6 +137,7 @@ def save_snapshot(value, path=None):
         if not active or active["started_at"] <= snapshot["started_at"]:
             cache["active"] = key
         atomic_write(path, json.dumps(cache, ensure_ascii=False) + "\n")
+        save_status({"code": "ok"}, path.with_name("status.json"))
     return {"ok": True, "updated": True, "count": len(snapshot["projects"])}
 
 
@@ -123,7 +160,11 @@ def native_host(origin, source=None, destination=None):
         size = struct.unpack("=I", read_exact(source, 4))[0]
         if not 0 < size <= MAX_MESSAGE:
             raise ValueError("Native message exceeds the size limit")
-        result = save_snapshot(json.loads(read_exact(source, size)))
+        value = json.loads(read_exact(source, size))
+        if isinstance(value, dict) and value.get("action") == "status":
+            result = save_status(value)
+        else:
+            result = save_snapshot(value)
     except (ValueError, OSError, UnicodeError, KeyError, TypeError):
         result = {"ok": False, "error": "Could not save a complete project snapshot"}
     data = json.dumps(result).encode()
@@ -134,17 +175,21 @@ def native_host(origin, source=None, destination=None):
 
 def entries(path=None):
     home = {"id": "home", "name": "Open main page", "url": MAIN_PAGE}
+    path = path or cache_path()
     try:
-        cache = read_cache(path or cache_path())
+        cache = read_cache(path)
         snapshot = cache["contexts"].get(cache.get("active"))
         if snapshot:
             validated = validate_snapshot(snapshot)
             synced = time.strftime("%Y-%m-%d %H:%M", time.localtime(snapshot["synced_at"] / 1000))
             header = f"{label(validated['workspace_name'])} · Last sync: {synced}"
+            error = sync_status(path.with_name("status.json"), snapshot["synced_at"])
+            if error:
+                header += "\n" + error
             return [home, *validated["projects"]], header
     except (ValueError, KeyError, TypeError, OverflowError, OSError):
         return [home], "Saved list unreadable · Check the picker cache"
-    return [home], "No sync yet · Open main page with Project Picker Sync enabled"
+    return [home], sync_status(path.with_name("status.json")) or "No sync yet · Open main page with Project Picker Sync enabled"
 
 
 def open_project(url):
