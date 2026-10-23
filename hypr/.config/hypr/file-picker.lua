@@ -1,6 +1,6 @@
 local picker = {}
 
-local function show(mode)
+local function show(mode, present_only)
     local name = mode .. "-picker"
     local class = mode .. ".picker"
     local workspace = hl.get_active_workspace()
@@ -14,11 +14,13 @@ local function show(mode)
     local command = "file-picker --window" .. (mode == "pdf" and " --pdf" or mode == "recent" and " --recent" or "")
     local runtime = os.getenv("XDG_RUNTIME_DIR")
     local ready = runtime and io.open(runtime .. "/" .. name .. "-ready", "rb")
-    if not ready then
+    if not ready and not present_only then
         hl.exec_cmd(command)
         return
     end
-    ready:close()
+    if ready then
+        ready:close()
+    end
     -- Bring the prepared window forward directly, without spawning a launcher.
     for _, window in ipairs(hl.get_windows()) do
         if window.class == class then
@@ -36,23 +38,27 @@ local function show(mode)
             end
             hl.dispatch(hl.dsp.window.center({ window = window }))
             hl.dispatch(hl.dsp.focus({ window = window }))
-            hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "R", window = window }))
+            if not present_only then
+                hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "R", window = window }))
+            end
             return
         end
     end
-    hl.exec_cmd(command)
+    if not present_only then
+        hl.exec_cmd(command)
+    end
 end
 
-function picker.show()
-    show("file")
+function picker.show(present_only)
+    show("file", present_only)
 end
 
-function picker.show_pdf()
-    show("pdf")
+function picker.show_pdf(present_only)
+    show("pdf", present_only)
 end
 
-function picker.show_recent()
-    show("recent")
+function picker.show_recent(present_only)
+    show("recent", present_only)
 end
 
 function picker.dismiss()

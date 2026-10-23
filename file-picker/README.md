@@ -65,9 +65,11 @@ hidden `special:file-picker` and `special:pdf-picker` workspaces. Each shortcut
 brings its existing window forward and refreshes the file list. Esc, copying
 and dragging hide the picker
 while preserving its last drawn screen; refresh keeps the existing results
-visible until the replacement list is ready. The first open waits for the
-finder interface to initialize before showing the terminal. These avoid a
-blank terminal flash between runs. Esc, copying and dragging also
+visible until the replacement list is ready. On systems where Ghostty defers
+starting a hidden terminal, the first open brings the window forward before
+waiting for the finder to initialize. Warm-up prepares the hidden window
+without waiting for a draw that requires visibility. Later opens reuse the
+drawn interface. Esc, copying and dragging also
 prepare a fresh search for next time; they do not start a new terminal on
 each launch. Closing it with Super+W stops it; the next shortcut starts it again.
 Escape hides the focused picker directly in Hyprland, then cancels its search

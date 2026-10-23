@@ -1053,24 +1053,33 @@ fn resident_window(options: &Options, warm: bool) -> Result<()> {
         }
     }
     let address = address.ok_or("The picker terminal did not open")?;
+    // GTK can defer Ghostty's first surface (and child process) while the
+    // terminal is on a hidden workspace. Warming only needs the window;
+    // a requested picker must be visible before waiting for fzf's load event.
+    if warm {
+        return Ok(());
+    }
+    let show = if options.recent {
+        "show_recent"
+    } else if options.pdf {
+        "show_pdf"
+    } else {
+        "show"
+    };
+    let present_only = if ready_path(options)?.is_file() {
+        "false"
+    } else {
+        "true"
+    };
+    hypr_eval(&format!(
+        "local ok,picker=pcall(require,\"file-picker\"); if ok then picker.{show}({present_only}) else local w=\"address:{address}\"; hl.dispatch(hl.dsp.window.move({{window=w,workspace=hl.get_active_workspace(),follow=false}})); hl.dispatch(hl.dsp.window.center({{window=w}})); hl.dispatch(hl.dsp.focus({{window=w}})); if not {present_only} then hl.dispatch(hl.dsp.send_shortcut({{mods=\"CTRL\",key=\"R\",window=w}})) end end"
+    ))?;
     let start = Instant::now();
     while !ready_path(options)?.is_file() {
         if start.elapsed() >= Duration::from_secs(5) {
             return Err("The picker did not finish drawing its interface".into());
         }
         thread::sleep(Duration::from_millis(5));
-    }
-    if !warm {
-        let show = if options.recent {
-            "show_recent"
-        } else if options.pdf {
-            "show_pdf"
-        } else {
-            "show"
-        };
-        hypr_eval(&format!(
-            "local ok,picker=pcall(require,\"file-picker\"); if ok then picker.{show}() else local w=\"address:{address}\"; hl.dispatch(hl.dsp.window.move({{window=w,workspace=hl.get_active_workspace(),follow=false}})); hl.dispatch(hl.dsp.window.center({{window=w}})); hl.dispatch(hl.dsp.focus({{window=w}})); hl.dispatch(hl.dsp.send_shortcut({{mods=\"CTRL\",key=\"R\",window=w}})) end"
-        ))?;
     }
     Ok(())
 }
