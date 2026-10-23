@@ -1338,9 +1338,14 @@ def integrate():
     preferences = CONFIG / "breakd/config.toml"
     if defaults.is_file() and not preferences.exists():
         atomic_write(preferences, defaults.read_text())
-    manifest = read_json(CONFIG / "desktop/native-host.json")
-    if manifest:
-        manifest["path"] = str(HOME / ".local/bin/chatgpt-dictate-audio-duck-host")
+    for template, executable in (
+        ("native-host.json", "chatgpt-dictate-audio-duck-host"),
+        ("project-picker-native-host.json", "project-picker-host"),
+    ):
+        manifest = read_json(CONFIG / "desktop" / template)
+        if not manifest:
+            continue
+        manifest["path"] = shutil.which(executable) or str(HOME / ".local/bin" / executable)
         for browser in ("chromium", "google-chrome"):
             target = CONFIG / browser / "NativeMessagingHosts" / (manifest["name"] + ".json")
             if not target.is_symlink():
