@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+if [[ -f $data/obs-defaults/config/user.ini ]]; then
+  python3 "$data/obs-sync/sync.py" --defer-if-running
+fi
+if [[ -d /run/opengl-driver/lib ]]; then
+  export LD_LIBRARY_PATH="/run/opengl-driver/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+native=${DESKTOP_OBS_BIN:-}
+selection=${XDG_CONFIG_HOME:-$HOME/.config}/desktop/obs-bin
+if [[ -z $native && -f $selection ]]; then
+  IFS= read -r native < "$selection"
+fi
+if [[ -n $native ]]; then
+  exec "$native" "$@"
+fi
+self=$(readlink -f -- "$0")
+IFS=: read -r -a directories <<< "$PATH"
+for directory in "${directories[@]}"; do
+  candidate=${directory:-.}/obs
+  if [[ -x $candidate && $(readlink -f -- "$candidate") != "$self" ]]; then
+    exec "$candidate" "$@"
+  fi
+done
+printf '%s\n' 'OBS executable not found; install OBS first.' >&2
+exit 127
