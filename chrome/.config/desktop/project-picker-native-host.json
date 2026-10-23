@@ -1,0 +1,8 @@
+{
+  "name": "com.desktop.project_picker",
+  "description": "Update the local project picker cache.",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://lfiijailpfkonkfmfkcjfagnopohffge/"
+  ]
+}

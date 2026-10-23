@@ -127,4 +127,14 @@ local function toggle_transparency()
     return disable and "disabled" or "enabled"
 end
 
+hl.window_rule({
+    match = { class = "^project\\.picker$" },
+    name = "project-picker",
+    float = true,
+    size = { 640, 420 },
+    center = true,
+    no_anim = true,
+    opacity = "1.0 override 1.0 override 1.0 override",
+})
+
 return { opaque_rule = opaque_rule, toggle_transparency = toggle_transparency }
