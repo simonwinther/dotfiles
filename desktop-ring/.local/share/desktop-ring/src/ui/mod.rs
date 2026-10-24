@@ -1,4 +1,5 @@
 mod geometry;
+mod icons;
 use crate::core::{
     self, Request, Response, Snapshot,
     config::{self, Theme},
@@ -223,7 +224,7 @@ fn progress(start: Instant, duration: u32) -> f64 {
 }
 // Small curved corners soften each annular sector without changing its radial hit region.
 fn sector(cr: &cairo::Context, inner: f64, outer: f64, start: f64, end: f64) {
-    let corner = 5.0;
+    let corner = outer / 214.0 * 2.5;
     let point = |r: f64, a: f64| (r * a.cos(), r * a.sin());
     let curve = |control: (f64, f64), end: (f64, f64)| {
         cr.curve_to(control.0, control.1, control.0, control.1, end.0, end.1);
@@ -260,15 +261,15 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
     let count = menu.entries.len();
     let (cx, cy, r) = geometry::center(w as f64, h as f64, view.theme.radius, view.pointer);
     let inner = r * 0.39;
-    let unit = (r / 214.0).min(1.0);
+    let unit = r / 214.0;
     let ease = 1.0 - (1.0 - progress(view.start, view.theme.animation_ms)).powi(3);
     let hover = 1.0 - (1.0 - progress(view.hover_start, view.theme.animation_ms)).powi(3);
     let bg = color(&view.theme.background);
-    let fg = color(&view.theme.foreground);
+    let fg = blend(color(&view.theme.foreground), (0.80, 0.81, 0.84), 0.65);
     let accent = color(&view.theme.accent);
-    let surface = blend(bg, fg, 0.12);
-    // The dimmed backdrop and opaque disc keep content readable over any wallpaper/window.
-    rgb(cr, (0.0, 0.0, 0.0), 0.20 * ease);
+    let surface = blend(bg, fg, 0.09);
+    // A deep scrim isolates the controls from wallpaper and application content.
+    rgb(cr, (0.0, 0.0, 0.0), 0.94 * ease);
     let _ = cr.paint();
     let _ = cr.save();
     cr.translate(cx, cy);
@@ -278,14 +279,14 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
         cr.arc(0.0, 4.0, r + spread as f64, 0.0, TAU);
         let _ = cr.fill();
     }
-    rgb(cr, blend(bg, fg, 0.045), ease);
+    rgb(cr, bg, ease);
     cr.arc(0.0, 0.0, r + 2.0, 0.0, TAU);
     let _ = cr.fill();
     for (i, e) in menu.entries.iter().enumerate() {
         let step = TAU / count as f64;
         let middle = -PI / 2.0 + i as f64 * step;
-        let start = middle - step / 2.0 + 0.012;
-        let end = middle + step / 2.0 - 0.012;
+        let start = middle - step / 2.0 + 0.0075;
+        let end = middle + step / 2.0 - 0.0075;
         let selected = view.selected.as_ref() == Some(&e.id);
         let previous = view.previous.as_ref() == Some(&e.id);
         let highlight = if !e.enabled {
@@ -298,22 +299,29 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
             0.0
         };
         sector(cr, inner, r, start, end);
-        rgb(cr, blend(surface, accent, highlight * 0.30), ease);
+        let gradient = cairo::RadialGradient::new(0.0, 0.0, inner, 0.0, 0.0, r);
+        let near = blend(surface, accent, highlight * 0.26);
+        let far = blend(blend(bg, fg, 0.12), accent, highlight * 0.28);
+        gradient.add_color_stop_rgba(0.0, near.0, near.1, near.2, ease);
+        gradient.add_color_stop_rgba(1.0, far.0, far.1, far.2, ease);
+        let _ = cr.set_source(&gradient);
         let _ = cr.fill_preserve();
         rgb(
             cr,
             blend(fg, accent, highlight),
-            (0.10 + highlight * 0.72) * ease,
+            (0.28 + highlight * 0.66) * ease,
         );
-        cr.set_line_width(1.0 + highlight * 0.4);
+        cr.set_line_width((0.85 + highlight * 0.55) * unit);
         let _ = cr.stroke();
         if highlight > 0.01 {
             rgb(cr, accent, highlight * ease);
-            cr.set_line_width(2.5);
-            cr.arc(0.0, 0.0, r - 4.0, start + 0.06, end - 0.06);
+            cr.set_line_width(2.0 * unit);
+            cr.arc(0.0, 0.0, r - 3.0 * unit, start + 0.025, end - 0.025);
             let _ = cr.stroke();
         }
-        let (icon_bounds, label_bounds) = geometry::entry_text_bounds(inner, r, middle, step);
+        let label_width = if view.path.is_empty() { 80.0 } else { 130.0 } * unit;
+        let (icon_bounds, label_bounds) =
+            geometry::entry_text_bounds(inner, r, middle, step, label_width);
         let _ = cr.save();
         // Geometry keeps labels readable inside a slice; clipping also contains
         // unusual font ink overhang and oversized fallback glyphs.
@@ -324,15 +332,17 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
             if e.active || selected { accent } else { fg },
             if e.enabled { ease } else { 0.38 * ease },
         );
-        bounded_text(
-            area,
-            cr,
-            &e.icon,
-            &view.theme.icon_font,
-            26.0 * unit,
-            icon_bounds,
-            1,
-        );
+        if !icons::draw(cr, &e.icon, icon_bounds) {
+            bounded_text(
+                area,
+                cr,
+                &e.icon,
+                &view.theme.icon_font,
+                30.0 * unit,
+                icon_bounds,
+                1,
+            );
+        }
         rgb(
             cr,
             blend(fg, (1.0, 1.0, 1.0), if selected { 0.35 } else { 0.12 }),
@@ -343,7 +353,7 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
             cr,
             &e.label,
             &view.theme.font,
-            13.5 * unit,
+            13.0 * unit,
             label_bounds,
             2,
         );
@@ -352,47 +362,39 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
             rgb(cr, accent, ease);
             cr.new_path();
             cr.arc(
-                middle.cos() * (r - 16.0),
-                middle.sin() * (r - 16.0),
-                3.5,
+                middle.cos() * (r - 16.0 * unit),
+                middle.sin() * (r - 16.0 * unit),
+                2.5 * unit,
                 0.0,
                 TAU,
             );
             let _ = cr.fill();
-        } else if e.submenu.is_some() {
-            rgb(cr, fg, (0.45 + highlight * 0.5) * ease);
-            text(
-                area,
-                cr,
-                "›",
-                &view.theme.font,
-                17.0 * unit,
-                middle.cos() * (r - 17.0),
-                middle.sin() * (r - 17.0),
-                20.0,
-                1,
-            );
         }
     }
-    rgb(cr, blend(bg, fg, 0.065), ease);
+    rgb(cr, blend(bg, fg, 0.045), ease);
     cr.new_path();
-    cr.arc(0.0, 0.0, inner - 5.0, 0.0, TAU);
+    cr.arc(0.0, 0.0, inner - 5.0 * unit, 0.0, TAU);
     let _ = cr.fill_preserve();
-    rgb(cr, fg, 0.12 * ease);
-    cr.set_line_width(1.0);
+    rgb(cr, fg, 0.32 * ease);
+    cr.set_line_width(0.85 * unit);
     let _ = cr.stroke();
     rgb(cr, blend(fg, (1.0, 1.0, 1.0), 0.3), ease);
     let _ = cr.save();
     cr.new_path();
-    cr.arc(0.0, 0.0, inner - 7.0, 0.0, TAU);
+    cr.arc(0.0, 0.0, inner - 7.0 * unit, 0.0, TAU);
     cr.clip();
     bounded_text(
         area,
         cr,
         &menu.label,
         &view.theme.font,
-        15.0 * unit,
-        geometry::Rect::centered(0.0, -25.0 * unit, inner * 1.42, 34.0 * unit),
+        16.0 * unit,
+        geometry::Rect::centered(
+            0.0,
+            if view.path.is_empty() { -10.0 } else { -22.0 } * unit,
+            inner * 1.42,
+            34.0 * unit,
+        ),
         2,
     );
     let selected = menu
@@ -411,39 +413,49 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, w: i32, h: i32, view: &Vie
                 "‹ Click centre to go back"
             })
     };
-    rgb(cr, fg, 0.80 * ease);
+    rgb(cr, fg, 0.60 * ease);
     bounded_text(
         area,
         cr,
         detail,
         &view.theme.font,
-        11.0 * unit,
+        11.5 * unit,
         geometry::Rect::centered(0.0, 19.0 * unit, inner * 1.40, 38.0 * unit),
         3,
     );
     let _ = cr.restore();
     // A quiet, legible hint, with the complete key list documented outside the menu.
-    rgb(cr, blend(bg, fg, 0.10), 0.98 * ease);
-    let hint_width = 244.0 * unit;
-    let hint_y = r + 23.0;
+    rgb(cr, blend(bg, fg, 0.025), 0.80 * ease);
+    let hint_width = 224.0 * unit;
+    let hint_y = r + 35.0 * unit;
+    let hint_radius = 11.0 * unit;
     cr.new_path();
     cr.arc(
-        -hint_width / 2.0 + 14.0,
+        -hint_width / 2.0 + hint_radius,
         hint_y,
-        14.0,
+        hint_radius,
         PI / 2.0,
         3.0 * PI / 2.0,
     );
-    cr.arc(hint_width / 2.0 - 14.0, hint_y, 14.0, -PI / 2.0, PI / 2.0);
+    cr.arc(
+        hint_width / 2.0 - hint_radius,
+        hint_y,
+        hint_radius,
+        -PI / 2.0,
+        PI / 2.0,
+    );
     cr.close_path();
-    let _ = cr.fill();
-    rgb(cr, fg, 0.80 * ease);
+    let _ = cr.fill_preserve();
+    rgb(cr, fg, 0.08 * ease);
+    cr.set_line_width(unit);
+    let _ = cr.stroke();
+    rgb(cr, fg, 0.60 * ease);
     text(
         area,
         cr,
-        "Esc close  ·  Right click back",
+        "Esc to close  ·  Right click to go back",
         &view.theme.font,
-        11.5 * unit,
+        10.5 * unit,
         0.0,
         hint_y,
         hint_width - 10.0,

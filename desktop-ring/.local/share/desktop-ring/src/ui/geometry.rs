@@ -27,12 +27,13 @@ pub fn center(
 ) -> (f64, f64, f64) {
     let r = radius
         .min(width / 2.0 - 16.0)
-        .min(height / 2.0 - 56.0)
+        .min((height - 24.0) / (2.0 + 48.0 / 214.0))
         .max(80.0);
+    let bottom_margin = 48.0 * r / 214.0;
     let (x, y) = pointer.unwrap_or((width / 2.0, height / 2.0));
     (
         x.clamp(r + 12.0, (width - r - 12.0).max(r + 12.0)),
-        y.clamp(r + 12.0, (height - r - 48.0).max(r + 12.0)),
+        y.clamp(r + 12.0, (height - r - bottom_margin).max(r + 12.0)),
         r,
     )
 }
@@ -75,20 +76,28 @@ fn fits_sector(rect: Rect, inner: f64, outer: f64, angle: f64, step: f64) -> boo
     true
 }
 
-pub fn entry_text_bounds(inner: f64, outer: f64, angle: f64, step: f64) -> (Rect, Rect) {
-    let unit = (outer / 214.0).min(1.0);
+pub fn entry_text_bounds(
+    inner: f64,
+    outer: f64,
+    angle: f64,
+    step: f64,
+    label_width: f64,
+) -> (Rect, Rect) {
+    let unit = outer / 214.0;
     let safe_inner = inner + 8.0 * unit;
-    let safe_outer = outer - 23.0 * unit;
+    let safe_outer = outer - 10.0 * unit;
+    let preferred_radius = outer * (0.69 + 0.06 * angle.cos().abs());
     let mut best = None;
+    let mut best_distance = f64::INFINITY;
     for index in 0..=24 {
         let radius = inner + (outer - inner) * (0.30 + index as f64 / 60.0);
         let (x, y) = (angle.cos() * radius, angle.sin() * radius);
-        let icon = Rect::centered(x, y - 20.0 * unit, 36.0 * unit, 30.0 * unit);
+        let icon = Rect::centered(x, y - 20.0 * unit, 36.0 * unit, 32.0 * unit);
         if !fits_sector(icon, safe_inner, safe_outer, angle, step) {
             continue;
         }
         let mut low = 0.0;
-        let mut high = 130.0 * unit;
+        let mut high = label_width;
         for _ in 0..16 {
             let width = (low + high) / 2.0;
             let rect = Rect::centered(x, y + 19.0 * unit, width, 36.0 * unit);
@@ -99,8 +108,15 @@ pub fn entry_text_bounds(inner: f64, outer: f64, angle: f64, step: f64) -> (Rect
             }
         }
         let label = Rect::centered(x, y + 19.0 * unit, low, 36.0 * unit);
-        if low > 0.0 && best.is_none_or(|(_, b): (Rect, Rect)| label.width > b.width) {
+        let distance = (radius - preferred_radius).abs();
+        if low > 0.0
+            && best.is_none_or(|(_, b): (Rect, Rect)| {
+                label.width > b.width + 0.01
+                    || ((label.width - b.width).abs() <= 0.01 && distance < best_distance)
+            })
+        {
             best = Some((icon, label));
+            best_distance = distance;
         }
     }
     best.unwrap_or_else(|| {
@@ -115,14 +131,14 @@ mod tests {
     use super::*;
     #[test]
     fn every_label_and_icon_fits_its_sector_including_diagonals() {
-        for outer in [80.0, 120.0, 214.0] {
-            let unit = (outer / 214.0_f64).min(1.0);
+        for outer in [80.0, 120.0, 214.0, 400.0] {
+            let unit = outer / 214.0_f64;
             let inner = outer * 0.39;
             for count in 1..=8 {
                 let step = TAU / count as f64;
                 for index in 0..count {
                     let angle = -PI / 2.0 + index as f64 * step;
-                    let (icon, label) = entry_text_bounds(inner, outer, angle, step);
+                    let (icon, label) = entry_text_bounds(inner, outer, angle, step, 130.0 * unit);
                     assert!(
                         label.width > 15.0 * unit,
                         "No room for {count} entries at {index}: {label:?}"
@@ -130,14 +146,14 @@ mod tests {
                     assert!(fits_sector(
                         icon,
                         inner + 8.0 * unit,
-                        outer - 23.0 * unit,
+                        outer - 10.0 * unit,
                         angle,
                         step
                     ));
                     assert!(fits_sector(
                         label,
                         inner + 8.0 * unit,
-                        outer - 23.0 * unit,
+                        outer - 10.0 * unit,
                         angle,
                         step
                     ));
