@@ -8,9 +8,12 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+
+pub mod index;
+mod tui;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -72,7 +75,7 @@ pub fn absolute(path: &Path) -> Result<PathBuf> {
     })
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Pick,
     List,
@@ -81,13 +84,19 @@ pub enum Action {
     Drag(Vec<PathBuf>),
     LatestDownload,
     Window,
-    Warm,
-    Resident,
+    PrepareTerminal,
+    CachedList,
+    IndexUpdate,
+    IndexUpdateIfIdle,
+    IndexStatus,
+    IndexRemove(Vec<PathBuf>),
+    IndexClear,
+    IndexStream,
     Help,
     Version,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Options {
     pub root: PathBuf,
     pub all: bool,
@@ -105,6 +114,14 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
+    fn argument(self) -> &'static str {
+        match self {
+            Self::Recent => "recent",
+            Self::Name => "name",
+            Self::None => "none",
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::Recent => "newest",
@@ -148,18 +165,35 @@ impl Options {
                 Some("--help" | "-h") => options.action = Action::Help,
                 Some("--version" | "-V") => options.action = Action::Version,
                 Some(
-                    "--list" | "--latest-download" | "--window" | "--warm" | "--copy" | "--path"
-                    | "--drag" | "--resident",
+                    "--list"
+                    | "--latest-download"
+                    | "--window"
+                    | "--copy"
+                    | "--path"
+                    | "--drag"
+                    | "--cached-list"
+                    | "--index-update"
+                    | "--index-update-if-idle"
+                    | "--index-status"
+                    | "--index-remove"
+                    | "--index-clear"
+                    | "--index-stream"
+                    | "--prepare-terminal",
                 ) => {
                     if options.action != Action::Pick {
-                        return Err("Choose one action: --list, --copy, --path, --drag, --latest-download, --window or --warm".into());
+                        return Err("Choose only one picker or index action".into());
                     }
                     options.action = match arg.to_str().unwrap() {
                         "--list" => Action::List,
                         "--latest-download" => Action::LatestDownload,
                         "--window" => Action::Window,
-                        "--warm" => Action::Warm,
-                        "--resident" => Action::Resident,
+                        "--prepare-terminal" => Action::PrepareTerminal,
+                        "--cached-list" => Action::CachedList,
+                        "--index-update" => Action::IndexUpdate,
+                        "--index-update-if-idle" => Action::IndexUpdateIfIdle,
+                        "--index-status" => Action::IndexStatus,
+                        "--index-clear" => Action::IndexClear,
+                        "--index-stream" => Action::IndexStream,
                         action => {
                             let mut paths = Vec::new();
                             while i + 1 < args.len() && !args[i + 1].as_bytes().starts_with(b"--") {
@@ -172,6 +206,7 @@ impl Options {
                             match action {
                                 "--copy" => Action::Copy(paths),
                                 "--path" => Action::Path(paths),
+                                "--index-remove" => Action::IndexRemove(paths),
                                 _ => Action::Drag(paths),
                             }
                         }
@@ -241,8 +276,9 @@ fn changed_time(metadata: &fs::Metadata) -> i128 {
     modified.max(changed)
 }
 
-fn sorted_paths(options: &Options) -> Result<Vec<PathBuf>> {
-    let output = scan_command(&options.root, options.all, options.pdf)?.output()?;
+fn scan_files(options: &Options) -> Result<Vec<(i128, PathBuf)>> {
+    let mut command = scan_command(&options.root, options.all, options.pdf)?;
+    let output = terminate_with_parent(&mut command).output()?;
     if !output.status.success() {
         return Err(format!("File scan failed ({})", output.status).into());
     }
@@ -260,6 +296,11 @@ fn sorted_paths(options: &Options) -> Result<Vec<PathBuf>> {
             files.push((changed_time(&metadata), path));
         }
     }
+    Ok(files)
+}
+
+fn sorted_paths(options: &Options) -> Result<Vec<PathBuf>> {
+    let mut files = scan_files(options)?;
     // Recent mode always selects the newest set before applying display order.
     if options.recent {
         files.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
@@ -329,6 +370,24 @@ pub fn file_uris(paths: &[PathBuf]) -> Vec<u8> {
         output.extend_from_slice(b"\r\n");
     }
     output
+}
+
+// The terminal may be closed by the compositor instead of by a TUI key. Ensure
+// scans do not survive that path either. Detached clipboard/drag helpers opt out.
+fn terminate_with_parent(command: &mut Command) -> &mut Command {
+    let parent = std::process::id() as libc::pid_t;
+    unsafe {
+        command.pre_exec(move || {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if libc::getppid() != parent {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "Picker closed"));
+            }
+            Ok(())
+        });
+    }
+    command
 }
 
 pub fn detached(command: &mut Command) -> &mut Command {
@@ -598,82 +657,6 @@ pub fn appearance_colors() -> Colors {
     }
 }
 
-fn prompt(scope: &str, options: &Options, sort: SortOrder) -> String {
-    format!(
-        "  {}{}:{}> ",
-        if options.recent {
-            "recent"
-        } else if options.pdf {
-            "pdf"
-        } else {
-            "files"
-        },
-        match scope {
-            "ALL FILES" => ":all",
-            "WHOLE PC" => ":/",
-            _ => "",
-        },
-        sort.label()
-    )
-}
-
-fn picker_style(scope: &str, options: &Options) -> Vec<String> {
-    let c = appearance_colors();
-    vec![
-        "--style=minimal".into(),
-        "--border=none".into(),
-        "--margin=1,3".into(),
-        "--padding=0".into(),
-        "--highlight-line".into(),
-        format!("--prompt={}", prompt(scope, options, options.sort)),
-        "--info=inline-right".into(),
-        "--keep-right".into(),
-        "--pointer=>".into(),
-        "--marker=*".into(),
-        "--footer-border=top".into(),
-        format!(
-            "--footer={}",
-            if options.recent {
-                "Enter  choose action    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
-            } else if options.pdf {
-                "Enter  open    Ctrl+D / Ctrl+U  half-page down / up\nCtrl+T  newest / name    Ctrl+R  refresh    Esc  close"
-            } else {
-                "Enter  copy    Ctrl+G  drag    Ctrl+Y  copy path\nCtrl+D / Ctrl+U  half-page down / up    Tab  select\nCtrl+T  newest / name    Ctrl+R  refresh    Ctrl+A  all files    Ctrl+S  whole PC    Esc  close"
-            }
-        ),
-        format!(
-            "--color=fg:{},bg:{},fg+:{}:bold,bg+:{},hl:{}:bold,hl+:{}:bold,gutter:{},pointer:{},marker:{},prompt:{}:bold,footer:{},info:{},spinner:{},separator:{},footer-border:{}",
-            c.fg,
-            c.bg,
-            c.fg,
-            c.selected,
-            c.accent,
-            c.accent,
-            c.bg,
-            c.accent,
-            c.accent,
-            c.accent,
-            c.muted,
-            c.muted,
-            c.accent,
-            c.border,
-            c.border
-        ),
-    ]
-}
-
-struct ScanChild(Child);
-impl Drop for ScanChild {
-    fn drop(&mut self) {
-        if self.0.try_wait().ok().flatten().is_none() {
-            unsafe {
-                libc::kill(-(self.0.id() as i32), libc::SIGTERM);
-            }
-        }
-        let _ = self.0.wait();
-    }
-}
-
 pub fn drag_binary() -> Result<PathBuf> {
     Ok(executable_path()?.with_file_name("file-picker-drag"))
 }
@@ -691,83 +674,18 @@ fn executable_path() -> Result<PathBuf> {
         .unwrap_or(path))
 }
 
-fn recent_action_menu(path: &Path, options: &Options) -> Result<()> {
-    let pdf = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"));
-    let open = if pdf {
-        "Open in Zathura"
-    } else {
-        "Open in default application"
-    };
-    let choices = format!("o  {open}\0c  Copy path\0a  Copy file as attachment\0");
-    let display_path: String = path
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_control() { '�' } else { c })
-        .collect();
-    let mut fzf = Command::new("fzf");
-    fzf.args([
-        "--read0",
-        "--print0",
-        "--reverse",
-        "--no-sort",
-        "--no-input",
-    ])
-    .args(picker_style("HOME", options))
-    .arg(format!("--header={display_path}\nChoose an action:"))
-    .arg("--footer=o  open    c  copy path    a  copy file    Enter  confirm    Esc  cancel")
-    .args([
-        "--bind",
-        "o:pos(1),c:pos(2),a:pos(3),ctrl-d:half-page-down,ctrl-u:half-page-up",
-    ])
-    .env("FZF_DEFAULT_OPTS", "")
-    .env("FZF_DEFAULT_OPTS_FILE", "")
-    .env("SHELL", "/bin/sh")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped());
-    if options.action == Action::Resident {
-        fzf.arg("--no-clear");
-    }
-    let mut child = fzf.spawn()?;
-    child.stdin.take().unwrap().write_all(choices.as_bytes())?;
-    let result = child.wait_with_output()?;
-    match result.status.code() {
-        Some(1 | 130) => return Ok(()),
-        Some(0) => {}
-        _ => return Err(format!("Action picker failed ({})", result.status).into()),
-    }
-    match result.stdout.first() {
-        Some(b'o') => {
-            if pdf {
-                detached(Command::new("zathura").arg("--fork").arg(path)).spawn()?;
-            } else {
-                detached(Command::new("xdg-open").arg(path)).spawn()?;
-            }
-            Ok(())
-        }
-        Some(b'c') => copy_selection(&[path.to_owned()], true),
-        Some(b'a') => copy_selection(&[path.to_owned()], false),
-        _ => Err("No action selected".into()),
-    }
-}
-
-fn scan_args(command: &mut Command, options: &Options) {
+fn scan_args(command: &mut Command, options: &Options, action: &str) {
     if options.recent {
         command.arg("--recent");
     }
-    command
-        .arg("--list")
-        .arg("--root")
-        .arg(&options.root)
-        .args([
-            "--sort",
-            match options.sort {
-                SortOrder::Recent => "recent",
-                SortOrder::Name => "name",
-                SortOrder::None => "none",
-            },
-        ]);
+    command.arg(action).arg("--root").arg(&options.root).args([
+        "--sort",
+        match options.sort {
+            SortOrder::Recent => "recent",
+            SortOrder::Name => "name",
+            SortOrder::None => "none",
+        },
+    ]);
     if options.pdf {
         command.arg("--pdf");
     }
@@ -776,146 +694,28 @@ fn scan_args(command: &mut Command, options: &Options) {
     }
 }
 
-fn reload_action(options: &Options, scope: &str, sort: SortOrder) -> String {
-    let root = if scope == "WHOLE PC" {
-        "/"
-    } else {
-        "\"$FILE_PICKER_ROOT\""
-    };
-    let all = if scope == "ALL FILES" || scope == "WHOLE PC" {
-        " --all"
-    } else {
-        ""
-    };
-    let pdf = if options.pdf { " --pdf" } else { "" };
-    let recent = if options.recent { " --recent" } else { "" };
-    let order = match sort {
-        SortOrder::Recent => "recent",
-        SortOrder::Name => "name",
-        SortOrder::None => "none",
-    };
-    format!(
-        "change-prompt({})+reload-sync(\"$FILE_PICKER_BINARY\" --list{pdf}{recent}{all} --root {root} --sort {order})",
-        prompt(scope, options, sort)
-    )
-}
-
 pub fn pick(options: &Options) -> Result<()> {
-    let ready = if options.action == Action::Resident {
-        let ready = ready_path(options)?;
-        let _ = fs::remove_file(&ready);
-        Some(ready)
-    } else {
-        None
+    let Some(selection) = tui::pick(options)? else {
+        return Ok(());
     };
-    let scope = if options.all {
-        "ALL FILES"
-    } else if options.root == home() {
-        "HOME"
-    } else {
-        "FOLDER"
-    };
-    let mut bindings = format!(
-        "ctrl-d:half-page-down,ctrl-u:half-page-up,ctrl-r:{}",
-        reload_action(options, scope, options.sort)
-    );
-    if ready.is_some() {
-        bindings.push_str(",load:execute-silent(touch \"$FILE_PICKER_READY\")");
-    }
-    if !options.pdf {
-        bindings.push_str(&format!(
-            ",ctrl-a:{},ctrl-s:{}",
-            reload_action(options, "ALL FILES", options.sort),
-            reload_action(options, "WHOLE PC", options.sort)
-        ));
-    }
-    bindings.push_str(",ctrl-t:transform:case \"$FZF_PROMPT\" in *:name*) order=RECENT;; *) order=NAME;; esac; case \"$FZF_PROMPT\" in *:all:*) scope=ALL;; *:/:*) scope=PC;; *) scope=HOME;; esac; case \"$scope:$order\" in HOME:RECENT) printf '%s' \"$FILE_PICKER_SORT_HOME_RECENT\";; HOME:NAME) printf '%s' \"$FILE_PICKER_SORT_HOME_NAME\";; ALL:RECENT) printf '%s' \"$FILE_PICKER_SORT_ALL_RECENT\";; ALL:NAME) printf '%s' \"$FILE_PICKER_SORT_ALL_NAME\";; PC:RECENT) printf '%s' \"$FILE_PICKER_SORT_PC_RECENT\";; PC:NAME) printf '%s' \"$FILE_PICKER_SORT_PC_NAME\";; esac");
-    let mut scan = Command::new(executable_path()?);
-    scan_args(&mut scan, options);
-    let mut scanner = ScanChild(
-        scan.stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()?,
-    );
-    let mut fzf = Command::new("fzf");
-    fzf.args([
-        "--read0",
-        "--print0",
-        "--no-multi-line",
-        "--reverse",
-        "--scheme=path",
-        "--tiebreak=index",
-    ]);
-    if !options.pdf && !options.recent {
-        fzf.args(["--multi", "--expect=ctrl-g,ctrl-y"]);
-    }
-    for (name, target) in [("HOME", scope), ("ALL", "ALL FILES"), ("PC", "WHOLE PC")] {
-        fzf.env(
-            format!("FILE_PICKER_SORT_{name}_RECENT"),
-            reload_action(options, target, SortOrder::Recent),
-        );
-        fzf.env(
-            format!("FILE_PICKER_SORT_{name}_NAME"),
-            reload_action(options, target, SortOrder::Name),
-        );
-    }
-    if options.action == Action::Resident {
-        // Keep the last frame while the hidden picker prepares its next run.
-        fzf.arg("--no-clear");
-    }
-    if let Some(ready) = ready {
-        fzf.env("FILE_PICKER_READY", ready);
-    }
-    let result = fzf
-        .args(["--bind", &bindings])
-        .args(picker_style(scope, options))
-        .env("FZF_DEFAULT_OPTS", "")
-        .env("FZF_DEFAULT_OPTS_FILE", "")
-        .env("SHELL", "/bin/sh")
-        .env("FILE_PICKER_BINARY", executable_path()?)
-        .env("FILE_PICKER_ROOT", &options.root)
-        .stdin(Stdio::from(scanner.0.stdout.take().unwrap()))
-        .stdout(Stdio::piped())
-        .spawn()?
-        .wait_with_output();
-    drop(scanner);
-    let result = result?;
-    match result.status.code() {
-        Some(1 | 130) => return Ok(()),
-        Some(0) => {}
-        _ => return Err(format!("fzf failed ({})", result.status).into()),
-    }
-    let mut records = result.stdout.split(|byte| *byte == 0);
-    let action = if options.pdf || options.recent {
-        b"".as_slice()
-    } else {
-        records.next().unwrap_or_default()
-    };
-    let paths = checked_files(
-        records
-            .filter(|name| !name.is_empty())
-            .map(|name| PathBuf::from(OsString::from_vec(name.to_vec()))),
-    )?;
-    if options.recent {
-        return recent_action_menu(&paths[0], options);
-    }
-    if options.pdf {
-        if options.action == Action::Resident {
-            detached(Command::new("zathura").arg("--fork").arg(&paths[0])).spawn()?;
-            return Ok(());
+    let paths = checked_files(selection.paths)?;
+    match selection.action {
+        tui::SelectionAction::Copy => copy_selection(&paths, false),
+        tui::SelectionAction::Path => copy_selection(&paths, true),
+        tui::SelectionAction::Drag => {
+            detached(Command::new(drag_binary()?).args(paths)).spawn()?;
+            Ok(())
         }
-        return Err(Command::new("zathura")
-            .arg("--fork")
-            .arg(&paths[0])
-            .exec()
-            .into());
-    }
-    if action == b"ctrl-g" {
-        detached(Command::new(drag_binary()?).args(&paths)).spawn()?;
-        Ok(())
-    } else {
-        copy_selection(&paths, action == b"ctrl-y")
+        tui::SelectionAction::Open | tui::SelectionAction::OpenPdf => {
+            for path in paths {
+                if selection.action == tui::SelectionAction::OpenPdf {
+                    detached(Command::new("zathura").arg("--fork").arg(path)).spawn()?;
+                } else {
+                    detached(Command::new("xdg-open").arg(path)).spawn()?;
+                }
+            }
+            Ok(())
+        }
     }
 }
 
@@ -942,21 +742,7 @@ fn picker_name(options: &Options) -> &'static str {
     }
 }
 
-fn picker_class(options: &Options) -> &'static str {
-    if options.recent {
-        "recent.picker"
-    } else if options.pdf {
-        "pdf.picker"
-    } else {
-        "file.picker"
-    }
-}
-
-fn ready_path(options: &Options) -> Result<PathBuf> {
-    env::var_os("XDG_RUNTIME_DIR")
-        .map(|path| PathBuf::from(path).join(format!("{}-ready", picker_name(options))))
-        .ok_or_else(|| "XDG_RUNTIME_DIR must be set".into())
-}
+const PICKER_CLASS: &str = "file.picker";
 
 fn picker_window(options: &Options) -> Result<Option<String>> {
     let data = output_timeout(
@@ -966,7 +752,7 @@ fn picker_window(options: &Options) -> Result<Option<String>> {
     let clients: Vec<serde_json::Value> = serde_json::from_slice(&data)?;
     Ok(clients
         .iter()
-        .find(|client| client["class"] == picker_class(options))
+        .find(|client| client["class"] == PICKER_CLASS && client["title"] == picker_name(options))
         .and_then(|client| client["address"].as_str())
         .filter(|address| {
             address.starts_with("0x") && address[2..].bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -982,21 +768,7 @@ fn hypr_eval(code: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn resident(options: &Options) -> Result<()> {
-    loop {
-        let result = pick(options);
-        // Keep the terminal and next fuzzy search ready offscreen after Esc/copy/drag.
-        if let Some(address) = picker_window(options)? {
-            let workspace = picker_name(options);
-            hypr_eval(&format!(
-                "hl.dispatch(hl.dsp.window.move({{window=\"address:{address}\",workspace=\"special:{workspace}\",follow=false}}))"
-            ))?;
-        }
-        result?;
-    }
-}
-
-fn resident_window(options: &Options, warm: bool) -> Result<()> {
+fn launch_lock() -> Result<fs::File> {
     let runtime = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .ok_or("XDG_RUNTIME_DIR must be set")?;
@@ -1004,95 +776,342 @@ fn resident_window(options: &Options, warm: bool) -> Result<()> {
         .create(true)
         .truncate(false)
         .write(true)
-        .open(runtime.join(format!("{}-launch.lock", picker_name(options))))?;
+        .open(runtime.join("file-picker-launch.lock"))?;
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
         return Err(io::Error::last_os_error().into());
     }
-    let mut address = picker_window(options)?;
-    if address.is_none() {
-        let _ = fs::remove_file(ready_path(options)?);
-        let mut command = OsString::from("--command=shell:exec ");
-        command.push(shell_quote(executable_path()?.as_os_str()));
-        command.push(" --resident --root ");
-        command.push(shell_quote(options.root.as_os_str()));
-        if options.pdf {
-            command.push(" --pdf");
-        }
-        if options.recent {
-            command.push(" --recent");
-        }
-        command.push(" --sort ");
-        command.push(match options.sort {
-            SortOrder::Recent => "recent",
-            SortOrder::Name => "name",
-            SortOrder::None => "none",
-        });
-        if options.all {
-            command.push(" --all");
-        }
-        let mut ghostty = Command::new("ghostty");
-        ghostty
-            .args([
-                &format!("--class={}", picker_class(options)),
-                "--gtk-single-instance=true",
-                "--quit-after-last-window-closed=true",
-                "--font-size=13",
-                "--window-padding-x=10",
-                "--window-padding-y=8",
-                "--shell-integration=none",
-            ])
-            .arg(command);
-        let mut terminal = detached(&mut ghostty).spawn()?;
-        let start = Instant::now();
-        while address.is_none() && start.elapsed() < Duration::from_secs(5) {
-            if terminal.try_wait()?.is_some_and(|status| !status.success()) {
-                return Err("Could not start the picker terminal".into());
-            }
-            thread::sleep(Duration::from_millis(10));
-            address = picker_window(options)?;
-        }
-    }
-    let address = address.ok_or("The picker terminal did not open")?;
-    // GTK can defer Ghostty's first surface (and child process) while the
-    // terminal is on a hidden workspace. Warming only needs the window;
-    // a requested picker must be visible before waiting for fzf's load event.
-    if warm {
+    Ok(lock)
+}
+
+fn terminal_running() -> Result<bool> {
+    let output = output_timeout(
+        Command::new("gdbus").args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.DBus",
+            "--object-path",
+            "/org/freedesktop/DBus",
+            "--method",
+            "org.freedesktop.DBus.NameHasOwner",
+            PICKER_CLASS,
+        ]),
+        Duration::from_secs(1),
+    )?;
+    Ok(output.trim_ascii() == b"(true,)")
+}
+
+fn ensure_terminal() -> Result<()> {
+    if terminal_running()? {
         return Ok(());
     }
-    let show = if options.recent {
-        "show_recent"
-    } else if options.pdf {
-        "show_pdf"
-    } else {
-        "show"
-    };
-    let present_only = if ready_path(options)?.is_file() {
-        "false"
-    } else {
-        "true"
-    };
-    hypr_eval(&format!(
-        "local ok,picker=pcall(require,\"file-picker\"); if ok then picker.{show}({present_only}) else local w=\"address:{address}\"; hl.dispatch(hl.dsp.window.move({{window=w,workspace=hl.get_active_workspace(),follow=false}})); hl.dispatch(hl.dsp.window.center({{window=w}})); hl.dispatch(hl.dsp.focus({{window=w}})); if not {present_only} then hl.dispatch(hl.dsp.send_shortcut({{mods=\"CTRL\",key=\"R\",window=w}})) end end"
-    ))?;
+    let mut fallback = OsString::from("--command=shell:exec ");
+    fallback.push(shell_quote(executable_path()?.as_os_str()));
+    let mut command = Command::new("ghostty");
+    command
+        .args([
+            &format!("--class={PICKER_CLASS}"),
+            "--gtk-single-instance=true",
+            "--initial-window=false",
+            // These short-lived surfaces launch detached clipboard/index helpers.
+            // Avoid per-surface systemd setup and keep their lifetime independent.
+            "--linux-cgroup=never",
+            "--quit-after-last-window-closed=false",
+            "--wait-after-command=false",
+            "--confirm-close-surface=false",
+            "--title=file-picker",
+            "--font-size=13",
+            "--window-padding-x=10",
+            "--window-padding-y=8",
+            "--shell-integration=none",
+            "--background-opacity=1",
+        ])
+        .arg(fallback);
+    let mut host = detached(&mut command).spawn()?;
     let start = Instant::now();
-    while !ready_path(options)?.is_file() {
-        if start.elapsed() >= Duration::from_secs(5) {
-            return Err("The picker did not finish drawing its interface".into());
+    while start.elapsed() < Duration::from_secs(5) {
+        if terminal_running()? {
+            return Ok(());
+        }
+        if host.try_wait()?.is_some_and(|status| !status.success()) {
+            return Err("Could not prepare the picker terminal".into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = host.kill();
+    let _ = host.wait();
+    Err("The picker terminal did not register with D-Bus".into())
+}
+
+/// Prepare GTK/fonts once with zero windows instead of once per shortcut press.
+pub fn prepare_terminal() -> Result<()> {
+    let _lock = launch_lock()?;
+    ensure_terminal()
+}
+
+fn terminal_request(options: &Options, executable: &Path) -> Command {
+    let mut command = Command::new("ghostty");
+    command.args([
+        "+new-window",
+        &format!("--class={PICKER_CLASS}"),
+        &format!("--title={}", picker_name(options)),
+        "-e",
+        "env",
+    ]);
+    // The persistent host has its original environment. Forward documented
+    // per-invocation overrides so independent caches cannot leak between calls.
+    let variables = [
+        "FILE_PICKER_INDEX",
+        "FILE_PICKER_APPEARANCE",
+        "FILE_PICKER_EXECUTABLE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "PATH",
+        "NO_COLOR",
+        "CLICOLOR",
+        "CLICOLOR_FORCE",
+    ];
+    for name in variables {
+        command.args(["-u", name]);
+    }
+    command.arg("--");
+    for name in variables {
+        let value = if name == "FILE_PICKER_EXECUTABLE" {
+            Some(executable.as_os_str().to_owned())
+        } else {
+            env::var_os(name)
+        };
+        if let Some(value) = value {
+            let mut argument = OsString::from(name);
+            argument.push("=");
+            argument.push(value);
+            command.arg(argument);
+        }
+    }
+    command
+        .arg(executable)
+        .arg("--root")
+        .arg(&options.root)
+        .arg("--sort")
+        .arg(options.sort.argument());
+    if options.pdf {
+        command.arg("--pdf");
+    }
+    if options.recent {
+        command.arg("--recent");
+    }
+    if options.all {
+        command.arg("--all");
+    }
+    command
+}
+
+fn standalone_terminal(options: &Options, executable: &Path) -> Result<std::process::Child> {
+    // D-Bus arguments must be UTF-8; retain a byte-safe fallback for other roots.
+    let mut argument = OsString::from("--command=shell:exec ");
+    argument.push(shell_quote(executable.as_os_str()));
+    argument.push(" --root ");
+    argument.push(shell_quote(options.root.as_os_str()));
+    argument.push(" --sort ");
+    argument.push(options.sort.argument());
+    if options.pdf {
+        argument.push(" --pdf");
+    }
+    if options.recent {
+        argument.push(" --recent");
+    }
+    if options.all {
+        argument.push(" --all");
+    }
+    let mut command = Command::new("ghostty");
+    command
+        .args([
+            &format!("--class={PICKER_CLASS}"),
+            &format!("--title={}", picker_name(options)),
+            "--gtk-single-instance=false",
+            "--quit-after-last-window-closed=true",
+            "--wait-after-command=false",
+            "--confirm-close-surface=false",
+            "--font-size=13",
+            "--window-padding-x=10",
+            "--window-padding-y=8",
+            "--shell-integration=none",
+            "--background-opacity=1",
+        ])
+        .arg(argument);
+    Ok(detached(&mut command).spawn()?)
+}
+
+fn terminal_dbus_request(request: &Command) -> Result<Command> {
+    // This is the same public GAction used by Ghostty's +new-window command,
+    // without starting another GTK-linked Ghostty command-line process.
+    let arguments: Vec<_> = request
+        .get_args()
+        .skip(2)
+        .map(|arg| {
+            arg.to_str()
+                .ok_or("D-Bus requires UTF-8 terminal arguments")
+        })
+        .collect::<std::result::Result<_, _>>()?;
+    let parameter = format!("[<{}>]", serde_json::to_string(&arguments)?);
+    let mut command = Command::new("gdbus");
+    command.args([
+        "call",
+        "--session",
+        "--dest",
+        PICKER_CLASS,
+        "--object-path",
+        "/file/picker",
+        "--method",
+        "org.gtk.Actions.Activate",
+        "new-window-command",
+        &parameter,
+        "{}",
+    ]);
+    Ok(command)
+}
+
+/// Open a disposable floating window through a shared, windowless Ghostty host.
+pub fn window(options: &Options) -> Result<()> {
+    let _lock = launch_lock()?;
+    let address = picker_window(options)?;
+    let title = picker_name(options);
+    hypr_eval(&format!(
+        "for _,w in ipairs(hl.get_windows()) do if (w.class=='file.picker' or w.class=='pdf.picker' or w.class=='recent.picker') and (w.class~='{PICKER_CLASS}' or w.title~='{title}') then hl.dispatch(hl.dsp.window.close({{window=w}})) end end"
+    ))?;
+    if let Some(address) = address {
+        hypr_eval(&format!(
+            "local w='address:{address}'; hl.dispatch(hl.dsp.window.move({{window=w,workspace=hl.get_active_workspace(),follow=false}})); hl.dispatch(hl.dsp.window.center({{window=w}})); hl.dispatch(hl.dsp.focus({{window=w}}))"
+        ))?;
+        return Ok(());
+    }
+    let executable = executable_path()?;
+    let mut request = terminal_request(options, &executable);
+    let utf8 = request
+        .get_args()
+        .all(|argument| argument.to_str().is_some());
+    let mut standalone = if utf8 {
+        ensure_terminal()?;
+        let mut direct = terminal_dbus_request(&request)?;
+        if output_timeout(&mut direct, Duration::from_secs(3)).is_err() {
+            output_timeout(&mut request, Duration::from_secs(3))?;
+        }
+        None
+    } else {
+        Some(standalone_terminal(options, &executable)?)
+    };
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(5) {
+        if picker_window(options)?.is_some() {
+            return Ok(());
+        }
+        if let Some(terminal) = &mut standalone
+            && terminal.try_wait()?.is_some()
+        {
+            return Err("The picker terminal exited before opening".into());
         }
         thread::sleep(Duration::from_millis(5));
     }
-    Ok(())
+    if let Some(mut terminal) = standalone {
+        let _ = terminal.kill();
+        let _ = terminal.wait();
+    }
+    Err("The picker terminal did not open".into())
 }
 
-pub fn window(options: &Options, warm: bool) -> Result<()> {
-    resident_window(options, warm)
-}
+pub const HELP: &str = "File picker (Ratatui + SQLite)
 
-pub const HELP: &str = "File picker (Rust)\n\nUsage: file-picker [--root DIRECTORY] [--all] [--pdf | --recent] [--sort recent|name|none] [ACTION]\n\nActions:\n  --list                Stream NUL-delimited file paths\n  --copy FILE...        Copy files as attachments\n  --path FILE           Copy one absolute file path\n  --drag FILE...        Show a native drag card\n  --latest-download     Copy the newest completed download and paste it\n  --window              Show the prepared picker and refresh files\n  --warm                Prepare the picker without showing a window\n  --resident            Keep a picker ready on its hidden workspace\n  --help, -h            Show this help\n  --version, -V         Show version\n\nWithout an action, open the fuzzy picker in the current terminal.\n";
+Usage: file-picker [--root DIRECTORY] [--all] [--pdf | --recent] [--sort recent|name|none] [ACTION]
+
+Actions:
+  --list                Live scan; stream NUL-delimited file paths
+  --cached-list         Read cached paths without scanning
+  --copy FILE...        Copy files as attachments
+  --path FILE           Copy one absolute file path
+  --drag FILE...        Show a native drag card
+  --latest-download     Copy the newest completed download and paste it
+  --window              Open a floating picker; close on selection or Escape
+  --prepare-terminal    Prepare a terminal host with zero windows
+
+Index maintenance:
+  --index-update        Refresh the current scope; add, update and prune rows
+  --index-status        Show cached scopes, counts and last refresh times
+  --index-remove FILE... Remove cached paths from all scopes; keep actual files
+  --index-clear         Clear the current root/mode cache; keep actual files
+
+  --help, -h            Show this help
+  --version, -V         Show version
+
+The picker shows cached results first, refreshes in the background on open,
+and refreshes every 30 seconds while open. Ctrl+R refreshes immediately.
+FILE_PICKER_INDEX overrides the SQLite cache path.
+Without an action, open the Ratatui picker in the current terminal.
+";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_ipc_preserves_argument_boundaries_and_uses_a_shared_host() {
+        let options = Options::parse(
+            ["--root", "/tmp/a folder's $data", "--pdf", "--sort", "name"].map(OsString::from),
+        )
+        .unwrap();
+        let executable = Path::new("/tmp/tool folder/picker");
+        let command = terminal_request(&options, executable);
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args[0], "+new-window");
+        assert_eq!(args[1], "--class=file.picker");
+        assert_eq!(args[2], "--title=pdf-picker");
+        let start = args
+            .iter()
+            .position(|arg| *arg == executable.as_os_str())
+            .unwrap();
+        assert_eq!(
+            &args[start..],
+            [
+                executable.as_os_str(),
+                OsStr::new("--root"),
+                options.root.as_os_str(),
+                OsStr::new("--sort"),
+                OsStr::new("name"),
+                OsStr::new("--pdf")
+            ]
+        );
+        for variable in ["FILE_PICKER_INDEX", "FILE_PICKER_APPEARANCE"] {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair == [OsStr::new("-u"), OsStr::new(variable)])
+            );
+        }
+        assert_eq!(
+            Options::parse([OsString::from("--prepare-terminal")])
+                .unwrap()
+                .action,
+            Action::PrepareTerminal
+        );
+        let direct = terminal_dbus_request(&command).unwrap();
+        assert_eq!(direct.get_program(), "gdbus");
+        let direct_args: Vec<_> = direct.get_args().collect();
+        let parameter = direct_args[direct_args.len() - 2].to_str().unwrap();
+        let decoded: Vec<String> = serde_json::from_str(
+            parameter
+                .strip_prefix("[<")
+                .unwrap()
+                .strip_suffix(">]")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decoded,
+            args[2..]
+                .iter()
+                .map(|arg| arg.to_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn default_search_skips_app_state_and_android_sdk_but_all_can_find_them() {
@@ -1172,7 +1191,7 @@ mod tests {
     }
 
     #[test]
-    fn roots_cannot_inject_reload_commands() {
+    fn roots_and_shell_commands_preserve_literal_paths() {
         let options =
             Options::parse(["--root", "/tmp/a')+execute(touch bad)", "--all"].map(OsString::from))
                 .unwrap();

@@ -272,6 +272,5 @@ hl.bind(
 	require("file-picker").show,
 	{ description = "Copy or drag a file" }
 )
-hl.bind("Escape", require("file-picker").dismiss, { auto_consuming = true, description = "Hide file/PDF picker" })
 hl.bind("SUPER + ALT + PERIOD", hl.dsp.exec_cmd("ghostty --class=global.snip -e ~/.local/bin/globalsnip"))
 hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("ghostty --class=macro.picker -e ~/.local/bin/macro-picker"))

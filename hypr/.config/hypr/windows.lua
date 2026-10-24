@@ -32,25 +32,6 @@ hl.window_rule({
     center = true,
 })
 
--- Keep the file picker ready offscreen until its shortcut brings it forward.
-hl.window_rule({
-    match = { class = "^file\\.picker$" },
-    name = "file-picker-ready",
-    workspace = "special:file-picker silent",
-})
-
-hl.window_rule({
-    match = { class = "^pdf\\.picker$" },
-    name = "pdf-picker-ready",
-    workspace = "special:pdf-picker silent",
-})
-
-hl.window_rule({
-    match = { class = "^recent\\.picker$" },
-    name = "recent-picker-ready",
-    workspace = "special:recent-picker silent",
-})
-
 hl.window_rule({
     match = { class = "^local\\.filepicker\\.drag$" },
     name = "file-drag-card",
