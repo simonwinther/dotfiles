@@ -1,6 +1,6 @@
 # Portable desktop configuration
 
-The `nixos-portable` branch preserves the shared desktop tools, plain configuration, and appearance assets used by the NixOS workstation. It is pinned as the `dotfiles/` submodule in https://github.com/simonwinther/nixos-config. The existing `master` branch remains available for the Arch configuration.
+The `master` branch contains the shared desktop tools, plain configuration, and appearance assets used across distributions. This repository is pinned as the `dotfiles/` submodule in https://github.com/simonwinther/nixos-config.
 
 On NixOS, Home Manager owns the configuration links. On other distributions, use GNU Stow for the packages you select. Do not let both manage the same target. Runtime credentials, private keys, build output and caches stay outside this repository.
 
