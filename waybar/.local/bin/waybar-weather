@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+if command -v waybar-weather-native >/dev/null 2>&1; then
+  exec waybar-weather-native "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-weather/bin/waybar-weather-native"
+if [ ! -x "$binary" ]; then
+  printf '%s\n' '{"text":" ","tooltip":"Run waybar-weather-build to build the weather helper.","class":["weather","unavailable"]}'
+  exit 0
+fi
+exec "$binary" "$@"

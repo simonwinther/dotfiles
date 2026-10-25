@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Ferry
+Comment=Move recent downloads with fuzzy folder search
+Exec=ferry %F
+Icon=folder-download
+Terminal=true
+StartupNotify=false
+Categories=Utility;FileTools;
+Keywords=download;fuzzy;move;files;organize;

@@ -22,6 +22,7 @@ VPN_PASSWORD = CONFIG / 'password'
 VPN_AUTH = CONFIG / 'vpn-auth.json'
 STATUS = CONFIG / 'setup-status.json'
 SSH = os.environ.get('DESKTOP_SSH_BIN', '/run/current-system/sw/bin/ssh' if Path('/run/current-system/sw/bin/ssh').exists() else '/usr/bin/ssh')
+SYSTEMCTL = str(Path('/run/current-system/sw/bin/systemctl').resolve()) if Path('/run/current-system/sw/bin/systemctl').is_file() else 'systemctl'
 HOSTS = {'hendrix', 'hendrixgate', 'hendrixgate.unicph.domain'}
 ARG_OPTIONS = set('BbcDEeFIiJLlmOopQRSWw')
 
@@ -168,7 +169,7 @@ def ensure_vpn():
               'Starting KU VPN — approve the KU phone notification if requested…',
               file=sys.stderr, flush=True)
         result = subprocess.run(
-            ['sudo', '-n', 'systemctl', 'start', 'ku-vpn.service'])
+            ['sudo', '-n', SYSTEMCTL, 'start', 'ku-vpn.service'])
         if result.returncode:
             raise RuntimeError('KU VPN setup is incomplete. Run hendrix-setup once.')
         deadline = time.monotonic() + 120

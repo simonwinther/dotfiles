@@ -58,6 +58,13 @@ hl.bind(
 -- FILE MANAGEMENT
 -- =============================================================================
 
+hl.unbind("SUPER + E")
+hl.bind(
+    "SUPER + E",
+    hl.dsp.exec_cmd('desktopctl launch focus org.desktop.ferry "ghostty --class=org.desktop.ferry --title=Ferry -e ferry"'),
+    { description = "Ferry" }
+)
+
 hl.bind("SUPER + SHIFT + F", hl.dsp.exec_cmd("uwsm-app -- nautilus --new-window"), { description = "File manager" })
 
 -- Use SUPER+ALT+Z for file search; leave SUPER+R unassigned.

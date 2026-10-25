@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+rust_build_init waybar-weather "$script" "$@"
+rust_build_checks
+rust_build_cargo build --release --bin waybar-weather-native
+rust_build_publish "$CARGO_TARGET_DIR/release/waybar-weather-native" "$cache_root/bin/waybar-weather-native"
+printf 'Rust weather helper installed in %s/bin\n' "$cache_root"

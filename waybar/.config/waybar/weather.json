@@ -1,0 +1,10 @@
+{
+  "city": "Copenhagen",
+  "country": "DK",
+  "language": "en",
+  "key_file": "~/.owm-key",
+  "cache_seconds": 540,
+  "max_stale_seconds": 21600,
+  "connect_timeout_seconds": 2,
+  "request_timeout_seconds": 5
+}

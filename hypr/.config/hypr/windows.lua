@@ -6,6 +6,14 @@ hl.config({
     },
 })
 
+hl.window_rule({
+    match = { class = "^org\\.desktop\\.ferry$" },
+    name = "ferry-picker",
+    float = true,
+    size = { "(monitor_w*0.76)", "(monitor_h*0.68)" },
+    center = true,
+})
+
 -- Window rules migrated from legacy-overrides/hypr/hyprland-overrides.conf
 hl.window_rule({
     match = { class = "^global\\.snip$" },
