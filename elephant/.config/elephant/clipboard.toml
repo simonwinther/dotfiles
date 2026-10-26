@@ -5,5 +5,6 @@ ignore_symbols = false
 pinned_on_top = true
 auto_cleanup = 0
 command = "wl-copy"
+paste_command = '"$HOME/.local/bin/desktopctl" clipboard-paste'
 text_editor_cmd = "desktopctl launch editor %FILE%"
 image_editor_cmd = "satty --filename %FILE%"

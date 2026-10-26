@@ -575,11 +575,13 @@ def run_application(args):
 def launcher(args):
     if any(args[i] in ("-m", "--modules") and args[i + 1] == "clipboard" for i in range(len(args) - 1)):
         return clipboard(args)
+    remember_clipboard_target()
     run(["systemctl", "--user", "start", "desktop-elephant.service", "desktop-walker.service"], check=False)
     run_application(["walker", "--width", "644", "--maxheight", "300", "--minheight", "300", *args])
 
 
 def clipboard(args):
+    remember_clipboard_target()
     width, height = 1000, 520
     try:
         monitors = json.loads(run(["hyprctl", "-j", "monitors"], capture=True, check=False).stdout)
@@ -598,6 +600,43 @@ def clipboard(args):
     run_application(["walker", "--theme", "desktop-clipboard-compact" if compact else "desktop-clipboard",
                      "--width", str(width), "--height", str(height),
                      *modules, *args])
+
+
+def remember_clipboard_target():
+    try:
+        window = json.loads(run(["hyprctl", "-j", "activewindow"], capture=True).stdout)
+        target = window.get("address", "")
+    except (OSError, subprocess.CalledProcessError, ValueError, AttributeError):
+        target = ""
+    atomic_write(RUNTIME / "clipboard-target.json", json.dumps({"address": target}))
+
+
+def clipboard_paste(args):
+    target = read_json(RUNTIME / "clipboard-target.json").get("address")
+    if not target:
+        raise ValueError("No clipboard paste target; the item remains copied")
+    # The provider calls us only after wl-copy has acquired the selection.
+    # Wait for Walker to release keyboard focus before delivering the shortcut.
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        layers = json.loads(run(["hyprctl", "-j", "layers"], capture=True).stdout)
+        if not any(layer.get("namespace") == "walker"
+                   for monitor in layers.values() for level in monitor.get("levels", {}).values()
+                   for layer in level):
+            window = json.loads(run(["hyprctl", "-j", "activewindow"], capture=True).stdout)
+            if window.get("address") != target:
+                raise ValueError("Paste target changed; the item remains copied")
+            terminal = window.get("class", "").lower() in {
+                "com.mitchellh.ghostty", "ghostty", "kitty", "alacritty", "foot", "footclient",
+                "org.wezfurlong.wezterm", "wezterm", "org.gnome.terminal", "gnome-terminal-server",
+                "konsole", "xterm", "urxvt", "st-256color",
+            }
+            mods = "CTRL SHIFT" if terminal else "CTRL"
+            selector = json.dumps("address:" + target)
+            run(["hyprctl", "eval", f'hl.dispatch(hl.dsp.send_shortcut({{ mods = "{mods}", key = "V", window = {selector} }}))'])
+            return
+        time.sleep(0.02)
+    raise ValueError("Clipboard picker still has focus; the item remains copied")
 
 
 def toggle(args):
@@ -1419,6 +1458,7 @@ def dispatch(command, args):
                  "lock": lock, "lock-worker": lock_worker, "idle-worker": idle_worker, "capture": capture, "reminder": reminder, "menu": menu,
                  "transcode": transcode, "session": session, "monitor-watch": monitor_watch,
                  "font": font, "appearance": appearance, "config": edit_config, "clipboard": clipboard,
+                 "clipboard-paste": clipboard_paste,
                  "share": share, "about": about,
                  "screensaver": screensaver, "screensaver-worker": screensaver_worker}
     if command in functions:

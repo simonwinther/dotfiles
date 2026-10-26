@@ -15,7 +15,7 @@ hl.bind(
     { description = "Universal cut" }
 )
 hl.bind(
-    "SUPER + CTRL + V",
+    "ALT + V",
     hl.dsp.exec_cmd("desktopctl launcher -m clipboard"),
     { description = "Clipboard manager" }
 )

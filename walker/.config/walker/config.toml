@@ -12,6 +12,8 @@ next = ["Down", "ctrl j"]
 previous = ["Up", "ctrl k"]
 down = ["Down", "ctrl j"]
 up = ["Up", "ctrl k"]
+page_down = ["Page_Down", "ctrl d"]
+page_up = ["Page_Up", "ctrl u"]
 quick_activate = []
 
 [columns]
@@ -59,7 +61,10 @@ symbols = [
 ]
 
 clipboard = [
+  { action = "paste", label = "paste", default = true, bind = "Return", after = "Close" },
+  { action = "copy", label = "copy only", default = false, bind = "ctrl Return", after = "Close" },
   { action = "copy:ctrl_y:keep", bind = "ctrl y", after = "KeepOpen" },
+  { action = "remove", label = "remove", bind = "Delete", after = "AsyncClearReload" },
 ]
 
 [[providers.prefixes]]

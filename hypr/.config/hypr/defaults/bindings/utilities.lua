@@ -71,6 +71,7 @@ hl.bind(
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("desktopctl display internal on"), { locked = true })
 
 -- Captures
+hl.bind("SUPER + Q", hl.dsp.exec_cmd("desktopctl capture screenshot"), { description = "Screenshot" })
 hl.bind("PRINT", hl.dsp.exec_cmd("desktopctl capture screenshot"), { description = "Screenshot" })
 hl.bind("ALT + PRINT", hl.dsp.exec_cmd("desktopctl menu screenrecord"), { description = "Screenrecording" })
 hl.bind("SUPER + PRINT", hl.dsp.exec_cmd("pkill hyprpicker || hyprpicker -a"), { description = "Color picker" })
