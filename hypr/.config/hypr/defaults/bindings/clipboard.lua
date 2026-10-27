@@ -16,6 +16,6 @@ hl.bind(
 )
 hl.bind(
     "ALT + V",
-    hl.dsp.exec_cmd("desktopctl launcher -m clipboard"),
+    hl.dsp.exec_cmd('"$HOME/.local/bin/clipboard-picker"'),
     { description = "Clipboard manager" }
 )

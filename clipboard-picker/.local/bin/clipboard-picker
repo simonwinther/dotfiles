@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -eu
+if command -v clipboard-picker-native >/dev/null 2>&1; then
+    exec clipboard-picker-native "$@"
+fi
+picker=$(python3 - "${XDG_CONFIG_HOME:-$HOME/.config}/desktop/paths.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+print(json.loads(path.read_text()).get("clipboard-picker-native", "") if path.is_file() else "")
+PY
+)
+if [ -n "$picker" ] && [ -x "$picker" ]; then
+    exec "$picker" "$@"
+fi
+printf '%s\n' 'clipboard-picker-native is not installed or configured.' >&2
+exit 1

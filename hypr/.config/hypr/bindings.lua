@@ -108,7 +108,6 @@ hl.bind(
 	hl.dsp.exec_cmd('desktopctl launch focus ^obsidian$ "uwsm-app -- obsidian"'),
 	{ description = "Obsidian" }
 )
-hl.bind("SUPER + SHIFT + SLASH", hl.dsp.exec_cmd("uwsm-app -- 1password"), { description = "Passwords" })
 
 -- =============================================================================
 -- PRIMARY WEB APPLICATIONS

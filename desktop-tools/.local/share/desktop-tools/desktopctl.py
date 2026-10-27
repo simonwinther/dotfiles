@@ -582,6 +582,15 @@ def launcher(args):
 
 def clipboard(args):
     remember_clipboard_target()
+    try:
+        picker = executable("clipboard-picker-native")
+    except ValueError:
+        picker = None
+    if picker:
+        run(["systemctl", "--user", "start", "desktop-elephant.service"], check=False)
+        target = read_json(RUNTIME / "clipboard-target.json").get("address", "")
+        run_application([picker, "--target", target])
+        return
     width, height = 1000, 520
     try:
         monitors = json.loads(run(["hyprctl", "-j", "monitors"], capture=True, check=False).stdout)

@@ -1,0 +1,64 @@
+* { all: unset; color: @text; font-size: 13px; }
+window { background: transparent; }
+.clip-root {
+  background: @base;
+  border: 1px solid alpha(@border, 0.78);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.clip-search { padding: 5px 0 9px; min-height: 28px; font-size: 15px; }
+.clip-search image { -gtk-icon-size: 16px; color: alpha(@text, 0.48); margin-right: 9px; }
+.clip-search text { caret-color: @border; font-size: 15px; }
+.clip-search text placeholder { color: alpha(@text, 0.42); }
+.clip-toolbar { border-top: 1px solid alpha(@text, 0.10); padding: 8px 0 9px; }
+.clip-tab { padding: 2px 1px 5px; margin-right: 18px; color: alpha(@text, 0.55); border-bottom: 1px solid transparent; font-size: 12px; }
+.clip-tab:checked { color: @selected-text; border-bottom-color: @border; }
+.clip-tab:hover { color: @text; }
+.clip-meta { font-size: 11px; color: alpha(@text, 0.55); }
+.clip-menu { color: alpha(@text, 0.50); padding: 4px 2px 4px 10px; }
+.clip-menu image { -gtk-icon-size: 16px; }
+.clip-menu:hover { color: @border; }
+flowboxchild { padding: 0; border-radius: 6px; }
+.clip-card {
+  background: alpha(@text, 0.035);
+  border: 1px solid alpha(@text, 0.09);
+  border-radius: 6px;
+  padding: 5px;
+}
+.clip-card:hover { border-color: alpha(@border, 0.45); background: alpha(@text, 0.055); }
+.clip-card:checked { border-color: @border; background: alpha(@border, 0.045); }
+flowboxchild:focus .clip-card { border-color: alpha(@border, 0.8); }
+.clip-image { background: alpha(@text, 0.025); border-radius: 3px; }
+.clip-excerpt { font-size: 11px; padding: 3px 4px; }
+.clip-caption { font-size: 10px; color: alpha(@text, 0.52); }
+.clip-order {
+  background: @border;
+  color: @base;
+  border-radius: 3px;
+  min-width: 19px;
+  min-height: 19px;
+  font-size: 10px;
+  font-weight: 700;
+  margin: 4px;
+}
+.clip-footer { border-top: 1px solid alpha(@text, 0.10); padding-top: 9px; margin-top: 10px; }
+.clip-count { color: alpha(@text, 0.55); font-size: 11px; }
+.clip-count.selected { color: @selected-text; }
+.clip-hint { color: alpha(@text, 0.50); font-size: 11px; margin-right: 14px; }
+.clip-action { font-size: 11px; color: @selected-text; padding: 3px 0 3px 8px; }
+.clip-action:hover { color: @border; }
+.clip-action:disabled { color: alpha(@text, 0.22); }
+.clip-preview { padding: 4px 0; }
+.clip-preview-text { font-size: 12px; padding: 10px; }
+.clip-error { color: #f7768e; font-size: 11px; padding-top: 8px; }
+.clip-empty { color: alpha(@text, 0.38); }
+scrollbar { min-width: 3px; }
+scrollbar slider { min-width: 3px; min-height: 24px; border-radius: 2px; background: alpha(@text, 0.18); }
+popover > contents { background: @base; border: 1px solid alpha(@border, 0.55); border-radius: 7px; padding: 6px; }
+.clip-option { font-size: 11px; padding: 7px 9px; border-radius: 3px; }
+.clip-option:hover { background: alpha(@border, 0.10); }
+.clip-option:disabled { color: alpha(@text, 0.25); }
+.clip-option-key { color: alpha(@text, 0.34); font-size: 10px; margin-left: 25px; }
+.clip-pace { border-top: 1px solid alpha(@text, 0.1); padding: 8px; margin-top: 4px; }
+.clip-pace spinbutton { font-size: 11px; min-width: 88px; }
+.clip-pace spinbutton button { padding: 2px 5px; }

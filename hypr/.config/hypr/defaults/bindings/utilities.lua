@@ -73,7 +73,12 @@ hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("desktopctl display internal on
 -- Captures
 hl.bind("SUPER + Q", hl.dsp.exec_cmd("desktopctl capture screenshot"), { description = "Screenshot" })
 hl.bind("PRINT", hl.dsp.exec_cmd("desktopctl capture screenshot"), { description = "Screenshot" })
-hl.bind("ALT + PRINT", hl.dsp.exec_cmd("desktopctl menu screenrecord"), { description = "Screenrecording" })
+hl.bind(
+    "ALT + PRINT",
+    hl.dsp.exec_cmd([[sh -c 'screenshot_path=$(desktopctl capture screenshot smart save) && [ -n "$screenshot_path" ] && printf "%s" "$screenshot_path" | wl-copy --foreground --type text/plain']]),
+    { description = "Copy screenshot path" }
+)
+hl.bind("ALT + SHIFT + PRINT", hl.dsp.exec_cmd("desktopctl menu screenrecord"), { description = "Screenrecording" })
 hl.bind("SUPER + PRINT", hl.dsp.exec_cmd("pkill hyprpicker || hyprpicker -a"), { description = "Color picker" })
 hl.bind(
     "SUPER + CTRL + PRINT",
