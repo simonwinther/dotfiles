@@ -9,7 +9,16 @@ drag = ["dep:gtk"]
 [dependencies]
 libc = "=0.2.186"
 serde_json = "=1.0.151"
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm_0_29"] }
+crossterm = "=0.29.0"
+nucleo = "=0.5.0"
+unicode-width = "=0.2.2"
+unicode-segmentation = "=1.13.3"
+rusqlite = { version = "=0.40.2", default-features = false }
 gtk = { package = "gtk4", version = "=0.9.7", features = ["v4_8"], optional = true }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
 
 [[bin]]
 name = "file-picker-native"
