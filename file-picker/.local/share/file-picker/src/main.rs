@@ -10,6 +10,13 @@ fn run() -> Result<()> {
     match &options.action {
         Action::Pick => file_picker::pick(&options),
         Action::List => file_picker::list_files(&options),
+        Action::CachedList => file_picker::index::list(&options),
+        Action::IndexUpdate => file_picker::index::update(&options, true),
+        Action::IndexUpdateIfIdle => file_picker::index::update(&options, false),
+        Action::IndexStatus => file_picker::index::status(),
+        Action::IndexRemove(paths) => file_picker::index::remove(paths),
+        Action::IndexClear => file_picker::index::clear(&options),
+        Action::IndexStream => file_picker::index::stream(&options),
         Action::Copy(paths) => copy_selection(&checked_files(paths.clone())?, false),
         Action::Path(paths) => copy_selection(&checked_files(paths.clone())?, true),
         Action::Drag(paths) => Err(Command::new(drag_binary()?)
@@ -17,15 +24,14 @@ fn run() -> Result<()> {
             .exec()
             .into()),
         Action::LatestDownload => file_picker::paste_latest_download(),
-        Action::Window => file_picker::window(&options, false),
-        Action::Warm => file_picker::window(&options, true),
-        Action::Resident => file_picker::resident(&options),
+        Action::Window => file_picker::window(&options),
+        Action::PrepareTerminal => file_picker::prepare_terminal(),
         Action::Help => {
             print!("{HELP}");
             Ok(())
         }
         Action::Version => {
-            println!("file-picker {} (Rust)", env!("CARGO_PKG_VERSION"));
+            println!("file-picker {} (Ratatui)", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
     }
@@ -36,7 +42,15 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("file-picker: {error}");
-            notify("File picker", &error.to_string(), true);
+            // Background helpers report through their caller, without desktop popups.
+            if !std::env::args_os().any(|arg| {
+                matches!(
+                    arg.to_str(),
+                    Some("--index-stream" | "--index-update-if-idle")
+                )
+            }) {
+                notify("File picker", &error.to_string(), true);
+            }
             ExitCode::FAILURE
         }
     }
