@@ -26,9 +26,10 @@ fn main() {
     let cache_home = env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".cache"));
-    let light = config_home
-        .join("omarchy/current/theme/light.mode")
-        .is_file();
+    let state_home = env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"));
+    let light = state_home.join("desktop/theme/light.mode").is_file();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
