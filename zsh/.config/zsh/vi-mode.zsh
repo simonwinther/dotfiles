@@ -214,8 +214,13 @@ __dotfiles_zle_vi_mode_attach_rprompt
 # The mode hooks only reset-prompt when the mode actually changed, so a bare
 # SIGWINCH never repositioned the RPROMPT indicator. Force a clean redraw (and
 # re-assert the cursor shape) on resize, chaining any earlier TRAPWINCH.
-(( $+functions[TRAPWINCH] )) && \
-  functions[__dotfiles_zle_vi_mode_prev_winch]=$functions[TRAPWINCH]
+# Capture only on first load, even if there was no earlier handler. Otherwise
+# re-sourcing saves our own wrapper as its predecessor and makes it recurse.
+if (( ! ${__dotfiles_zle_vi_mode_winch_installed:-0} )); then
+  (( $+functions[TRAPWINCH] )) && \
+    functions[__dotfiles_zle_vi_mode_prev_winch]=$functions[TRAPWINCH]
+  typeset -gi __dotfiles_zle_vi_mode_winch_installed=1
+fi
 
 TRAPWINCH() {
   (( $+functions[__dotfiles_zle_vi_mode_prev_winch] )) && \
