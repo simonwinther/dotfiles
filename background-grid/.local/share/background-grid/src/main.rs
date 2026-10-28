@@ -1,13 +1,16 @@
 mod ui;
+mod workers;
 
 use background_grid::Result;
-use background_grid::catalog::{catalog, next_image};
+use background_grid::catalog::catalog;
 use background_grid::config::Paths;
-use background_grid::wallpaper::set_wallpaper;
+use background_grid::wallpaper::{
+    current_wallpaper, next_wallpaper, restore_wallpapers, set_wallpaper,
+};
 use std::env;
 use std::path::Path;
 
-const HELP: &str = "Wallpaper grid\n\nUsage: background-grid [--set IMAGE | --restore | --next | --list]\n\n  No arguments  Open the wallpaper picker\n  --set IMAGE   Apply an image with the configured transition\n  --restore     Restore the selected wallpaper without a transition\n  --next        Cycle to the next image in the library\n  --list        List library images without opening a window\n  -h, --help    Show this help";
+const HELP: &str = "Wallpaper grid\n\nUsage: background-grid [--set IMAGE [OUTPUT] | --restore | --next | --current | --list]\n\n  No arguments        Open the wallpaper picker\n  --set IMAGE         Apply an image to all outputs and clear output overrides\n  --set IMAGE OUTPUT  Override one output, keeping the default wallpaper\n  --restore           Restore the default and output overrides without a transition\n  --next              Cycle the library on all outputs and clear output overrides\n  --current           Print the default wallpaper\n  --list              List library images without opening a window\n  -h, --help          Show this help";
 
 fn run() -> Result<i32> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
@@ -36,26 +39,39 @@ fn run() -> Result<i32> {
             )?;
             Ok(0)
         }
-        [flag] if flag == "--set" => Err("Usage: background-grid --set IMAGE".into()),
+        [flag] if flag == "--set" => Err("Usage: background-grid --set IMAGE [OUTPUT]".into()),
         [flag, image] if flag == "--set" => {
             set_wallpaper(&paths, Path::new(image), None)?;
             Ok(0)
         }
-        [flag] if flag == "--restore" => {
-            set_wallpaper(&paths, &paths.current(), Some("none"))?;
+        [flag, image, output] if flag == "--set" => {
+            set_wallpaper(
+                &paths,
+                Path::new(image),
+                Some(output.to_str().ok_or("Output name must be UTF-8")?),
+            )?;
             Ok(0)
         }
-        [flag] if flag == "--next" || flag == "--list" => {
-            let images = catalog(&paths.folders()?)?.all_images();
-            if flag == "--list" {
-                for image in images {
-                    println!("{}", image.display());
-                }
+        [flag] if flag == "--restore" => {
+            restore_wallpapers(&paths)?;
+            Ok(0)
+        }
+        [flag] if flag == "--next" => {
+            next_wallpaper(&paths)?;
+            Ok(0)
+        }
+        [flag] if flag == "--current" => {
+            if let Some(image) = current_wallpaper(&paths)? {
+                println!("{}", image.display());
             } else {
-                let current = paths.current().canonicalize().unwrap_or_default();
-                if let Some(next) = next_image(&images, &current) {
-                    set_wallpaper(&paths, &next, None)?;
-                }
+                println!();
+            }
+            Ok(0)
+        }
+        [flag] if flag == "--list" => {
+            let images = catalog(&paths.folders()?)?.all_images();
+            for image in images {
+                println!("{}", image.display());
             }
             Ok(0)
         }

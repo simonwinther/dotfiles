@@ -1,0 +1,18 @@
+[package]
+name = "desktop-transcode"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "=1.0.104"
+libc = "=0.2.191"
+signal-hook = "=0.3.18"
+
+[[bin]]
+name = "desktop-transcode-native"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

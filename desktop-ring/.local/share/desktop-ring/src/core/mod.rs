@@ -51,7 +51,6 @@ pub struct Response {
 }
 pub enum Event {
     Displays,
-    Audio,
     Bluetooth,
     Resume,
     Command(Action, oneshot::Sender<Result<()>>),
@@ -122,6 +121,9 @@ struct Manager {
     rejected: Option<String>,
     tx: mpsc::Sender<Event>,
     bt: Option<zbus::Connection>,
+    // The value records subscription health; each version invalidates the cache.
+    audio_changes: watch::Receiver<bool>,
+    audio_client: Option<audio::Client>,
 }
 impl Manager {
     async fn displays(&mut self) -> Result<()> {
@@ -192,7 +194,11 @@ impl Manager {
         Ok(())
     }
     async fn audio(&mut self) {
-        match audio::discover().await {
+        audio::settle(&mut self.audio_changes).await;
+        let Some(client) = &self.audio_client else {
+            return;
+        };
+        match client.discover().await {
             Ok(a) => self.state.audio = a,
             Err(e) => {
                 self.state.audio = AudioState {
@@ -272,9 +278,24 @@ impl Manager {
             }
             Action::Audio { action } => {
                 ensure!(self.config.audio, "audio module disabled");
+                // The subscription invalidates the cache even while another
+                // operation blocks this loop; clean snapshots need no preflight.
+                if self.audio_changes.has_changed().unwrap_or(true)
+                    || !*self.audio_changes.borrow()
+                    || self.state.audio.error.is_some()
+                {
+                    self.audio().await;
+                }
+                let result = self
+                    .audio_client
+                    .as_ref()
+                    .context("audio module disabled")?
+                    .act(&action, &self.state.audio, self.config.move_streams)
+                    .await;
+                // Refresh on failure too: a device may have disappeared, or a
+                // command may have partially succeeded before returning an error.
                 self.audio().await;
-                audio::act(&action, &self.state.audio, self.config.move_streams).await?;
-                self.audio().await;
+                result?;
             }
             Action::Bluetooth { action } => {
                 ensure!(self.config.bluetooth, "Bluetooth module disabled");
@@ -341,6 +362,10 @@ impl Manager {
     }
 }
 pub async fn daemon(config: config::Config) -> Result<()> {
+    use tokio::signal::unix::{SignalKind, signal};
+    // Register before exposing the socket or starting backend workers.
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    let mut terminate = signal(SignalKind::terminate())?;
     let path = socket_path()?;
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent)?;
@@ -355,6 +380,13 @@ pub async fn daemon(config: config::Config) -> Result<()> {
     let listener = UnixListener::bind(&path)?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     let (tx, mut rx) = mpsc::channel(64);
+    let (audio_tx, mut audio_changes) = watch::channel(false);
+    audio_changes.mark_changed();
+    let audio_client = if config.audio {
+        Some(audio::Client::new(audio_tx)?)
+    } else {
+        None
+    };
     let (updates, state) = watch::channel(Snapshot::default());
     let preferences = Preferences::load();
     let preferences_error = preferences
@@ -372,6 +404,8 @@ pub async fn daemon(config: config::Config) -> Result<()> {
         rejected: None,
         tx: tx.clone(),
         bt: None,
+        audio_changes,
+        audio_client,
     };
     if config.power {
         manager.state.power = power::discover().await;
@@ -382,9 +416,6 @@ pub async fn daemon(config: config::Config) -> Result<()> {
     }
     if config.monitors || config.power {
         tokio::spawn(bluetooth::resume_watch(tx.clone()));
-    }
-    if config.audio {
-        tokio::spawn(audio::watch(tx.clone()));
     }
     if config.bluetooth {
         tokio::spawn(bluetooth::watch(tx.clone()));
@@ -409,49 +440,68 @@ pub async fn daemon(config: config::Config) -> Result<()> {
             }
         }
     });
-    let stop = tokio::signal::ctrl_c();
+    let stop = async {
+        tokio::select! {
+            _ = interrupt.recv() => {},
+            _ = terminate.recv() => {},
+        }
+    };
     tokio::pin!(stop);
     loop {
-        tokio::select! {
-            _=&mut stop=>break,
-            Some(event)=rx.recv()=>{
-                match event {
-                    Event::Displays=>{if manager.config.monitors&& let Err(e)=manager.displays().await {manager.state.displays.diagnostic=Some(e.to_string());eprintln!("displays: {e}");}},
-                    Event::Audio=>{if manager.config.audio{manager.audio().await;}},
-                    Event::Bluetooth=>{if manager.config.bluetooth{manager.bluetooth().await;}},
-                    Event::Resume=>{
-                        manager.rejected=None;
-                        if manager.config.monitors{let _=manager.displays().await;}
-                        if manager.config.audio{manager.audio().await;}
-                        if manager.config.bluetooth{manager.bluetooth().await;}
-                        if manager.config.power{manager.state.power=power::discover().await;}
+        // Keep shutdown selectable while a backend operation is awaiting I/O.
+        // Dropping the audio client then wakes and joins its native worker.
+        {
+            let work = async {
+                tokio::select! {
+                    Ok(())=manager.audio_changes.changed(), if config.audio=>{
+                        manager.audio().await;
                     },
-                    Event::Command(action,reply)=>{
-                        let result=manager.action(action).await;
-                        if let Err(e)=&result{manager.state.message=Some(e.to_string());eprintln!("action: {e}");}
-                        updates.send_replace(manager.state.clone());let _=reply.send(result);
-                    },
-                    Event::BluetoothDone(result)=>{
-                        manager.state.busy=None;
-                        manager.state.message=Some(match result{Ok(())=>"Bluetooth updated. Audio devices appear separately in Audio Output / Microphone.".into(),Err(e)=>format!("Bluetooth: {e}")});
-                        manager.bluetooth().await;if manager.config.audio{manager.audio().await;}
-                    },
-                    Event::PowerDone(result)=>{
-                        manager.state.busy=None;
-                        manager.state.message=result.err().map(|e|format!("Sleep: {e}"));
-                        if let Some(message)=manager.state.message.clone(){
-                            eprintln!("{message}");
-                            tokio::spawn(async move {
-                                let _=tokio::process::Command::new("notify-send")
-                                    .args(["--app-name=Desktop Ring","--urgency=critical","Sleep failed",&message])
-                                    .kill_on_drop(true).output().await;
-                            });
+                    Some(event)=rx.recv()=>{
+                        match event {
+                            Event::Displays=>{if manager.config.monitors&& let Err(e)=manager.displays().await {manager.state.displays.diagnostic=Some(e.to_string());eprintln!("displays: {e}");}},
+                            Event::Bluetooth=>{if manager.config.bluetooth{manager.bluetooth().await;}},
+                            Event::Resume=>{
+                                manager.rejected=None;
+                                if manager.config.monitors{let _=manager.displays().await;}
+                                if manager.config.audio{manager.audio().await;}
+                                if manager.config.bluetooth{manager.bluetooth().await;}
+                                if manager.config.power{manager.state.power=power::discover().await;}
+                            },
+                            Event::Command(action,reply)=>{
+                                let result=manager.action(action).await;
+                                if let Err(e)=&result{manager.state.message=Some(e.to_string());eprintln!("action: {e}");}
+                                updates.send_replace(manager.state.clone());let _=reply.send(result);
+                            },
+                            Event::BluetoothDone(result)=>{
+                                manager.state.busy=None;
+                                manager.state.message=Some(match result{Ok(())=>"Bluetooth updated. Audio devices appear separately in Audio Output / Microphone.".into(),Err(e)=>format!("Bluetooth: {e}")});
+                                manager.bluetooth().await;if manager.config.audio{manager.audio().await;}
+                            },
+                            Event::PowerDone(result)=>{
+                                manager.state.busy=None;
+                                manager.state.message=result.err().map(|e|format!("Sleep: {e}"));
+                                if let Some(message)=manager.state.message.clone(){
+                                    eprintln!("{message}");
+                                    tokio::spawn(async move {
+                                        let _=tokio::process::Command::new("notify-send")
+                                            .args(["--app-name=Desktop Ring","--urgency=critical","Sleep failed",&message])
+                                            .kill_on_drop(true).output().await;
+                                    });
+                                }
+                            }
                         }
                     }
                 }
-                let old=serde_json::to_vec(&*updates.borrow())?;let new=serde_json::to_vec(&manager.state)?;
-                if old!=new{updates.send_replace(manager.state.clone());}
+            };
+            tokio::select! {
+                _ = &mut stop => break,
+                () = work => {}
             }
+        }
+        let old = serde_json::to_vec(&*updates.borrow())?;
+        let new = serde_json::to_vec(&manager.state)?;
+        if old != new {
+            updates.send_replace(manager.state.clone());
         }
     }
     std::fs::remove_file(path)?;

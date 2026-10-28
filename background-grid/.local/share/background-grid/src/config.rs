@@ -34,12 +34,24 @@ impl Paths {
         })
     }
 
-    pub fn current(&self) -> PathBuf {
+    pub fn state(&self) -> PathBuf {
         env::var_os("XDG_STATE_HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| self.home.join(".local/state"))
-            .join("desktop/background")
+            .join("desktop")
+    }
+
+    pub fn current(&self) -> PathBuf {
+        self.state().join("background")
+    }
+
+    pub fn desktop_settings(&self) -> Result<serde_json::Value> {
+        match fs::read(self.config_home.join("desktop/settings.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn expand(&self, path: &Path) -> PathBuf {
@@ -72,7 +84,14 @@ impl Paths {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| self.home.join(".local/share"));
-        let mut folders = vec![data.join("wallpapers")];
+        let settings = self.desktop_settings()?;
+        let mut folders = match settings.get("wallpaperDirectories") {
+            Some(value) => serde_json::from_value::<Vec<PathBuf>>(value.clone())?
+                .iter()
+                .map(|path| self.expand(path))
+                .collect(),
+            None => vec![data.join("wallpapers")],
+        };
         if let Ok(settings) = fs::read_to_string(self.config_home.join("waypaper/config.ini")) {
             folders.extend(
                 waypaper_folders(&settings)

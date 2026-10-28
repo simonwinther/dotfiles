@@ -2,7 +2,10 @@
 set -euo pipefail
 script="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../bin/.local/share/dotfiles/rust-build.sh
 source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+source_root="$(dirname "$(dirname "$script")")/share/waybar-weather"
 rust_build_init waybar-weather "$script" "$@"
 rust_build_checks
 rust_build_cargo build --release --bin waybar-weather-native

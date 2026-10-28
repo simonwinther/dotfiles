@@ -26,7 +26,11 @@ struct Palette {
 }
 
 const fn rgb(hex: u32) -> [f32; 3] {
-    [((hex >> 16) & 255) as f32 / 255.0, ((hex >> 8) & 255) as f32 / 255.0, (hex & 255) as f32 / 255.0]
+    [
+        ((hex >> 16) & 255) as f32 / 255.0,
+        ((hex >> 8) & 255) as f32 / 255.0,
+        (hex & 255) as f32 / 255.0,
+    ]
 }
 
 impl Palette {
@@ -34,7 +38,10 @@ impl Palette {
         let config = std::env::var_os("XDG_STATE_HOME")
             .filter(|value| !value.is_empty())
             .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state")));
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| std::path::PathBuf::from(home).join(".local/state"))
+            });
         let light = config.is_some_and(|path| path.join("desktop/theme/light.mode").is_file());
         Self::for_mode(light)
     }
@@ -42,20 +49,34 @@ impl Palette {
     fn for_mode(light: bool) -> Self {
         if light {
             Self {
-                base: rgb(0xffffff), text: rgb(0x4c4f69), blue: rgb(0x635bff),
-                mauve: rgb(0x923df5), surface2: rgb(0xffffff),
+                base: rgb(0xffffff),
+                text: rgb(0x4c4f69),
+                blue: rgb(0x635bff),
+                mauve: rgb(0x923df5),
+                surface2: rgb(0xffffff),
                 monitor_colors: [
-                    rgb(0xdf8e1d), rgb(0x179299), rgb(0x40a02b),
-                    rgb(0xd20f39), rgb(0x8839ef), rgb(0xfe640b),
+                    rgb(0xdf8e1d),
+                    rgb(0x179299),
+                    rgb(0x40a02b),
+                    rgb(0xd20f39),
+                    rgb(0x8839ef),
+                    rgb(0xfe640b),
                 ],
             }
         } else {
             Self {
-                base: rgb(0x121214), text: rgb(0xf4f4f5), blue: rgb(0x60a5fa),
-                mauve: rgb(0xa778fa), surface2: rgb(0x52525b),
+                base: rgb(0x121214),
+                text: rgb(0xf4f4f5),
+                blue: rgb(0x60a5fa),
+                mauve: rgb(0xa778fa),
+                surface2: rgb(0x52525b),
                 monitor_colors: [
-                    rgb(0xf9e2af), rgb(0x89dceb), rgb(0xa6e3a1),
-                    rgb(0xf38ba8), rgb(0xcba6f7), rgb(0xfab387),
+                    rgb(0xf9e2af),
+                    rgb(0x89dceb),
+                    rgb(0xa6e3a1),
+                    rgb(0xf38ba8),
+                    rgb(0xcba6f7),
+                    rgb(0xfab387),
                 ],
             }
         }
@@ -91,9 +112,23 @@ pub struct Renderer {
 }
 
 fn load_font() -> Option<Font> {
-    let mut path = std::env::var_os("WORKSPACES_SLIDER_FONT").map(std::path::PathBuf::from)
-        .or_else(|| std::process::Command::new("fc-match").args(["--format=%{file}", "JetBrainsMono Nerd Font:style=Bold"]).output().ok().filter(|o| o.status.success()).and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| std::path::PathBuf::from(s.trim())))
-        .or_else(|| FONT_CANDIDATES.iter().map(std::path::PathBuf::from).find(|p| p.exists()));
+    let mut path = std::env::var_os("WORKSPACES_SLIDER_FONT")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::process::Command::new("fc-match")
+                .args(["--format=%{file}", "JetBrainsMono Nerd Font:style=Bold"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| std::path::PathBuf::from(s.trim()))
+        })
+        .or_else(|| {
+            FONT_CANDIDATES
+                .iter()
+                .map(std::path::PathBuf::from)
+                .find(|p| p.exists())
+        });
     if path.is_none() {
         // Fall back to any bold JetBrainsMono in the usual font trees.
         for dir in ["/usr/share/fonts", "/usr/local/share/fonts"] {
@@ -149,7 +184,11 @@ impl Renderer {
 
         let mut glyphs = Vec::with_capacity(WORKSPACE_COUNT as usize);
         for workspace in 1..=WORKSPACE_COUNT {
-            let character = if workspace == 10 { '0' } else { (b'0' + workspace as u8) as char };
+            let character = if workspace == 10 {
+                '0'
+            } else {
+                (b'0' + workspace as u8) as char
+            };
             let (metrics, coverage) = font.rasterize(character, px);
             let center = center_for(workspace) * scale;
             let left = center - metrics.advance_width / 2.0 + metrics.xmin as f32;
@@ -200,8 +239,8 @@ impl Renderer {
     fn labels_near(&self, position: f32) -> std::ops::RangeInclusive<i32> {
         let reach = INDICATOR_RADIUS + SLOT_WIDTH / 2.0;
         let low = (((position - reach - FIRST_CENTER) / SLOT_WIDTH).ceil() as i32 + 1).max(1);
-        let high =
-            (((position + reach - FIRST_CENTER) / SLOT_WIDTH).floor() as i32 + 1).min(WORKSPACE_COUNT);
+        let high = (((position + reach - FIRST_CENTER) / SLOT_WIDTH).floor() as i32 + 1)
+            .min(WORKSPACE_COUNT);
         low..=high
     }
 
@@ -254,16 +293,35 @@ impl Renderer {
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
         }
 
-        if let Some(path) =
-            rounded_rect(0.5, 0.5, PANEL_WIDTH - 1.0, PANEL_HEIGHT - 1.0, PANEL_HEIGHT / 2.0 - 0.5)
-        {
+        if let Some(path) = rounded_rect(
+            0.5,
+            0.5,
+            PANEL_WIDTH - 1.0,
+            PANEL_HEIGHT - 1.0,
+            PANEL_HEIGHT / 2.0 - 0.5,
+        ) {
             let light = self.palette.base == rgb(0xffffff);
             paint.set_color(rgba(self.palette.surface2, if light { 0.55 } else { 0.22 }));
-            let stroke = Stroke { width: 1.0, ..Default::default() };
+            let stroke = Stroke {
+                width: 1.0,
+                ..Default::default()
+            };
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
 
-        self.draw_labels(pixmap, occupied, remote, deferred, 1..=WORKSPACE_COUNT, None, None);
+        self.draw_labels(
+            pixmap,
+            occupied,
+            remote,
+            deferred,
+            1..=WORKSPACE_COUNT,
+            None,
+            None,
+        );
+        // An unavailable space has no selected workspace to highlight.
+        if position < 0.0 {
+            return;
+        }
 
         for (radius, alpha) in [(18.0_f32, 0.035_f32), (16.0, 0.07)] {
             if let Some(path) = PathBuilder::from_circle(position, mid + 2.0, radius) {
@@ -297,7 +355,10 @@ impl Renderer {
 
         if let Some(path) = PathBuilder::from_circle(position, mid, INDICATOR_RADIUS - 0.5) {
             paint.set_color(rgba(self.palette.text, 0.20));
-            let stroke = Stroke { width: 1.0, ..Default::default() };
+            let stroke = Stroke {
+                width: 1.0,
+                ..Default::default()
+            };
             pixmap.stroke_path(&path, &paint, &stroke, transform, None);
         }
 
@@ -306,7 +367,15 @@ impl Renderer {
             if let Some(mut mask) = Mask::new(self.width, self.height) {
                 mask.fill_path(&path, FillRule::Winding, true, transform);
                 let range = self.labels_near(position);
-                self.draw_labels(pixmap, occupied, remote, deferred, range, Some(rgb(0xffffff)), Some(&mask));
+                self.draw_labels(
+                    pixmap,
+                    occupied,
+                    remote,
+                    deferred,
+                    range,
+                    Some(rgb(0xffffff)),
+                    Some(&mask),
+                );
             }
         }
     }
@@ -323,7 +392,14 @@ fn rounded_rect(x: f32, y: f32, width: f32, height: f32, radius: f32) -> Option<
     let mut builder = PathBuilder::new();
     builder.move_to(x + radius, y);
     builder.line_to(right - radius, y);
-    builder.cubic_to(right - radius + control, y, right, y + radius - control, right, y + radius);
+    builder.cubic_to(
+        right - radius + control,
+        y,
+        right,
+        y + radius - control,
+        right,
+        y + radius,
+    );
     builder.line_to(right, bottom - radius);
     builder.cubic_to(
         right,
@@ -334,9 +410,23 @@ fn rounded_rect(x: f32, y: f32, width: f32, height: f32, radius: f32) -> Option<
         bottom,
     );
     builder.line_to(x + radius, bottom);
-    builder.cubic_to(x + radius - control, bottom, x, bottom - radius + control, x, bottom - radius);
+    builder.cubic_to(
+        x + radius - control,
+        bottom,
+        x,
+        bottom - radius + control,
+        x,
+        bottom - radius,
+    );
     builder.line_to(x, y + radius);
-    builder.cubic_to(x, y + radius - control, x + radius - control, y, x + radius, y);
+    builder.cubic_to(
+        x,
+        y + radius - control,
+        x + radius - control,
+        y,
+        x + radius,
+        y,
+    );
     builder.close();
     builder.finish()
 }
@@ -401,7 +491,12 @@ mod tests {
 
     fn label_pixel(renderer: &Renderer, pixmap: &Pixmap, workspace: i32) -> [u8; 3] {
         let glyph = &renderer.glyphs[(workspace - 1) as usize];
-        let (index, _) = glyph.coverage.iter().enumerate().max_by_key(|(_, alpha)| *alpha).unwrap();
+        let (index, _) = glyph
+            .coverage
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, alpha)| *alpha)
+            .unwrap();
         let x = glyph.left as usize + index % glyph.width;
         let y = glyph.top as usize + index / glyph.width;
         let pixel = pixmap.pixels()[y * pixmap.width() as usize + x];
@@ -424,8 +519,14 @@ mod tests {
                 let second_monitor = label_pixel(&renderer, &pixmap, 2);
                 let local = label_pixel(&renderer, &pixmap, 7);
                 let empty = label_pixel(&renderer, &pixmap, 4);
-                assert!(first_monitor[2] > first_monitor[0], "first monitor must be cyan");
-                assert!(second_monitor[1] > second_monitor[2], "second monitor must be green");
+                assert!(
+                    first_monitor[2] > first_monitor[0],
+                    "first monitor must be cyan"
+                );
+                assert!(
+                    second_monitor[1] > second_monitor[2],
+                    "second monitor must be green"
+                );
                 assert_ne!(first_monitor, second_monitor);
                 assert_ne!(first_monitor, local);
                 assert_ne!(second_monitor, local);

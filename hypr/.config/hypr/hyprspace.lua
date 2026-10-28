@@ -1,8 +1,7 @@
-local plugin = os.getenv("HYPRSPACE_PLUGIN")
-if not plugin then
-    local paths = io.popen("desktopctl path hyprspace 2>/dev/null")
-    if paths then plugin = paths:read("*l"); paths:close() end
-end
+local plugin
+local paths = io.popen("desktopctl path hyprspace 2>/dev/null")
+if paths then plugin = paths:read("*l"); paths:close() end
+if not plugin or plugin == "" then plugin = os.getenv("HYPRSPACE_PLUGIN") end
 if not plugin or plugin == "" then return end
 hl.plugin.load(plugin)
 

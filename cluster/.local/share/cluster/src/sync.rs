@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 
 // Rsync treats backslashes literally unless the pattern contains wildcards.
 // Escape literal path names, while leaving the intentional subtree suffix live.
-fn rule(rules: &mut Vec<u8>, kind: u8, path: &Path, directory: bool, subtree: bool) {
+pub(crate) fn rule(rules: &mut Vec<u8>, kind: u8, path: &Path, directory: bool, subtree: bool) {
     let name = path.as_os_str().as_bytes();
     let wildcard = subtree || name.iter().any(|b| b"*?[".contains(b));
     rules.extend([kind, b' ', b'/']);

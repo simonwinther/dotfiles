@@ -9,10 +9,12 @@ export CHROME_EXECUTABLE=chromium
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
 
 # ──────────────────────────── Zoxide ────────────────────────────
-eval "$(zoxide init zsh)"
+source ~/.config/zsh/tool-init.zsh
+__dotfiles_cached_init zoxide '' init zsh
 
 # ──────────────────────────── OH MY POSH ────────────────────────────
 eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom-respects-waybar.omp.json)"
+unfunction __dotfiles_cached_init
 #eval "$(oh-my-posh init zsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/refs/heads/main/themes/tokyo.omp.json)"
 
 # ──────────────────────────── HISTORY ────────────────────────────
@@ -23,7 +25,6 @@ setopt share_history
 setopt hist_expire_dups_first
 setopt hist_ignore_dups 
 setopt hist_verify
-setopt inc_append_history
 setopt hist_ignore_space
 setopt hist_reduce_blanks
 
@@ -34,31 +35,8 @@ fi
 # ──────────────────────────── TEXINPUTS ────────────────────────────
 export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
 
-# ──────────────────────────── NVM ────────────────────────────
-# Lazy loading NVM
-export NVM_DIR="$HOME/.nvm"
-
-if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-nvm() {
-  unset -f nvm node npm npx
-  [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-  command nvm "$@"
-}
-
-node() { nvm >/dev/null; command node "$@"; }
-npm()  { nvm >/dev/null; command npm  "$@"; }
-npx()  { nvm >/dev/null; command npx  "$@"; }
-fi
-
-# ──────────────────────────── SDKMAN ────────────────────────────
-# Lazy loading SDKMAN
-export SDKMAN_DIR="$HOME/.sdkman"
-
-sdk() {
-  unset -f sdk
-  [[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
-  command sdk "$@"
-}
+# Load optional version managers only when first used, and only if installed.
+source ~/.config/zsh/lazy-tools.zsh
 
 # ──────────────────────────── ZLE VI MODE ────────────────────────────
 bindkey -v

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-
-
 set -euo pipefail
 
 choose_value() {
@@ -14,11 +12,6 @@ pick_media() {
   fd --type f --ignore-case --regex "\.(${extensions// /|})$" "${directories[@]}" |
     desktopctl launcher --dmenu --placeholder "$title"
 }
-media_notice() {
-  local icon=$1 title=$2 body=${3:-}
-  notify-send "$icon $title" "$body"
-}
-
 usage() {
   cat <<'EOF'
 Usage:
@@ -37,6 +30,9 @@ Formats:
 Resolutions:
   Pictures: high, medium, low
   Videos: 4k, 1080p, 720p
+
+Ctrl+C, SIGTERM, or SIGHUP cancels the encoder and removes temporary output.
+Completed files never replace an existing output.
 EOF
 }
 
@@ -54,94 +50,22 @@ media_type() {
   esac
 }
 
-output_path() {
-  local input="$1"
-  local format="$2"
-  local resolution="$3"
-  local dir base stem
-
-  dir=$(dirname -- "$input")
-  base=$(basename -- "$input")
-  stem="${base%.*}"
-
-  printf '%s/%s-%s.%s' "$dir" "$stem" "$resolution" "$format"
-}
-
-transcode_picture() {
-  local input="$1" format="$2" resolution="$3" output="$4"
-  local resize
-
-  case "$resolution" in
-  high) resize='3160x>' ;;
-  medium) resize='2160x>' ;;
-  low) resize='1080x>' ;;
-  *)
-    echo "Invalid picture resolution: $resolution" >&2
+run_encoder() {
+  if command -v desktop-transcode-native >/dev/null 2>&1; then
+    exec desktop-transcode-native "$@"
+  fi
+  local binary="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-transcode/bin/desktop-transcode-native"
+  if [[ ! -x $binary ]]; then
+    printf '%s\n' 'desktop-transcode: Run desktop-transcode-build to compile the Rust transcoder.' >&2
     return 1
-    ;;
-  esac
-
-  case "$format" in
-  jpg)
-    magick "$input" -resize "$resize" -quality 85 -strip "$output"
-    ;;
-  png)
-    magick "$input" -resize "$resize" -strip -define png:compression-filter=5 \
-      -define png:compression-level=9 \
-      -define png:compression-strategy=1 \
-      -define png:exclude-chunk=all \
-      "$output"
-    ;;
-  *)
-    echo "Invalid picture format: $format" >&2
-    return 1
-    ;;
-  esac
-}
-
-transcode_video() {
-  local input="$1" format="$2" resolution="$3" output="$4"
-  local scale
-
-  case "$resolution" in
-  4k) scale='scale=-2:2160' ;;
-  1080p) scale='scale=-2:1080' ;;
-  720p) scale='scale=-2:720' ;;
-  *)
-    echo "Invalid video resolution: $resolution" >&2
-    return 1
-    ;;
-  esac
-
-  case "$format" in
-  mp4)
-    if [[ $resolution == "4k" ]]; then
-      ffmpeg -i "$input" -vf "$scale" -c:v libx265 -preset slow -crf 24 -c:a aac -b:a 192k "$output"
-    else
-      ffmpeg -i "$input" -vf "$scale" -c:v libx264 -preset fast -crf 23 -c:a copy "$output"
-    fi
-    ;;
-  gif)
-    ffmpeg -i "$input" -vf "fps=10,$scale:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" "$output"
-    ;;
-  *)
-    echo "Invalid video format: $format" >&2
-    return 1
-    ;;
-  esac
-}
-
-copy_to_clipboard() {
-  local output="$1"
-  local uri
-
-  uri="file://$(realpath -- "$output")"
-  printf '%s\n' "$uri" | wl-copy --type text/uri-list
+  fi
+  # Replace the picker shell so signals sent to its PID reach the supervisor.
+  exec "$binary" "$@"
 }
 
 main() {
   local input="" format="" resolution="" search_path=""
-  local type output positional=()
+  local type positional=()
 
   while (( $# > 0 )); do
     case "$1" in
@@ -171,6 +95,7 @@ main() {
     shift
   done
 
+  (( ${#positional[@]} <= 3 )) || { usage >&2; return 2; }
   input="${positional[0]:-}"
   format="${positional[1]:-}"
   resolution="${positional[2]:-}"
@@ -201,19 +126,8 @@ main() {
     fi
   fi
 
-  output=$(output_path "$input" "$format" "$resolution")
-  [[ ! -e $output ]] || { echo "Output already exists: $output" >&2; return 1; }
-
-  if [[ $type == "video" ]]; then
-    media_notice "" "Transcoding video…" "$(basename -- "$input") to $format ($resolution)"
-    transcode_video "$input" "$format" "$resolution" "$output"
-    copy_to_clipboard "$output"
-    media_notice "" "Transcoded to $resolution $format" "Saved and copied to clipboard."
-  else
-    transcode_picture "$input" "$format" "$resolution" "$output"
-    copy_to_clipboard "$output"
-    media_notice "" "Transcoded to $resolution $format" "Saved and copied to clipboard."
-  fi
+  [[ -n $format && -n $resolution ]] || return 130
+  run_encoder "$type" "$input" "$format" "$resolution"
 }
 
 main "$@"

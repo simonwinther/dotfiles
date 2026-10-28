@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-exec python3 "${XDG_DATA_HOME:-$HOME/.local/share}/desktop-tools/project_picker.py" --native-host "$@"
+exec "$(dirname -- "$0")/project-picker" --native-host "$@"

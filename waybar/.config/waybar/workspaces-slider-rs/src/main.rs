@@ -2,17 +2,20 @@
 
 mod hypr;
 mod render;
+mod sizing;
 mod supervisor;
 mod termination;
-mod sizing;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use smithay_client_toolkit::reexports::calloop::{
-    channel, timer::{TimeoutAction, Timer}, EventLoop,
-};
+use smithay_client_toolkit::reexports::calloop::{EventLoop, channel};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
+use smithay_client_toolkit::reexports::client::{
+    Connection, QueueHandle,
+    globals::registry_queue_init,
+    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData},
     delegate_registry,
@@ -20,34 +23,24 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
-        pointer::{PointerEvent, PointerEventKind, PointerHandler},
         Capability, SeatHandler, SeatState,
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
     },
     shell::{
+        WaylandSurface,
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
             LayerSurfaceConfigure,
         },
-        WaylandSurface,
     },
-    shm::{slot::SlotPool, Shm, ShmHandler},
-};
-use smithay_client_toolkit::reexports::client::{
-    globals::registry_queue_init,
-    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
-    Connection, QueueHandle,
+    shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use tiny_skia::Pixmap;
 
 use render::{
-    center_for, Renderer, PANEL_HEIGHT, PANEL_TOP, PANEL_WIDTH, SLOT_WIDTH,
-    WORKSPACE_COUNT,
+    PANEL_HEIGHT, PANEL_TOP, PANEL_WIDTH, Renderer, SLOT_WIDTH, WORKSPACE_COUNT, center_for,
 };
 
-/// The event stream drives every normal update and a dropped connection resyncs
-/// on reconnect, so this poll is only insurance against a stall nothing else
-/// catches.
-const FALLBACK_REFRESH: Duration = Duration::from_secs(60);
 /// How long to keep retrying Hyprland's IPC at startup before giving up: an
 /// autostart can win the race against the compositor being ready.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -59,14 +52,40 @@ fn main() {
     // Render one frame to a file and exit, for comparing against the original.
     let args: Vec<String> = std::env::args().collect();
     if let Some(index) = args.iter().position(|arg| arg == "--dump") {
-        let path = args.get(index + 1).map(String::as_str).unwrap_or("frame.png");
-        let scale = args.get(index + 2).and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        let path = args
+            .get(index + 1)
+            .map(String::as_str)
+            .unwrap_or("frame.png");
+        let scale = args
+            .get(index + 2)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1.0);
         dump_frame(path, scale);
         return;
     }
 
+    // Diagnostic state uses the exact same namespace resolver as the live pill.
+    if let Some(index) = args.iter().position(|arg| arg == "--snapshot") {
+        let Some(monitor) = args.get(index + 1) else {
+            std::process::exit(2)
+        };
+        let Some(snapshot) = hypr::snapshot(monitor, WORKSPACE_COUNT) else {
+            std::process::exit(1)
+        };
+        let mut occupied: Vec<_> = snapshot.occupied.into_iter().collect();
+        occupied.sort_unstable();
+        println!(
+            "{}",
+            serde_json::json!({"active": snapshot.active,"space":snapshot.space,
+            "occupied":occupied,"remote":snapshot.remote})
+        );
+        return;
+    }
+
     termination::install();
-    let preset = std::env::var("WAYBAR_OUTPUT_NAME").ok().filter(|name| !name.is_empty());
+    let preset = std::env::var("WAYBAR_OUTPUT_NAME")
+        .ok()
+        .filter(|name| !name.is_empty());
     if preset.is_none() {
         supervisor::run();
         return;
@@ -108,7 +127,9 @@ fn main() {
         ui_scale: sizing::configured_scale(),
         configured: false,
         frame_pending: false,
-        active: snapshot.active.clamp(1, WORKSPACE_COUNT),
+        active: snapshot.active,
+        space: snapshot.space,
+        available: true,
         occupied: snapshot.occupied,
         remote: snapshot.remote,
         deferred_occupied: None,
@@ -122,7 +143,7 @@ fn main() {
         scroll_accumulator: 0.0,
         exit: false,
     };
-    app.position = center_for(app.active);
+    app.position = center_for(app.active.clamp(1, WORKSPACE_COUNT));
     app.start_position = app.position;
     app.target_position = app.position;
 
@@ -138,7 +159,12 @@ fn main() {
     let Some(output) = output else {
         return;
     };
-    app.scale = app.output_state.info(&output).map(|info| info.scale_factor).unwrap_or(1).max(1);
+    app.scale = app
+        .output_state
+        .info(&output)
+        .map(|info| info.scale_factor)
+        .unwrap_or(1)
+        .max(1);
 
     let Some(renderer) = Renderer::for_surface(app.ui_scale, app.scale) else {
         return;
@@ -162,7 +188,10 @@ fn main() {
         Some(format!("waybar-workspace-slider-{}", app.monitor)),
         Some(&output),
     );
-    layer.set_size((PANEL_WIDTH * app.ui_scale).round() as u32, (PANEL_HEIGHT * app.ui_scale).round() as u32);
+    layer.set_size(
+        (PANEL_WIDTH * app.ui_scale).round() as u32,
+        (PANEL_HEIGHT * app.ui_scale).round() as u32,
+    );
     layer.set_anchor(Anchor::TOP);
     layer.set_margin((PANEL_TOP as f32 * app.ui_scale).round() as i32, 0, 0, 0);
     // Draw over Waybar's reserved strip instead of below it.
@@ -172,23 +201,16 @@ fn main() {
     app.layer = Some(layer);
 
     let (sender, receiver) = channel::channel();
-    hypr::listen(move |_| {
-        let _ = sender.send(());
+    hypr::listen_snapshots(app.monitor.clone(), WORKSPACE_COUNT, move |snapshot| {
+        let _ = sender.send(snapshot);
     });
     handle
         .insert_source(receiver, |event, _, app| {
-            if let channel::Event::Msg(()) = event {
-                app.refresh();
+            if let channel::Event::Msg(snapshot) = event {
+                app.apply_snapshot(snapshot);
             }
         })
         .expect("channel source");
-
-    handle
-        .insert_source(Timer::from_duration(FALLBACK_REFRESH), |_, _, app| {
-            app.refresh();
-            TimeoutAction::ToDuration(FALLBACK_REFRESH)
-        })
-        .expect("timer source");
 
     WaylandSource::new(connection.clone(), queue)
         .insert(handle.clone())
@@ -257,6 +279,8 @@ struct App {
     frame_pending: bool,
 
     active: i32,
+    space: Option<String>,
+    available: bool,
     occupied: HashSet<i32>,
     remote: HashMap<i32, usize>,
     deferred_occupied: Option<i32>,
@@ -273,20 +297,50 @@ struct App {
 }
 
 impl App {
-    fn refresh(&mut self) {
-        let Some(snapshot) = hypr::snapshot(&self.monitor, WORKSPACE_COUNT) else {
+    fn apply_snapshot(&mut self, snapshot: Option<hypr::Snapshot>) {
+        let Some(snapshot) = snapshot else {
+            if self.available {
+                self.available = false;
+                self.space = None;
+                self.occupied.clear();
+                self.remote.clear();
+                self.deferred_occupied = None;
+                self.animating = false;
+                self.request_frame();
+            }
             return;
         };
-        let appearance_changed = self.renderer.as_mut().is_some_and(Renderer::sync_appearance);
+        let appearance_changed = self
+            .renderer
+            .as_mut()
+            .is_some_and(Renderer::sync_appearance);
+        let namespace_changed = !self.available || snapshot.space != self.space;
         let mut changed = appearance_changed
+            || namespace_changed
             || snapshot.occupied != self.occupied
             || snapshot.remote != self.remote;
+        self.available = true;
+        self.space = snapshot.space;
         self.occupied = snapshot.occupied;
         self.remote = snapshot.remote;
         let workspace = snapshot.active;
-        if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
+        if namespace_changed {
+            // Independent namespaces do not inherit a half-finished slide or
+            // partial wheel gesture from the previous space or a disconnected IPC.
+            self.active = workspace;
+            self.position = center_for(workspace.clamp(1, WORKSPACE_COUNT));
+            self.start_position = self.position;
+            self.target_position = self.position;
+            self.deferred_occupied = None;
+            self.animating = false;
+            self.scroll_accumulator = 0.0;
+        } else if (1..=WORKSPACE_COUNT).contains(&workspace) && workspace != self.active {
             self.start_slide(workspace);
             changed = true;
+        } else if !(1..=WORKSPACE_COUNT).contains(&workspace) {
+            changed |= self.active != workspace;
+            self.active = workspace;
+            self.animating = false;
         }
         if changed {
             self.request_frame();
@@ -294,8 +348,11 @@ impl App {
     }
 
     fn start_slide(&mut self, workspace: i32) {
-        self.deferred_occupied =
-            if self.occupied.contains(&workspace) { None } else { Some(workspace) };
+        self.deferred_occupied = if self.occupied.contains(&workspace) {
+            None
+        } else {
+            Some(workspace)
+        };
         self.active = workspace;
         self.start_position = self.position;
         self.target_position = center_for(workspace);
@@ -338,13 +395,27 @@ impl App {
             }
         }
 
-        let (Some(renderer), Some(pixmap), Some(pool), Some(layer)) =
-            (&self.renderer, &mut self.pixmap, &mut self.pool, &self.layer)
-        else {
+        let (Some(renderer), Some(pixmap), Some(pool), Some(layer)) = (
+            &self.renderer,
+            &mut self.pixmap,
+            &mut self.pool,
+            &self.layer,
+        ) else {
             return;
         };
 
-        renderer.draw(pixmap, self.position, &self.occupied, &self.remote, self.deferred_occupied);
+        let indicator = if self.available && (1..=WORKSPACE_COUNT).contains(&self.active) {
+            self.position
+        } else {
+            -100.0
+        };
+        renderer.draw(
+            pixmap,
+            indicator,
+            &self.occupied,
+            &self.remote,
+            self.deferred_occupied,
+        );
 
         let width = renderer.width() as i32;
         let height = renderer.height() as i32;
@@ -355,7 +426,10 @@ impl App {
         };
         // tiny-skia is premultiplied RGBA; wl_shm ARGB8888 is premultiplied
         // BGRA in memory on little-endian.
-        for (out, src) in canvas.chunks_exact_mut(4).zip(pixmap.data().chunks_exact(4)) {
+        for (out, src) in canvas
+            .chunks_exact_mut(4)
+            .zip(pixmap.data().chunks_exact(4))
+        {
             out[0] = src[2];
             out[1] = src[1];
             out[2] = src[0];
@@ -510,12 +584,16 @@ impl PointerHandler for App {
                 PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                     self.pointer_position = event.position;
                 }
-                PointerEventKind::Press { .. } => {
+                PointerEventKind::Press { .. } if self.available => {
                     self.pointer_position = event.position;
                     let workspace = self.workspace_at(event.position.0);
-                    hypr::switch_workspace(&self.monitor, &workspace.to_string());
+                    hypr::switch_workspace(
+                        &self.monitor,
+                        &workspace.to_string(),
+                        self.space.as_deref(),
+                    );
                 }
-                PointerEventKind::Axis { vertical, .. } => {
+                PointerEventKind::Axis { vertical, .. } if self.available => {
                     let notches = if vertical.discrete != 0 {
                         vertical.discrete as f64
                     } else {
@@ -526,7 +604,7 @@ impl PointerHandler for App {
                     };
                     if notches != 0.0 {
                         let direction = if notches > 0.0 { "e+1" } else { "e-1" };
-                        hypr::switch_workspace(&self.monitor, direction);
+                        hypr::switch_workspace(&self.monitor, direction, self.space.as_deref());
                     }
                 }
                 _ => {}

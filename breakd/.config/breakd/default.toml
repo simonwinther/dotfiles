@@ -191,7 +191,7 @@ submap_fallback = true
 enabled = true
 
 [coop]
-mode = "host"
+mode = "off"
 relay_url = "ws://lambda-1.tail11c956.ts.net:8787/ws"
 room_token = "" # Authenticate this machine separately.
 disconnect_grace = "10s"

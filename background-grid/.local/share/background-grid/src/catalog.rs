@@ -41,7 +41,15 @@ fn supported(path: &Path) -> bool {
     })
 }
 
-fn scan(path: &Path, folder: &mut Folder, visited: &mut HashSet<PathBuf>) -> Result<()> {
+fn scan(
+    path: &Path,
+    folder: &mut Folder,
+    visited: &mut HashSet<PathBuf>,
+    cancelled: &impl Fn() -> bool,
+) -> Result<()> {
+    if cancelled() {
+        return Err("Wallpaper scan cancelled".into());
+    }
     if !path.is_dir() {
         return Ok(());
     }
@@ -49,9 +57,18 @@ fn scan(path: &Path, folder: &mut Folder, visited: &mut HashSet<PathBuf>) -> Res
     if !visited.insert(real) {
         return Ok(());
     }
-    let mut entries = fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(path)? {
+        if cancelled() {
+            return Err("Wallpaper scan cancelled".into());
+        }
+        entries.push(entry?);
+    }
     entries.sort_by_cached_key(|entry| entry.file_name().to_string_lossy().to_lowercase());
     for entry in entries {
+        if cancelled() {
+            return Err("Wallpaper scan cancelled".into());
+        }
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with('.') {
             continue;
@@ -72,7 +89,7 @@ fn scan(path: &Path, folder: &mut Folder, visited: &mut HashSet<PathBuf>) -> Res
                     });
                     folder.children.len() - 1
                 });
-            scan(&path, &mut folder.children[index], visited)?;
+            scan(&path, &mut folder.children[index], visited, cancelled)?;
         } else if path.is_file() && supported(&path) {
             let real = fs::canonicalize(path)?;
             if !folder.images.contains(&real) {
@@ -88,10 +105,14 @@ fn scan(path: &Path, folder: &mut Folder, visited: &mut HashSet<PathBuf>) -> Res
 }
 
 pub fn catalog(roots: &[PathBuf]) -> Result<Folder> {
+    catalog_with_cancel(roots, || false)
+}
+
+pub fn catalog_with_cancel(roots: &[PathBuf], cancelled: impl Fn() -> bool) -> Result<Folder> {
     let mut folder = Folder::default();
     let mut visited = HashSet::new();
     for root in roots {
-        scan(root, &mut folder, &mut visited)?;
+        scan(root, &mut folder, &mut visited, &cancelled)?;
     }
     Ok(folder)
 }
@@ -111,6 +132,7 @@ pub fn next_image(choices: &[PathBuf], current: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::os::unix::fs::symlink;
 
     #[test]
@@ -164,5 +186,22 @@ mod tests {
             Some(choices[0].clone())
         );
         assert_eq!(next_image(&[], Path::new("unknown")), None);
+    }
+
+    #[test]
+    fn catalog_cancellation_interrupts_directory_enumeration() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        for id in 0..100 {
+            fs::write(temp.path().join(format!("{id}.png")), b"fixture")?;
+        }
+        let checks = Cell::new(0);
+        let error = catalog_with_cancel(&[temp.path().to_path_buf()], || {
+            checks.set(checks.get() + 1);
+            checks.get() == 5
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "Wallpaper scan cancelled");
+        assert_eq!(checks.get(), 5);
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 //! Keep one independent pill on each enabled output.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use std::sync::mpsc;
@@ -12,12 +12,15 @@ use crate::hypr;
 const CHILD_HEALTH_REFRESH: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
-struct Pills(HashMap<String, Child>);
+struct Pills(HashMap<String, Child>, Option<HashSet<String>>);
 
 impl Pills {
     /// Returns false when startup or hotplug needs a short retry.
     fn reconcile(&mut self) -> bool {
-        let Some(outputs) = hypr::monitor_names() else {
+        if self.1.is_none() {
+            self.1 = hypr::monitor_names();
+        }
+        let Some(outputs) = self.1.clone() else {
             return false;
         };
         self.0.retain(|name, child| {
@@ -103,9 +106,14 @@ pub fn run() {
     let mut pills = Pills::default();
     loop {
         let ready = pills.reconcile();
-        let retry = if ready { CHILD_HEALTH_REFRESH } else { Duration::from_secs(1) };
+        let retry = if ready {
+            CHILD_HEALTH_REFRESH
+        } else {
+            Duration::from_secs(1)
+        };
         match receiver.recv_timeout(retry) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(()) => pills.1 = None,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }

@@ -6,14 +6,13 @@ use std::time::{Duration, Instant};
 
 pub fn wait_for_destination(hyprland: &Hyprland, timeout: Duration) -> Result<Window> {
     let deadline = Instant::now() + timeout;
-    if hyprland.active()?.is_picker() {
-        hyprland.dispatch("focuswindow previous")?;
+    let mut window = hyprland.active()?;
+    if window.is_picker() {
+        hyprland.dispatch("hl.dsp.focus({ last = true })")?;
+        window = hyprland.active()?;
     }
     loop {
-        if let Ok(window) = hyprland.active()
-            && !window.class().is_empty()
-            && !window.is_picker()
-        {
+        if !window.class().is_empty() && !window.is_picker() {
             return Ok(window);
         }
         if Instant::now() >= deadline {
@@ -22,6 +21,7 @@ pub fn wait_for_destination(hyprland: &Hyprland, timeout: Duration) -> Result<Wi
             );
         }
         thread::sleep(Duration::from_millis(20));
+        window = hyprland.active().unwrap_or_default();
     }
 }
 
@@ -36,18 +36,16 @@ pub fn keys(ghostty: bool) -> Vec<&'static str> {
 }
 
 pub fn after_picker() -> Result<()> {
-    thread::sleep(Duration::from_millis(150));
-    let hyprland = Hyprland::discover()?;
-    let destination = wait_for_destination(&hyprland, Duration::from_millis(700))?;
+    paste_with(&Hyprland::discover()?, &mut Command::new("wtype"))
+}
+
+fn paste_with(hyprland: &Hyprland, command: &mut Command) -> Result<()> {
+    let destination = wait_for_destination(hyprland, Duration::from_millis(700))?;
     let active = hyprland.active()?;
     if active.address != destination.address || active.is_picker() || active.class().is_empty() {
         return Err("Focus changed before pasting. The text is copied; paste it manually.".into());
     }
-    if !Command::new("wtype")
-        .args(keys(active.is_ghostty()))
-        .status()?
-        .success()
-    {
+    if !command.args(keys(active.is_ghostty())).status()?.success() {
         return Err("Automatic paste failed. The text is copied; paste it manually.".into());
     }
     Ok(())
@@ -71,7 +69,7 @@ mod tests {
                 let mut request = String::new();
                 client.read_to_string(&mut request).unwrap();
                 if reply == "ok" {
-                    assert_eq!(request, "dispatch focuswindow previous");
+                    assert_eq!(request, "dispatch hl.dsp.focus({ last = true })");
                 }
                 client.write_all(reply.as_bytes()).unwrap();
             }
@@ -116,5 +114,55 @@ mod tests {
                 "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"
             ]
         );
+    }
+
+    #[test]
+    fn focus_changes_block_pasting() -> Result<()> {
+        let (_temp, hyprland, server) = fixture(vec![
+            r#"{"address":"0xabc","class":"editor"}"#,
+            r#"{"address":"0xdef","class":"editor"}"#,
+        ])?;
+        let error = paste_with(&hyprland, &mut Command::new("does-not-exist"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Focus changed"));
+        server.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn paste_command_failures_leave_manual_paste_available() -> Result<()> {
+        let (_temp, hyprland, server) = fixture(vec![
+            r#"{"address":"0xabc","class":"editor"}"#,
+            r#"{"address":"0xabc","class":"editor"}"#,
+        ])?;
+        let error = paste_with(&hyprland, &mut Command::new("false"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Automatic paste failed"));
+        server.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "manual latency measurement with fake Hyprland IPC and no keyboard input"]
+    fn benchmark_ready_paste() -> Result<()> {
+        let mut samples = Vec::new();
+        for _ in 0..20 {
+            let (_temp, hyprland, server) = fixture(vec![
+                r#"{"address":"0xabc","class":"editor"}"#,
+                r#"{"address":"0xabc","class":"editor"}"#,
+            ])?;
+            let started = Instant::now();
+            paste_with(&hyprland, &mut Command::new("true"))?;
+            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+            server.join().unwrap();
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "Ready paste, fake IPC + true: median={:.2} ms, max={:.2} ms",
+            samples[10], samples[19]
+        );
+        Ok(())
     }
 }

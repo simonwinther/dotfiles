@@ -91,8 +91,11 @@ struct Feed {
 
 impl Feed {
     fn start(fixture: &Fixture) -> Self {
-        let mut child = fixture
-            .command()
+        Self::command(fixture.command())
+    }
+
+    fn command(mut command: Command) -> Self {
+        let mut child = command
             .arg("--index-stream")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -258,11 +261,58 @@ fn interrupted_refresh_preserves_the_previous_complete_index() {
 }
 
 #[test]
-fn corrupt_cache_falls_back_to_live_results_without_replacing_the_database() {
+fn corrupt_cache_is_quarantined_and_the_feed_rebuilds_cached_results() {
     let fixture = Fixture::new();
     let file = fixture.write("found.txt");
     fs::create_dir_all(fixture.database.parent().unwrap()).unwrap();
     fs::write(&fixture.database, b"not a sqlite database").unwrap();
+    let feed = Feed::start(&fixture);
+    assert_eq!(feed.until(b"fresh"), [file.as_os_str().as_bytes()]);
+    feed.until(b"ready");
+    assert_eq!(fixture.paths(), [file.as_os_str().as_bytes()]);
+    let saved: Vec<_> = fs::read_dir(fixture.database.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .as_bytes()
+                .starts_with(b"index.sqlite3.quarantine-")
+        })
+        .collect();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(
+        fs::read(saved[0].join("index.sqlite3")).unwrap(),
+        b"not a sqlite database"
+    );
+    assert!(file.exists());
+}
+
+#[test]
+fn unsupported_cache_version_is_rebuilt_by_maintenance_commands() {
+    let fixture = Fixture::new();
+    let file = fixture.write("found.pdf");
+    fixture.run(&["--index-update"]);
+    let old = rusqlite::Connection::open(&fixture.database).unwrap();
+    old.pragma_update(None, "user_version", 999).unwrap();
+    drop(old);
+    let output = fixture.run(&["--index-status"]);
+    let status: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(status["scopes"], serde_json::json!([]));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("quarantined at"));
+    assert!(fixture.paths().is_empty());
+    fixture.run(&["--index-update"]);
+    assert_eq!(fixture.paths(), [file.as_os_str().as_bytes()]);
+    assert!(file.exists());
+}
+
+#[test]
+fn unusable_cache_path_still_falls_back_to_live_results() {
+    let fixture = Fixture::new();
+    let file = fixture.write("found.txt");
+    fs::create_dir_all(&fixture.database).unwrap();
+    let marker = fixture.database.join("keep.txt");
+    fs::write(&marker, b"keep").unwrap();
     let output = fixture.run(&["--index-stream"]);
     assert!(output.stdout.starts_with(b"warning\0"));
     assert!(
@@ -272,11 +322,9 @@ fn corrupt_cache_falls_back_to_live_results_without_replacing_the_database() {
             .any(|window| window == file.as_os_str().as_bytes())
     );
     assert!(output.stdout.ends_with(b"\0\0ready\0"));
-    assert_eq!(
-        fs::read(&fixture.database).unwrap(),
-        b"not a sqlite database"
-    );
-    assert!(Path::new(&file).exists());
+    assert!(fixture.database.is_dir());
+    assert_eq!(fs::read(marker).unwrap(), b"keep");
+    assert!(file.exists());
 }
 
 #[test]
@@ -330,4 +378,72 @@ fn background_refresh_starts_even_while_cached_output_is_blocked() {
     assert!(started, "Cached output blocked the background refresh");
     fixture.run(&["--index-update"]);
     assert_eq!(fixture.paths().len(), 1);
+}
+
+#[test]
+fn idle_feed_exits_when_its_consumer_closes_the_pipe() {
+    let fixture = Fixture::new();
+    fixture.write("ready.txt");
+    fixture.run(&["--index-update"]);
+    let mut feed = fixture
+        .command()
+        .arg("--index-stream")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut reader = BufReader::new(feed.stdout.take().unwrap());
+    loop {
+        let mut record = Vec::new();
+        assert_ne!(reader.read_until(0, &mut record).unwrap(), 0);
+        if record == b"ready\0" {
+            break;
+        }
+    }
+    drop(reader);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if let Some(status) = feed.try_wait().unwrap() {
+            assert!(status.success());
+            return;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let _ = feed.kill();
+    let _ = feed.wait();
+    panic!("Idle feed retained its SQLite connection after the consumer closed");
+}
+
+#[test]
+fn oversized_refresh_errors_report_once_and_keep_the_cached_snapshot() {
+    let fixture = Fixture::new();
+    let file = fixture.write("cached.txt");
+    fixture.run(&["--index-update"]);
+    let helper = fixture.temp.path().join("failed-updater");
+    script(
+        &helper,
+        "i=0; while [ \"$i\" -lt 4000 ]; do printf 'refresh diagnostic: abcdefghijklmnopqrstuvwxyz0123456789\\n' >&2; i=$((i+1)); done; exit 1",
+    );
+    let mut command = fixture.command();
+    command.env("FILE_PICKER_EXECUTABLE", &helper);
+    let feed = Feed::command(command);
+    assert_eq!(feed.until(b"cached"), [file.as_os_str().as_bytes()]);
+    let mut warned = false;
+    loop {
+        let (header, paths) = feed
+            .frames
+            .recv_timeout(Duration::from_secs(5))
+            .expect("A full stderr pipe must not stall the cache feed");
+        if header == b"warning" {
+            assert!(!warned, "Refresh failure was reported more than once");
+            warned = true;
+            assert!(paths[0].ends_with(b"[diagnostic truncated]"));
+            assert!(paths[0].len() <= 16 * 1024 + 32);
+        }
+        if header == b"ready" {
+            break;
+        }
+    }
+    assert!(warned);
+    assert_eq!(fixture.paths(), [file.as_os_str().as_bytes()]);
 }

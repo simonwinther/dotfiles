@@ -13,15 +13,18 @@ wakeups at all.
 
 ## Build
 
-The binary is deliberately not committed. Build it out of tree so `target/`
-never lands in the dotfiles repo:
+The binary is deliberately not committed. Use the shared, locked build helper
+from the dotfiles checkout:
 
 ```sh
-# Run from the dotfiles checkout.
-CARGO_TARGET_DIR="$HOME/.cache/workspaces-slider-rs-target" cargo build --release --locked --manifest-path waybar/.config/waybar/workspaces-slider-rs/Cargo.toml
-install -Dm755 "$HOME/.cache/workspaces-slider-rs-target/release/workspaces-slider" "$HOME/.local/bin/workspaces-slider.new"
-mv -f "$HOME/.local/bin/workspaces-slider.new" "$HOME/.local/bin/workspaces-slider"
+./waybar/.local/bin/workspaces-slider-build --check
 ```
+
+The helper snapshots the complete source tree, keeps Cargo output under
+`${XDG_CACHE_HOME:-$HOME/.cache}/workspaces-slider/target`, and atomically
+publishes the executable in the cache's `bin/workspaces-slider`. `--check`
+runs formatting, Clippy, and tests before building. The Stow launcher stays
+in `.local/bin/workspaces-slider`.
 
 Rebuild on each PC after pulling changes to this package. Cargo, a C compiler,
 pkg-config, Wayland development files, and JetBrainsMono Nerd Font are required.

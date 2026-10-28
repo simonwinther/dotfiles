@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-source_root="${XDG_DATA_HOME:-$HOME/.local/share}/desktop-tools/project-picker-tui"
-cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/project-picker"
-mkdir -p "$cache_root/build" "$cache_root/bin"
-cp "$source_root/Cargo.toml" "$source_root/Cargo.lock" "$cache_root/build/"
-cp -R "$source_root/src" "$cache_root/build/"
-export CARGO_TARGET_DIR="$cache_root/target"
-cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml"
-install -m 755 "$CARGO_TARGET_DIR/release/project-picker-tui" "$cache_root/bin/project-picker-tui.new"
-mv -f "$cache_root/bin/project-picker-tui.new" "$cache_root/bin/project-picker-tui"
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../bin/.local/share/dotfiles/rust-build.sh
+source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+source_root="$(dirname "$(dirname "$script")")/share/desktop-tools/project-picker-tui"
+rust_build_init project-picker "$script" "$@"
+rust_build_checks
+rust_build_cargo build --release --bins
+for binary in project-picker-core project-picker-tui; do
+    rust_build_publish "$CARGO_TARGET_DIR/release/$binary" "$cache_root/bin/$binary"
+done
+printf 'Rust project picker installed in %s/bin\n' "$cache_root"

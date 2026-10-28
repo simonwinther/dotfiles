@@ -1,91 +1,18 @@
+use crate::workers::{Collection, Event, Workers};
 use background_grid::Result;
-use background_grid::catalog::{Folder, catalog};
+use background_grid::catalog::Folder;
 use background_grid::config::Paths;
-use background_grid::thumbnail::thumbnail;
-use background_grid::wallpaper::set_wallpaper;
 use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 const COLUMNS: usize = 4;
 const WINDOW_WIDTH: i32 = 900;
 const HINT: &str = "H J K L / arrows  ·  Enter opens / applies  ·  Ctrl+click / Enter keeps open  ·  q / Esc closes";
-
-enum Work {
-    Preview(usize, PathBuf),
-    Apply(PathBuf, bool),
-    Stop,
-}
-
-enum Event {
-    Preview(usize, std::result::Result<PathBuf, String>),
-    Applied(PathBuf, bool, std::result::Result<(), String>),
-}
-
-struct Workers {
-    sender: mpsc::Sender<Work>,
-    results: Rc<mpsc::Receiver<Event>>,
-    stopped: Arc<AtomicBool>,
-    handles: Vec<JoinHandle<()>>,
-}
-
-impl Workers {
-    fn new(paths: &Paths) -> Self {
-        let (sender, jobs) = mpsc::channel();
-        let jobs = Arc::new(Mutex::new(jobs));
-        let (events, results) = mpsc::channel();
-        let stopped = Arc::new(AtomicBool::new(false));
-        let mut handles = Vec::new();
-        for _ in 0..2 {
-            let (jobs, events, stopped, paths) =
-                (jobs.clone(), events.clone(), stopped.clone(), paths.clone());
-            handles.push(thread::spawn(move || {
-                while !stopped.load(Ordering::Acquire) {
-                    let job = jobs.lock().expect("thumbnail queue poisoned").recv();
-                    let event = match job {
-                        Ok(Work::Preview(id, path)) => Event::Preview(
-                            id,
-                            thumbnail(&path, &paths.cache).map_err(|error| error.to_string()),
-                        ),
-                        Ok(Work::Apply(path, keep_open)) => {
-                            let result = set_wallpaper(&paths, &path, None)
-                                .map_err(|error| error.to_string());
-                            Event::Applied(path, keep_open, result)
-                        }
-                        _ => break,
-                    };
-                    let _ = events.send(event);
-                }
-            }));
-        }
-        Self {
-            sender,
-            results: Rc::new(results),
-            stopped,
-            handles,
-        }
-    }
-}
-
-impl Drop for Workers {
-    fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Release);
-        for _ in &self.handles {
-            let _ = self.sender.send(Work::Stop);
-        }
-        // Finish an in-flight wallpaper change before the process exits.
-        for handle in self.handles.drain(..) {
-            let _ = handle.join();
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Control {
@@ -97,6 +24,7 @@ struct Tile {
     button: gtk::Button,
     picture: gtk::Picture,
     path: PathBuf,
+    preview_ready: bool,
 }
 
 struct Group {
@@ -121,7 +49,6 @@ struct State {
     groups: Vec<Group>,
     root_buttons: Vec<usize>,
     root_groups: Vec<usize>,
-    remaining: usize,
     loaded_images: usize,
 }
 
@@ -131,8 +58,9 @@ struct Grid {
     sections: gtk::Box,
     scroll: gtk::ScrolledWindow,
     status: gtk::Label,
-    sender: mpsc::Sender<Work>,
-    results: Rc<mpsc::Receiver<Event>>,
+    count: gtk::Label,
+    workers: Rc<Workers>,
+    previews_dirty: Cell<bool>,
     state: RefCell<State>,
     started: Instant,
 }
@@ -150,12 +78,7 @@ fn debug(message: &str) {
 }
 
 impl Grid {
-    fn new(
-        app: &gtk::Application,
-        paths: &Paths,
-        workers: &Workers,
-        collection: &Folder,
-    ) -> Rc<Self> {
+    fn new(app: &gtk::Application, paths: &Paths, workers: &Rc<Workers>) -> Rc<Self> {
         let window = gtk::ApplicationWindow::builder()
             .application(app)
             .title("Backgrounds")
@@ -181,10 +104,7 @@ impl Grid {
         window.set_child(Some(&outer));
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         header.append(&label("Backgrounds", "heading"));
-        let count = label(
-            &format!("{} images", collection.all_images().len()),
-            "muted",
-        );
+        let count = label("Scanning…", "muted");
         count.set_hexpand(true);
         header.append(&count);
         let close = gtk::Button::from_icon_name("window-close-symbolic");
@@ -199,7 +119,7 @@ impl Grid {
         scroll.set_max_content_height(550);
         scroll.set_child(Some(&sections));
         outer.append(&scroll);
-        let status = label(HINT, "muted");
+        let status = label("Scanning wallpaper folders…", "muted");
         outer.append(&status);
         let grid = Rc::new(Self {
             app: app.clone(),
@@ -207,12 +127,10 @@ impl Grid {
             sections,
             scroll,
             status,
-            sender: workers.sender.clone(),
-            results: workers.results.clone(),
-            state: RefCell::new(State {
-                active: paths.current().canonicalize().unwrap_or_default(),
-                ..State::default()
-            }),
+            count,
+            workers: workers.clone(),
+            previews_dirty: Cell::new(true),
+            state: RefCell::new(State::default()),
             started: Instant::now(),
         });
         let weak = Rc::downgrade(&grid);
@@ -229,33 +147,18 @@ impl Grid {
                 .map_or(glib::Propagation::Proceed, |grid| grid.key(key, modifiers))
         });
         grid.window.add_controller(keys);
-        let buttons = grid.add_grid(&grid.sections, &collection.images);
-        let groups = collection
-            .children
-            .iter()
-            .map(|node| grid.add_group(&grid.sections, node.clone()))
-            .collect();
-        {
-            let mut state = grid.state.borrow_mut();
-            state.root_buttons = buttons;
-            state.root_groups = groups;
-        }
-        let rows = grid.visible_rows();
-        let selected = {
-            let state = grid.state.borrow();
-            state
-                .root_buttons
-                .iter()
-                .find(|&&id| state.tiles[id].path == state.active)
-                .map(|&id| Control::Image(id))
-                .or_else(|| rows.first().and_then(|row| row.first()).copied())
-        };
-        if let Some(selected) = selected {
-            grid.focus(selected);
-        } else {
-            grid.status
-                .set_label("No images found in your wallpaper folders.");
-        }
+        let weak = Rc::downgrade(&grid);
+        grid.scroll.vadjustment().connect_value_changed(move |_| {
+            if let Some(grid) = weak.upgrade() {
+                grid.invalidate_previews();
+            }
+        });
+        let weak = Rc::downgrade(&grid);
+        grid.scroll.vadjustment().connect_changed(move |_| {
+            if let Some(grid) = weak.upgrade() {
+                grid.invalidate_previews();
+            }
+        });
         let weak = Rc::downgrade(&grid);
         glib::timeout_add_local(Duration::from_millis(16), move || {
             let Some(grid) = weak.upgrade() else {
@@ -264,13 +167,102 @@ impl Grid {
             if grid.state.borrow().closed {
                 return glib::ControlFlow::Break;
             }
-            for event in grid.results.try_iter().take(32) {
+            for event in grid.workers.events() {
                 grid.event(event);
+            }
+            if grid.previews_dirty.replace(false) {
+                grid.queue_previews();
             }
             glib::ControlFlow::Continue
         });
         grid.window.present();
         grid
+    }
+
+    fn collection(self: &Rc<Self>, collection: Collection) {
+        self.count
+            .set_label(&format!("{} images", collection.count));
+        self.state.borrow_mut().active = collection.active;
+        let buttons = self.add_grid(&self.sections, &collection.folder.images);
+        let groups = collection
+            .folder
+            .children
+            .into_iter()
+            .map(|node| self.add_group(&self.sections, node))
+            .collect();
+        {
+            let mut state = self.state.borrow_mut();
+            state.root_buttons = buttons;
+            state.root_groups = groups;
+        }
+        let rows = self.visible_rows();
+        let selected = {
+            let state = self.state.borrow();
+            state
+                .root_buttons
+                .iter()
+                .find(|&&id| state.tiles[id].path == state.active)
+                .map(|&id| Control::Image(id))
+                .or_else(|| rows.first().and_then(|row| row.first()).copied())
+        };
+        self.status.set_label(HINT);
+        if let Some(selected) = selected {
+            self.focus(selected);
+        } else {
+            self.status
+                .set_label("No images found in your wallpaper folders.");
+        }
+        self.previews_dirty.set(true);
+        debug(&format!(
+            "Catalog ready: {} images in {:.3}s",
+            collection.count,
+            self.started.elapsed().as_secs_f64()
+        ));
+    }
+
+    fn invalidate_previews(&self) {
+        self.workers.previews([]);
+        self.previews_dirty.set(true);
+    }
+
+    fn queue_previews(&self) {
+        let state = self.state.borrow();
+        if state.closed || state.busy {
+            self.workers.previews([]);
+            return;
+        }
+        let adjustment = self.scroll.vadjustment();
+        let top = adjustment.value();
+        let bottom = top + adjustment.page_size();
+        if bottom <= top {
+            self.previews_dirty.set(true);
+            return;
+        }
+        let mut previews: Vec<_> = state
+            .tiles
+            .iter()
+            .enumerate()
+            .filter_map(|(id, tile)| {
+                if tile.preview_ready || !tile.button.is_mapped() {
+                    return None;
+                }
+                let bounds = tile.button.compute_bounds(&self.sections)?;
+                if f64::from(bounds.y() + bounds.height()) <= top || f64::from(bounds.y()) >= bottom
+                {
+                    return None;
+                }
+                Some((
+                    state.focused != Some(Control::Image(id)),
+                    bounds.y() as i32,
+                    bounds.x() as i32,
+                    id,
+                    tile.path.clone(),
+                ))
+            })
+            .collect();
+        previews.sort_by_key(|&(unfocused, y, x, id, _)| (unfocused, y, x, id));
+        self.workers
+            .previews(previews.into_iter().map(|(_, _, _, id, path)| (id, path)));
     }
 
     fn button(&self, control: Control) -> gtk::Button {
@@ -309,6 +301,7 @@ impl Grid {
     }
 
     fn focus(self: &Rc<Self>, control: Control) {
+        self.previews_dirty.set(true);
         let previous = self.state.borrow_mut().focused.replace(control);
         if let Some(previous) = previous {
             self.button(previous).remove_css_class("keyboard-focus");
@@ -509,6 +502,7 @@ impl Grid {
             state.groups[id].children = children;
         }
         body.set_visible(expanded);
+        self.invalidate_previews();
         arrow.set_icon_name(Some(if expanded {
             "pan-down-symbolic"
         } else {
@@ -584,8 +578,8 @@ impl Grid {
                     button: button.clone(),
                     picture,
                     path: path.clone(),
+                    preview_ready: false,
                 });
-                state.remaining += 1;
                 id
             };
             let weak = Rc::downgrade(self);
@@ -596,7 +590,6 @@ impl Grid {
             });
             flow.insert(&button, -1);
             buttons.push(id);
-            let _ = self.sender.send(Work::Preview(id, path.clone()));
         }
         buttons
     }
@@ -613,17 +606,24 @@ impl Grid {
         };
         self.focus(Control::Image(id));
         self.status.set_label("Applying…");
+        self.workers.previews([]);
         self.sections.set_sensitive(false);
         if !keep_open {
             self.window.set_visible(false);
         }
-        if self.sender.send(Work::Apply(path, keep_open)).is_err() {
+        if !self.workers.apply(path, keep_open) {
             self.error("The wallpaper worker stopped.");
         }
     }
 
-    fn event(&self, event: Event) {
+    fn event(self: &Rc<Self>, event: Event) {
         match event {
+            Event::Catalog(Ok(collection)) => self.collection(collection),
+            Event::Catalog(Err(error)) => {
+                self.count.set_label("Library unavailable");
+                self.status
+                    .set_label(&format!("Could not scan wallpaper folders: {error}"));
+            }
             Event::Preview(id, result) => {
                 let (button, picture) = {
                     let state = self.state.borrow();
@@ -642,15 +642,14 @@ impl Grid {
                     }
                 }
                 let mut state = self.state.borrow_mut();
-                state.remaining -= 1;
+                state.tiles[id].preview_ready = true;
                 state.loaded_images += 1;
-                if state.remaining == 0 {
-                    println!(
-                        "Grid ready: {} previews in {:.3}s",
-                        state.loaded_images,
-                        self.started.elapsed().as_secs_f64()
-                    );
-                }
+                self.previews_dirty.set(true);
+                debug(&format!(
+                    "Preview ready: {} in {:.3}s",
+                    state.loaded_images,
+                    self.started.elapsed().as_secs_f64()
+                ));
             }
             Event::Applied(path, true, Ok(())) => {
                 {
@@ -667,6 +666,7 @@ impl Grid {
                 }
                 self.sections.set_sensitive(true);
                 self.status.set_label(HINT);
+                self.previews_dirty.set(true);
                 debug("Applied: keep-open");
             }
             Event::Applied(_, false, Ok(())) => self.app.quit(),
@@ -677,6 +677,7 @@ impl Grid {
     fn error(&self, message: &str) {
         debug(&format!("Apply failed: {message}"));
         self.state.borrow_mut().busy = false;
+        self.previews_dirty.set(true);
         self.status.set_label(message);
         self.sections.set_sensitive(true);
         self.window.present();
@@ -684,19 +685,18 @@ impl Grid {
 }
 
 pub fn launch(paths: Paths) -> Result<i32> {
-    let collection = catalog(&paths.folders()?)?;
     let app = gtk::Application::builder()
         .application_id("com.simon.BackgroundGrid")
         .build();
-    let workers = Rc::new(Workers::new(&paths));
     let holder = Rc::new(RefCell::new(None::<Rc<Grid>>));
-    let (held, pool) = (holder.clone(), workers.clone());
+    let held = holder.clone();
     let activation = app.connect_activate(move |app| {
         if let Some(grid) = held.borrow().as_ref() {
             grid.window.present();
             return;
         }
-        let grid = Grid::new(app, &paths, &pool, &collection);
+        let workers = Rc::new(Workers::new(&paths));
+        let grid = Grid::new(app, &paths, &workers);
         *held.borrow_mut() = Some(grid);
     });
     let held = holder.clone();
@@ -709,6 +709,5 @@ pub fn launch(paths: Paths) -> Result<i32> {
     holder.borrow_mut().take();
     app.disconnect(activation);
     drop(app);
-    drop(workers);
     Ok(code.value())
 }

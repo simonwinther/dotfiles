@@ -1,5 +1,4 @@
 use desktop_ring::{
-    audio::parse_devices,
     core::{Snapshot, menu},
     monitors::*,
 };
@@ -250,25 +249,6 @@ fn sleep_is_nested_and_unavailable_hardware_cannot_be_selected() {
         system.entries[0].action,
         Some(desktop_ring::core::Action::Suspend)
     ));
-}
-#[test]
-fn audio_identity_ignores_temporary_indices_and_filters_monitor_sources() {
-    let a = serde_json::json!([{"index":17,"name":"usb-stable","description":"USB Mic","properties":{"device.serial":"serial-1","device.profile.name":"mic"},"volume":{"mono":{"value":32768}},"mute":true},{"index":18,"name":"sink.monitor","properties":{"device.class":"monitor"}}]);
-    let d = parse_devices(&a, "usb-stable", true);
-    assert_eq!(d.len(), 1);
-    assert!(d[0].active && d[0].muted);
-    assert_eq!(d[0].volume, 50);
-    let mut b = a;
-    b[0]["index"] = serde_json::json!(42);
-    assert_eq!(
-        d[0].identity,
-        parse_devices(&b, "usb-stable", true)[0].identity
-    );
-}
-#[test]
-fn audio_unavailable_port_is_visible_and_disabled() {
-    let v = serde_json::json!([{"name":"hdmi","active_port":"port0","ports":[{"name":"port0","availability":"not available"}]}]);
-    assert!(!parse_devices(&v, "", false)[0].available);
 }
 #[test]
 fn menu_pagination_preserves_all_entries() {

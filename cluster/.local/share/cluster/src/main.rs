@@ -1,8 +1,11 @@
+mod diff;
+mod hosts;
 mod process;
 mod remote;
 mod setup;
 mod snapshot;
 mod sync;
+mod top;
 
 use anyhow::{Context, Result, ensure};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -48,6 +51,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Monitor Slurm interactively and switch between saved clusters
+    Top(top::Args),
+    /// Manage saved SSH clusters
+    Hosts {
+        #[command(subcommand)]
+        action: hosts::HostCommand,
+    },
     /// Check and install terminal tools and configurations
     Setup(setup::SetupArgs),
     /// Pair this repository with an existing cluster checkout
@@ -78,6 +88,18 @@ enum Commands {
         /// Preview downloads without changing local project files
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Compare the current folder with a host without changing either side
+    Diff {
+        /// Directory on the host; relative paths start at its home
+        #[arg(long = "with", value_name = "PATH")]
+        with: Option<String>,
+        /// Apply local Git ignore rules, retaining tracked files
+        #[arg(long)]
+        code_only: bool,
+        /// Show every differing path instead of the first 20 per group
+        #[arg(long)]
+        all: bool,
     },
     /// Submit from the matching directory on the cluster
     Submit {
@@ -338,6 +360,8 @@ fn submit(
 
 fn main_result(cli: Cli) -> Result<i32> {
     match cli.command {
+        Some(Commands::Top(args)) => top::run_monitor(args, cli.host, cli.local).map(|()| 0),
+        Some(Commands::Hosts { action }) => hosts::manage(action).map(|()| 0),
         Some(Commands::Setup(args)) => {
             setup::setup(args, cli.host, cli.local, cli.source_root).map(|()| 0)
         }
@@ -379,6 +403,18 @@ fn main_result(cli: Cli) -> Result<i32> {
                 },
                 path.display()
             );
+            Ok(0)
+        }
+        Some(Commands::Diff {
+            with,
+            code_only,
+            all,
+        }) => {
+            let host = selected_host(cli.local, cli.host)?;
+            let with = with
+                .filter(|p| !p.is_empty())
+                .context("Missing comparison directory. Add --with PATH.")?;
+            diff::compare(&host, &with, code_only, all)?;
             Ok(0)
         }
         Some(Commands::Submit {
@@ -432,8 +468,26 @@ fn main_result(cli: Cli) -> Result<i32> {
     }
 }
 
+fn compatibility_arguments(mut arguments: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    if std::path::Path::new(&arguments[0])
+        .file_name()
+        .is_some_and(|name| name == "mytop")
+    {
+        if arguments.get(1).is_some_and(|name| name == "--backend") {
+            arguments.splice(1..2, ["agent".into(), "top".into()]);
+        } else if arguments
+            .get(1)
+            .is_none_or(|name| name != "hosts" && name != "--version" && name != "-V")
+        {
+            arguments.insert(1, "top".into());
+        }
+    }
+    arguments
+}
 fn main() {
-    match main_result(Cli::parse()) {
+    match main_result(Cli::parse_from(compatibility_arguments(
+        std::env::args_os().collect(),
+    ))) {
         Ok(code) => std::process::exit(code),
         Err(error) => {
             eprintln!("cluster: {error:#}");
@@ -449,6 +503,33 @@ mod tests {
     #[test]
     fn cli_options_have_no_conflicting_short_flags() {
         Cli::command().debug_assert();
+    }
+    #[test]
+    fn mytop_alias_and_legacy_queries_share_the_cluster_cli() {
+        for (args, expected) in [
+            (
+                vec!["/home/test/bin/mytop", "--once"],
+                vec!["/home/test/bin/mytop", "top", "--once"],
+            ),
+            (
+                vec!["mytop", "hosts", "list"],
+                vec!["mytop", "hosts", "list"],
+            ),
+            (
+                vec!["mytop", "--backend", "{}"],
+                vec!["mytop", "agent", "top", "{}"],
+            ),
+            (vec!["mytop", "--version"], vec!["mytop", "--version"]),
+        ] {
+            let actual = compatibility_arguments(args.into_iter().map(Into::into).collect());
+            assert_eq!(
+                actual,
+                expected
+                    .into_iter()
+                    .map(std::ffi::OsString::from)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

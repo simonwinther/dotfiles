@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::config::Paths;
-use crate::wallpaper::set_wallpaper;
+use crate::wallpaper::restore_wallpapers;
 use similar::TextDiff;
 use std::env;
 use std::fs;
@@ -164,7 +164,7 @@ pub fn run(paths: &Paths, dry_run: bool, no_reload: bool) -> Result<()> {
             let _ = checked(Command::new("hyprctl").arg("reload"));
             return Err(format!("Settings restored after a configuration error:\n{error}").into());
         }
-        set_wallpaper(paths, &paths.current(), Some("none"))?;
+        restore_wallpapers(paths)?;
     }
     println!("Ready. Ctrl + Super + Space opens the wallpaper grid.");
     Ok(())

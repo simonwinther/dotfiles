@@ -280,6 +280,8 @@ pub fn agent(action: &str, data: Value) -> Result<Value> {
             .map_err(Into::into),
         "submit" => submit(serde_json::from_value(data)?),
         "snapshot" => snapshot::create(),
+        "top" => crate::top::backend::answer(data),
+        "install-cli" => install_cli(),
         "fetch-source" => fetch_source(data["path"].as_str().context("Missing fetch source")?),
         "sync-destination" => sync_destination(
             data["path"].as_str().context("Missing sync destination")?,
@@ -291,8 +293,73 @@ pub fn agent(action: &str, data: Value) -> Result<Value> {
 }
 
 pub fn ssh(host: &str, port: Option<u16>, command: &str) -> Result<Command> {
+    ssh_with_options(host, port, command, &[])
+}
+
+fn install_cli() -> Result<Value> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let home = home()?;
+    let local_bin = home.join(".local/bin");
+    let user_bin = home.join("bin");
+    let bin = std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path).find(|dir| dir == &local_bin || dir == &user_bin)
+        })
+        .unwrap_or(local_bin);
+    let paths = [bin.join("cluster"), bin.join("mytop")];
+    for path in &paths {
+        if let Ok(meta) = fs::symlink_metadata(path) {
+            ensure!(
+                meta.is_file() && !meta.file_type().is_symlink(),
+                "Refusing to replace a symlink or directory: {}",
+                path.display()
+            );
+        }
+    }
+    let bytes = fs::read(std::env::current_exe()?)?;
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&bin)?;
+    for path in &paths {
+        if path.is_file() {
+            let previous = fs::read(path)?;
+            let previous_hash = format!("{:x}", Sha256::digest(&previous));
+            if previous_hash != hash {
+                let backups = home.join(".local/share/cluster/backups");
+                fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(&backups)?;
+                let backup = backups.join(format!(
+                    "{}-{previous_hash}",
+                    path.file_name().unwrap().to_string_lossy()
+                ));
+                if !backup.exists() {
+                    fs::copy(path, backup)?;
+                }
+            }
+        }
+        let mut stage = tempfile::NamedTempFile::new_in(&bin)?;
+        std::io::Write::write_all(&mut stage, &bytes)?;
+        stage
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o755))?;
+        stage.as_file().sync_all()?;
+        stage.persist(path)?;
+    }
+    Ok(json!({"path": paths[0], "mytop": paths[1], "sha256": hash}))
+}
+pub fn ssh_with_options(
+    host: &str,
+    port: Option<u16>,
+    command: &str,
+    options: &[&str],
+) -> Result<Command> {
     validate_host(host)?;
     let mut ssh = Command::new("ssh");
+    ssh.args(options);
     if let Some(port) = port {
         ssh.args(["-p", &port.to_string()]);
     }
@@ -332,10 +399,13 @@ pub fn arch_guard(arch: &str) -> String {
     format!("case \"$(uname -s):$(uname -m)\" in Linux:{pattern}) ;; *) printf '%s\\n' 'cluster: CPU architecture differs; set CLUSTER_REMOTE_BINARY to a static Rust build for this host.' >&2; exit 1 ;; esac\n").replace("Linux:aarch64|arm64", "Linux:aarch64|Linux:arm64")
 }
 
-pub fn remote(host: &str, action: &str, data: Value) -> Result<Value> {
-    if host == "local" {
-        return agent(action, data);
-    }
+pub struct AgentRequest {
+    pub executable: PathBuf,
+    pub command: String,
+    pub upload: String,
+}
+pub fn prepare_agent(host: &str, action: &str, data: &Value) -> Result<AgentRequest> {
+    validate_host(host)?;
     let executable = binary()?;
     let arch = binary_arch(&executable)?;
     let hash = format!("{:x}", Sha256::digest(fs::read(&executable)?));
@@ -350,13 +420,27 @@ pub fn remote(host: &str, action: &str, data: Value) -> Result<Value> {
         arch_guard(arch)
     );
     let command = format!("sh -c {}", quote(&script));
+    let upload = format!(
+        "set -eu\numask 077\n{}{cache}mkdir -p -- \"$cache\"\ntmp=$(mktemp \"$cache/incoming.XXXXXX\")\ntrap 'rm -f -- \"$tmp\"' EXIT HUP INT TERM\ncat > \"$tmp\"\nchmod 700 \"$tmp\"\nmv -f -- \"$tmp\" \"$binary\"\n",
+        arch_guard(arch)
+    );
+    Ok(AgentRequest {
+        executable,
+        command,
+        upload: format!("sh -c {}", quote(&upload)),
+    })
+}
+
+pub fn remote(host: &str, action: &str, data: Value) -> Result<Value> {
+    if host == "local" {
+        return agent(action, data);
+    }
+    let prepared = prepare_agent(host, action, &data)?;
+    let command = prepared.command;
+    let executable = prepared.executable;
     let mut result = ssh(host, None, &command)?.stdin(Stdio::null()).output()?;
     if result.status.code() == Some(78) {
-        let upload = format!(
-            "set -eu\numask 077\n{}{cache}mkdir -p -- \"$cache\"\ntmp=$(mktemp \"$cache/incoming.XXXXXX\")\ntrap 'rm -f -- \"$tmp\"' EXIT HUP INT TERM\ncat > \"$tmp\"\nchmod 700 \"$tmp\"\nmv -f -- \"$tmp\" \"$binary\"\n",
-            arch_guard(arch)
-        );
-        let mut upload_command = ssh(host, None, &format!("sh -c {}", quote(&upload)))?;
+        let mut upload_command = ssh(host, None, &prepared.upload)?;
         upload_command
             .stderr(Stdio::inherit())
             .stdout(Stdio::piped());

@@ -34,11 +34,11 @@ pub fn send(hyprland: &Hyprland, executable: &Path, text: &str) -> Result<()> {
     let listener = UnixListener::bind(&path)?;
     listener.set_nonblocking(true)?;
     let command = format!(
-        "exec {} --handoff {}",
+        "{} --handoff {}",
         shell_quote(executable.as_os_str()),
         shell_quote(path.as_os_str())
     );
-    hyprland.dispatch(&command)?;
+    hyprland.exec(&command)?;
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut stream = loop {
         match listener.accept() {
@@ -122,4 +122,42 @@ pub fn serve(path: &Path) -> Result<()> {
         .join()
         .map_err(|_| "The clipboard worker stopped")?
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    #[ignore = "requires live Hyprland and Python 3; uses a fake helper with no clipboard or keyboard access"]
+    fn live_handoff_launch_and_reply() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let executable = temp.path().join("helper's \"quoted\" \\ æ");
+        fs::write(
+            &executable,
+            r#"#!/usr/bin/env python3
+import json
+import socket
+import sys
+
+assert sys.argv[1] == "--handoff"
+with socket.socket(socket.AF_UNIX) as stream:
+    stream.settimeout(3)
+    stream.connect(sys.argv[2])
+    request = bytearray()
+    while block := stream.recv(65536):
+        request.extend(block)
+    error = None if json.loads(request)["text"] == "live handoff: æ\n\t'\\\"" else "Selection changed"
+    stream.sendall(json.dumps({"error": error}).encode())
+"#,
+        )?;
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))?;
+        send(
+            &Hyprland::discover()?,
+            &executable,
+            "live handoff: æ\n\t'\\\"",
+        )
+    }
 }

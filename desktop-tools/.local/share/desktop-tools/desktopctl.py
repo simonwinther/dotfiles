@@ -7,9 +7,11 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
+import select
 import shlex
 import shutil
 import signal
@@ -17,23 +19,102 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 import uuid
 from xml.sax.saxutils import escape as xml_escape
+
+import desktop_process as processes
 
 HOME = Path.home()
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
 DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
 STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "desktop"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", Path(tempfile.gettempdir()) / f"desktop-{os.getuid()}")) / "desktop"
+THEME_RENDERER = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+THEME_FILES = ("walker.css", "swayosd.css", "waybar.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
+               "btop.theme", "eza.yml")
+
+STATE_VERSION = 1
+_held_state_locks = threading.local()
+
+
+def state_text(value):
+    return isinstance(value, str) and bool(value.strip()) and not re.search(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]", value)
+
+
+# Unversioned state is version 0. Version 1 adds schemaVersion without changing
+# the flat format shared with background-grid. Unknown fields survive migration.
+STATE_SCHEMA = {
+    "theme": ("a lowercase theme name", lambda v: state_text(v) and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", v)),
+    "font": ("a nonempty font family without control characters", state_text),
+    "wallpaper": ("a nonempty image path without control characters", state_text),
+    "lockBackground": ("a nonempty image path without control characters", state_text),
+    "terminalTheme": ("a boolean", lambda v: type(v) is bool),
+    "desktopTheme": ("a boolean", lambda v: type(v) is bool),
+    "aboutArt": ("a boolean", lambda v: type(v) is bool),
+    "screensaver": ("naruto, tomoe-sharingan, matrix, or custom", lambda v: isinstance(v, str) and v in ("naruto", "tomoe-sharingan", "matrix", "custom")),
+}
+STATE_MIGRATIONS = {0: lambda value: {**value, "schemaVersion": 1}}
+
+
+class UnsupportedStateVersion(ValueError):
+    pass
+
+
+def check_json_depth(value):
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > 64:
+            raise ValueError("JSON nesting exceeds the maximum depth of 64")
+        children = item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        pending.extend((child, depth + 1) for child in children if isinstance(child, (dict, list)))
+
+
+def decode_json(raw: bytes, path: Path):
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate object key")
+            value[key] = item
+        return value
+
+    def reject_constant(_):
+        raise ValueError("non-finite numbers are not valid JSON")
+
+    def finite_float(text):
+        value = float(text)
+        if not math.isfinite(value):
+            reject_constant(text)
+        return value
+
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
+                           parse_constant=reject_constant, parse_float=finite_float)
+        check_json_depth(value)
+        return value
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: invalid UTF-8 at byte {error.start}") from None
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: invalid JSON at line {error.lineno}, column {error.colno}: {error.msg}") from None
+    except RecursionError:
+        raise ValueError(f"{path}: JSON nesting is too deep") from None
+    except ValueError as error:
+        raise ValueError(f"{path}: invalid JSON: {error}") from None
 
 
 def read_json(path: Path, default=None):
     try:
-        return json.loads(path.read_text())
+        raw = path.read_bytes()
     except FileNotFoundError:
         return {} if default is None else default
+    value = decode_json(raw, path)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+    return value
 
 
 def atomic_write(path: Path, content: str | bytes, mode=0o600):
@@ -68,26 +149,131 @@ def atomic_link(path: Path, target: Path):
 
 @contextlib.contextmanager
 def state_lock(name="state", *, wait=True):
+    # Reads can migrate/recover state, including while a command already holds
+    # this lock. Reuse locks in the same thread; other threads/processes flock.
+    path = STATE / f"{name}.lock"
+    held = getattr(_held_state_locks, "paths", None)
+    if held is None:
+        held = _held_state_locks.paths = set()
+    if wait and path in held:
+        yield True
+        return
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (STATE / f"{name}.lock").open("a") as stream:
+    with path.open("a") as stream:
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         except BlockingIOError:
             yield False
             return
-        yield True
+        held.add(path)
+        try:
+            yield True
+        finally:
+            held.remove(path)
 
 
 def settings():
     return read_json(CONFIG / "desktop/settings.json")
 
 
+def normalize_state(value):
+    """Return migrated state and diagnostics, dropping only invalid choices."""
+    issues = []
+    if not isinstance(value, dict):
+        value = {}
+        issues.append("$: expected a JSON object")
+    value = dict(value)
+    version = value.get("schemaVersion", 0)
+    if type(version) is int and version > STATE_VERSION:
+        raise UnsupportedStateVersion(
+            f"$.schemaVersion: version {version} is newer than supported version {STATE_VERSION}; "
+            "use an updated desktopctl or restore a compatible state file; state was left unchanged")
+    if type(version) is not int or version < 0:
+        issues.append("$.schemaVersion: expected a nonnegative integer")
+        value.pop("schemaVersion", None)
+        version = 0
+    for key, (description, valid) in STATE_SCHEMA.items():
+        if key in value and not valid(value[key]):
+            issues.append(f"$.{key}: expected {description}")
+            del value[key]
+    if "wallpapers" in value:
+        wallpapers = value["wallpapers"]
+        if not isinstance(wallpapers, dict):
+            issues.append("$.wallpapers: expected an object mapping outputs to image paths")
+            del value["wallpapers"]
+        else:
+            value["wallpapers"] = {}
+            for output, image in wallpapers.items():
+                if not state_text(output) or not state_text(image):
+                    # Do not log paths or untrusted output names from private state.
+                    issues.append("$.wallpapers: each output and image path must be nonempty text without control characters")
+                else:
+                    value["wallpapers"][output] = image
+    while version < STATE_VERSION:
+        value = STATE_MIGRATIONS[version](value)
+        version = value["schemaVersion"]
+    return value, issues
+
+
+def write_state(value):
+    atomic_write(STATE / "state.json", json.dumps(value, indent=2, allow_nan=False) + "\n")
+
+
+def load_state():
+    """Load under state_lock; preserve invalid bytes before replacing state."""
+    path = STATE / "state.json"
+    if path.is_symlink():
+        raise ValueError(f"Refusing to read or replace linked desktop state: {path}")
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return {"schemaVersion": STATE_VERSION}
+    try:
+        original = decode_json(raw, path)
+    except ValueError as error:
+        value, issues = {"schemaVersion": STATE_VERSION}, [str(error)]
+    else:
+        try:
+            value, issues = normalize_state(original)
+        except UnsupportedStateVersion as error:
+            raise UnsupportedStateVersion(f"{path}: {error}") from None
+        if not issues:
+            if value != original:
+                write_state(value)
+            return value
+    backup = None
+    try:
+        descriptor, name = tempfile.mkstemp(prefix="state.json.invalid-", suffix=".json", dir=STATE)
+        backup = Path(name)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        write_state(value)
+    except OSError as error:
+        retained = f"; recovery copy: {backup}" if backup else ""
+        raise OSError(f"{path}: state recovery failed: {error}{retained}") from error
+    print(f"desktopctl: {path}: recovered invalid state ({'; '.join(dict.fromkeys(issues))}); "
+          f"original saved to {backup}; valid choices retained, invalid choices use defaults", file=sys.stderr)
+    return value
+
+
 def state():
-    return read_json(STATE / "state.json")
+    with state_lock():
+        return load_state()
 
 
 def save_state(value):
-    atomic_write(STATE / "state.json", json.dumps(value, indent=2) + "\n")
+    value, issues = normalize_state(value)
+    if issues:
+        raise ValueError("Refusing to save invalid desktop state: " + "; ".join(dict.fromkeys(issues)))
+    # Validate serialization before touching existing state, including unknown
+    # extension fields passed by callers rather than read from JSON.
+    check_json_depth(value)
+    content = json.dumps(value, indent=2, allow_nan=False) + "\n"
+    with state_lock():
+        load_state()  # Recover corruption and refuse newer schemas before writing.
+        atomic_write(STATE / "state.json", content)
 
 
 def expand(value):
@@ -95,13 +281,16 @@ def expand(value):
 
 
 def run(argv, *, check=True, capture=False, **kwargs):
-    return subprocess.run([str(x) for x in argv], check=check, text=True,
-                          capture_output=capture, **kwargs)
+    return processes.run(argv, log_directory=STATE / "processes", check=check,
+                         capture=capture, **kwargs)
 
 
 def background(argv, **kwargs):
-    return subprocess.Popen([str(x) for x in argv], start_new_session=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs)
+    return processes.background(argv, log_directory=STATE / "processes", **kwargs)
+
+
+def managed(argv, **kwargs):
+    return processes.ManagedProcess(argv, log_directory=STATE / "processes", **kwargs)
 
 
 def executable(name):
@@ -156,8 +345,9 @@ def font(args):
     if action != "set" or len(args) not in (2, 3) or args[1] not in families or (len(args) == 3 and args[2] != "--no-reload"):
         raise ValueError("font: list, current, or set an installed monospace font")
     with state_lock():
-        value = state(); value["font"] = args[1]; save_state(value)
-        prepare_theme()
+        value = state(); value["font"] = args[1]
+        _prepare_theme(value)
+        save_state(value)
     if "--no-reload" not in args:
         run(["gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", args[1] + " 11"], check=False)
         run(["makoctl", "reload"], check=False)
@@ -166,42 +356,156 @@ def font(args):
         restart("theme")
 
 
-def prepare_terminal_theme(c, follow_theme):
-    family = selected_font()
+def prepare_terminal_theme(target, c, follow_theme, family):
     quoted = json.dumps(family)
     ghostty = f"font-family = \"\"\nfont-family = {quoted}\n"
     if follow_theme:
         ghostty += "theme =\n" + "\n".join(f"{key} = {c[key]}" for key in ("background", "foreground")) + f"\ncursor-color = {c['cursor']}\n"
         ghostty += "\n".join(f"palette = {i}={c[f'color{i}']}" for i in range(16)) + "\n"
         ghostty += f"selection-background = {c.get('selection_background', c['accent'])}\nselection-foreground = {c.get('selection_foreground', c['background'])}\n"
-    atomic_write(STATE / "theme/ghostty.conf", ghostty)
+    atomic_write(target / "ghostty.conf", ghostty)
     kitty = "\n".join(f"{key} {c[key]}" for key in ("background", "foreground", "cursor")) + "\n"
     kitty += "\n".join(f"color{i} {c[f'color{i}']}" for i in range(16)) + f"\nfont_family {family}\n"
-    atomic_write(STATE / "theme/kitty.conf", kitty)
+    atomic_write(target / "kitty.conf", kitty)
     alacritty = f"[font]\nnormal = {{ family = {quoted}, style = 'Regular' }}\nbold = {{ family = {quoted}, style = 'Bold' }}\nitalic = {{ family = {quoted}, style = 'Italic' }}\n"
     alacritty += f"[colors.primary]\nbackground = '{c['background']}'\nforeground = '{c['foreground']}'\n[colors.cursor]\ncursor = '{c['cursor']}'\ntext = '{c['background']}'\n"
     names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
     for offset, section in [(0, "normal"), (8, "bright")]:
         alacritty += f"[colors.{section}]\n" + "\n".join(f"{name} = '{c[f'color{i + offset}']}'" for i, name in enumerate(names)) + "\n"
-    atomic_write(STATE / "theme/alacritty.toml", alacritty)
-    atomic_write(STATE / "fontconfig.conf", '<?xml version="1.0"?>\n<fontconfig><match target="pattern"><test name="family"><string>monospace</string></test><edit name="family" mode="assign" binding="strong"><string>' + xml_escape(family) + '</string></edit></match></fontconfig>\n')
+    atomic_write(target / "alacritty.toml", alacritty)
+    atomic_write(target / "fontconfig.conf", '<?xml version="1.0"?>\n<fontconfig><match target="pattern"><test name="family"><string>monospace</string></test><edit name="family" mode="assign" binding="strong"><string>' + xml_escape(family) + '</string></edit></match></fontconfig>\n')
 
 
 def colors(path):
-    palette = tomllib.loads((path / "colors.toml").read_text())
+    return _theme_colors((path / "colors.toml").read_text(), path.name)
+
+
+def _theme_colors(content, name):
+    palette = tomllib.loads(content)
     for key in ("accent", "foreground", "background", *[f"color{i}" for i in range(16)]):
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", palette.get(key, "")):
-            raise ValueError(f"Invalid or missing color {key} in {path.name}")
+            raise ValueError(f"Invalid or missing color {key} in {name}")
     palette.setdefault("cursor", palette["accent"])
     return palette
 
 
+def hyprlock_palette(c):
+    return "\n".join(f"${k} = rgba({v[1:]}ff)" for k, v in {
+        "color": c["background"], "inner_color": c["background"], "outer_color": c["foreground"],
+        "font_color": c["foreground"], "check_color": c["accent"],
+    }.items()) + "\n"
+
+
 def prepare_theme(name=None, *, follow_terminal=None):
-    name = name or selected_theme()
+    # Every launch path uses this lock; state-changing callers already holding
+    # it use the private helper with their pending preference snapshot.
+    with state_lock():
+        return _prepare_theme(state(), name, follow_terminal=follow_terminal)
+
+
+def _prepare_theme(value, name=None, *, follow_terminal=None):
+    defaults = settings()
+    name = name or value.get("theme", defaults.get("defaultTheme", "tokyoled"))
     source = theme_path(name)
-    c = colors(source)
-    light = (source / "light.mode").exists()
+    inputs = {
+        "renderer": THEME_RENDERER,
+        "name": name,
+        "font": value.get("font", defaults.get("defaultFont", "JetBrainsMono Nerd Font")),
+        "terminalTheme": value.get("terminalTheme", False) if follow_terminal is None else follow_terminal,
+        "light": (source / "light.mode").exists(),
+        "files": {filename: (source / filename).read_text() if (source / filename).is_file() else None
+                  for filename in THEME_FILES},
+        "colors": (source / "colors.toml").read_text(),
+        "walker": {},
+    }
+    template_root = CONFIG / "walker/templates"
+    for template in sorted(template_root.iterdir()) if template_root.is_dir() else []:
+        if template.is_dir():
+            inputs["walker"][template.name] = {item.name: item.read_text() for item in sorted(template.iterdir())
+                                                if item.is_file()}
+    c = _theme_colors(inputs["colors"], name)
+    key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     target = STATE / "theme"
+    generation = target.resolve()
+    if not target.is_symlink() or not _cached_theme(generation, key):
+        generations = STATE / "theme-generations"
+        generations.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.TemporaryDirectory(prefix=".staging-", dir=generations) as directory:
+            staged = Path(directory) / "theme"
+            staged.mkdir(mode=0o700)
+            _render_theme(staged, inputs, c)
+            paths = sorted(staged.rglob("*"))
+            files = {str(path.relative_to(staged)): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in paths if path.is_file()}
+            directories = [str(path.relative_to(staged)) for path in paths if path.is_dir()]
+            atomic_write(staged / ".generation.json", json.dumps({"key": key, "files": files,
+                                                                  "directories": directories}) + "\n")
+            # Keep completed generations so readers can pin a resolved path
+            # while another process publishes the next theme.
+            generation = generations / (key + "-" + uuid.uuid4().hex)
+            staged.rename(generation)
+    # These fixed aliases all traverse the one publication pointer. They are
+    # also repaired on cache hits after XDG_RUNTIME_DIR has been recreated.
+    _theme_aliases(target)
+    _publish_theme_link(target, generation)
+    config_dirs = os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":")
+    os.environ["XDG_CONFIG_DIRS"] = ":".join([str(RUNTIME), *[p for p in config_dirs if p != str(RUNTIME)]])
+    return source, c, inputs["light"]
+
+
+def _cached_theme(generation, key):
+    try:
+        manifest = read_json(generation / ".generation.json")
+        return (manifest.get("key") == key and bool(manifest.get("files"))
+                and "walker/themes" in manifest.get("directories", [])
+                and all((generation / path).is_dir() and not (generation / path).is_symlink()
+                        for path in manifest["directories"])
+                and all(not (generation / path).is_symlink()
+                        and hashlib.sha256((generation / path).read_bytes()).hexdigest() == digest
+                        for path, digest in manifest["files"].items()))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
+def _publish_theme_link(path, target):
+    if path.is_symlink() and path.readlink() == target:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix=f".{path.name}.", dir=path.parent) as directory:
+        pending = Path(directory) / "link"
+        pending.symlink_to(target)
+        if path.is_dir() and not path.is_symlink():
+            # Linux rename exchange migrates the old nonempty generated
+            # directory without ever making its public path disappear.
+            import ctypes
+            libc = ctypes.CDLL(None, use_errno=True)
+            exchange = libc.renameat2
+            exchange.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+            exchange.restype = ctypes.c_int
+            if exchange(-100, os.fsencode(pending), -100, os.fsencode(path), 2):
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error), path)
+        else:
+            os.replace(pending, path)
+
+
+def _theme_aliases(target):
+    aliases = ((STATE / "fontconfig.conf", target / "fontconfig.conf"),
+               (RUNTIME / "walker/themes", target / "walker/themes"))
+    for alias, destination in aliases:
+        # Seed the old directory before converting its aliases so migration
+        # readers keep seeing the old content until the pointer switches.
+        if target.is_dir() and not target.is_symlink() and alias.exists() and not alias.is_symlink():
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if alias.is_dir():
+                shutil.copytree(alias, destination, dirs_exist_ok=True)
+            else:
+                atomic_write(destination, alias.read_bytes())
+        _publish_theme_link(alias, destination)
+
+
+def _render_theme(target, inputs, c):
+    family = inputs["font"]
     css = {
         "base": c["background"], "text": c["foreground"], "border": c["accent"],
         "selected-text": c["accent"], "background-color": c["background"],
@@ -215,51 +519,38 @@ def prepare_theme(name=None, *, follow_terminal=None):
         "waybar.css": css_text,
         "mako.ini": f"background-color={c['background']}\ntext-color={c['foreground']}\nborder-color={c['accent']}\nborder-size=2\nfont=JetBrainsMono Nerd Font 11\n",
         "hyprland.conf": "general {\n    col.active_border = rgba(" + c['accent'][1:] + "ee)\n    col.inactive_border = rgba(" + c['color8'][1:] + "aa)\n}\n",
-        "hyprlock.conf": "\n".join(f"${k} = rgba({v[1:]}ff)" for k, v in {
-            "color": c["background"], "inner_color": c["background"], "outer_color": c["foreground"],
-            "font_color": c["foreground"], "check_color": c["accent"],
-        }.items()) + "\n",
+        "hyprlock.conf": hyprlock_palette(c),
     }
     for filename, fallback in templates.items():
-        original = source / filename
-        content = original.read_text() if original.is_file() else fallback
+        original = inputs["files"][filename]
+        content = original if original is not None else fallback
         if filename == "mako.ini":
-            content = re.sub(r"(?m)^font=.*$", lambda _: "font=" + selected_font() + " 11", content)
+            content = re.sub(r"(?m)^font=.*$", lambda _: "font=" + family + " 11", content)
         atomic_write(target / filename, content)
-    prepare_terminal_theme(c, state().get("terminalTheme", False) if follow_terminal is None else follow_terminal)
-    atomic_write(target / "colors.toml", (source / "colors.toml").read_text())
-    btop = source / "btop.theme"
+    prepare_terminal_theme(target, c, inputs["terminalTheme"], family)
+    atomic_write(target / "colors.toml", inputs["colors"])
     fallback = "\n".join(f'theme[{key}]="{value}"' for key, value in {
         "main_bg": c["background"], "main_fg": c["foreground"], "title": c["foreground"],
         "hi_fg": c["accent"], "selected_bg": c["accent"], "selected_fg": c["background"],
     }.items()) + "\n"
-    atomic_write(target / "current.theme", btop.read_text() if btop.exists() else fallback)
-    eza = source / "eza.yml"
-    if eza.is_file():
-        atomic_write(target / "theme.yml", eza.read_text())
-    else:
-        (target / "theme.yml").unlink(missing_ok=True)
-    marker = target / "light.mode"
-    if light:
-        atomic_write(marker, "")
-    elif marker.exists():
-        marker.unlink()
-    atomic_write(target / "name", name + "\n")
-    # The runtime search path lets Walker find generated CSS without writing to managed configuration.
-    template_root = CONFIG / "walker/templates"
-    for template in sorted(template_root.iterdir()) if template_root.is_dir() else []:
-        if not template.is_dir():
-            continue
-        walker = RUNTIME / "walker/themes" / ("desktop-" + template.name)
-        for item in template.iterdir():
-            if item.is_file():
-                content = item.read_text()
-                if item.name == "style.css":
-                    content = (target / "walker.css").read_text() + "\n" + content
-                    content += "\n* { font-family: " + json.dumps(selected_font()) + ", monospace; }\n"
-                atomic_write(walker / item.name, content)
-    os.environ["XDG_CONFIG_DIRS"] = str(RUNTIME) + ":" + os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg")
-    return source, c, light
+    btop = inputs["files"]["btop.theme"]
+    atomic_write(target / "current.theme", btop if btop is not None else fallback)
+    eza = inputs["files"]["eza.yml"]
+    if eza is not None:
+        atomic_write(target / "theme.yml", eza)
+    if inputs["light"]:
+        atomic_write(target / "light.mode", "")
+    atomic_write(target / "name", inputs["name"] + "\n")
+    walker_root = target / "walker/themes"
+    walker_root.mkdir(parents=True, mode=0o700)
+    for template, items in inputs["walker"].items():
+        walker = walker_root / ("desktop-" + template)
+        walker.mkdir(mode=0o700)
+        for filename, content in items.items():
+            if filename == "style.css":
+                content = (target / "walker.css").read_text() + "\n" + content
+                content += "\n* { font-family: " + json.dumps(family) + ", monospace; }\n"
+            atomic_write(walker / filename, content)
 
 
 def notify(title, body=""):
@@ -291,13 +582,13 @@ def theme(args):
     elif action == "current":
         print(selected_theme())
     elif action in ("init", "set"):
-        name = args[1] if action == "set" and len(args) > 1 else selected_theme()
         with state_lock():
-            source, _, light = prepare_theme(name, follow_terminal=True if action == "set" else None)
+            name = args[1] if action == "set" and len(args) > 1 else selected_theme()
             value = state(); value["theme"] = name
             if action == "set":
                 value["terminalTheme"] = True
                 value["desktopTheme"] = True
+            source, _, light = _prepare_theme(value)
             save_state(value)
         if action == "set" and "--no-reload" not in args:
             apply_appearance(source, light)
@@ -794,7 +1085,7 @@ def lock(args):
     unit = "desktop-lock-only.service" if "--only" in args or os.environ.get("DESKTOP_LOCK_ONLY") == "true" else "desktop-lock.service"
     result = run(["systemctl", "--user", "start", unit], check=False, capture=True)
     if result.returncode:
-        background([sys.executable, __file__, "lock-worker", *(args or [])])
+        background([sys.executable, __file__, "lock-worker", *(args or [])], operation="lock")
 
 
 def idle_worker(args):
@@ -807,29 +1098,28 @@ def lock_worker(args):
     with state_lock("screen-lock", wait=False) as acquired:
         if not acquired:
             return
-        prepare_theme()
         if shutil.which("1password"):
-            background(["1password", "--lock"])
+            background(["1password", "--lock"], operation="control")
         run(["hyprctl", "switchxkblayout", "all", "0"], check=False)
         source = lock_config()
         target = RUNTIME / "hyprlock.conf"; atomic_write(target, source)
-        child = subprocess.Popen(["hyprlock", "--config", str(target)])
-        if "--only" not in args:
-            time.sleep(3)
-            if child.poll() is None:
-                run(["hyprctl", "dispatch", "dpms", "off"], check=False)
-                with contextlib.suppress(ValueError, subprocess.CalledProcessError):
-                    brightness(["keyboard", "off"])
-        result = child.wait()
-        wake()
+        with managed(["hyprlock", "--config", str(target)], operation="lock") as child:
+            try:
+                if "--only" not in args:
+                    time.sleep(3)
+                    if child.poll() is None:
+                        run(["hyprctl", "dispatch", "dpms", "off"], check=False)
+                        with contextlib.suppress(ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                            brightness(["keyboard", "off"])
+                result = child.wait()
+            finally:
+                wake()
         if result:
-            raise subprocess.CalledProcessError(result, child.args)
+            raise processes.ProcessError(child)
 
 
 def copy_data(data, mime):
-    process = subprocess.Popen(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    process.stdin.write(data); process.stdin.close()
+    background(["wl-copy", "--foreground", "--type", mime], operation="clipboard-owner", input=data)
 
 
 def copy_text(text):
@@ -875,65 +1165,211 @@ def frozen_display(enabled):
     if not enabled:
         yield
         return
-    freezer = background(["hyprpicker", "-r", "-z"])
+    freezer = background(["hyprpicker", "-r", "-z"], operation="selection")
     try:
         # Match the reference capture's render allowance before area selection.
         time.sleep(.1)
         yield
     finally:
-        if freezer.poll() is None:
-            freezer.terminate()
-            try:
-                freezer.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                freezer.kill()
-                freezer.wait()
+        with processes.cancellation_ignored():
+            freezer.close()
 
 
 def edit_screenshot(path, editor="satty"):
     if editor == "satty":
         run(["satty", "--filename", path, "--output-filename", path, "--actions-on-enter", "save-to-clipboard", "--save-after-copy", "--copy-command", "wl-copy"])
     else:
-        run([*shlex.split(editor), path])
+        run([*shlex.split(editor), path], operation="interactive")
+
+
+def save_screenshot(directory: Path, image: bytes) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".screenshot-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(image)
+            stream.flush()
+            os.fsync(stream.fileno())
+        stem = time.strftime("screenshot-%Y-%m-%d_%H-%M-%S")
+        while True:
+            output = directory / f"{stem}-{uuid.uuid4().hex}.png"
+            try:
+                # Publish complete bytes atomically, refusing to replace any
+                # existing entry (including dangling symlinks) on collision.
+                os.link(temporary, output)
+            except FileExistsError:
+                continue
+            return output
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+
+
+RECORDING_STOP_TIMEOUT = 30
+
+
+def recording_identity(pid):
+    """Identify one Linux process incarnation, including its actual executable."""
+    proc = Path(f"/proc/{pid}")
+    # comm may contain spaces and closing parentheses; starttime is field 22.
+    fields = (proc / "stat").read_text().rsplit(") ", 1)[1].split()
+    binary = (proc / "exe").stat()
+    return {"boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "start_time": int(fields[19]), "uid": proc.stat().st_uid,
+            "executable": [binary.st_dev, binary.st_ino],
+            "command_sha256": hashlib.sha256((proc / "cmdline").read_bytes()).hexdigest()}
+
+
+@contextlib.contextmanager
+def recording_process(current):
+    """Pin the PID before inspecting /proc; never signal a recycled numeric PID."""
+    pid = current.get("pid")
+    if type(pid) is not int or pid <= 1:
+        raise ValueError("Invalid recorder PID; recording state retained for inspection")
+    try:
+        descriptor = os.pidfd_open(pid)
+    except ProcessLookupError:
+        yield None
+        return
+    try:
+        poller = select.poll()
+        poller.register(descriptor, select.POLLIN)
+        if poller.poll(0):
+            yield None
+            return
+        try:
+            identity = recording_identity(pid)
+        except (FileNotFoundError, ProcessLookupError):
+            if not poller.poll(0):
+                raise
+            identity = None
+        # If /proc changed while reading it, the pinned process has exited.
+        if poller.poll(0):
+            yield None
+            return
+        if identity != current.get("identity") or identity["uid"] != os.getuid():
+            raise ValueError("Refusing to signal an unverified recorder; recording state retained for inspection")
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def finish_recording(current, status, error=None):
+    result = {**current, "status": status, "finished_at": time.time()}
+    if error:
+        result["error"] = error
+    # Archive before clearing the active marker, including for stale/startup failures.
+    atomic_write(STATE / "recordings" / f"{uuid.uuid4().hex}.json", json.dumps(result, indent=2) + "\n")
+    (STATE / "recording.json").unlink(missing_ok=True)
+
+
+def stop_recording(current):
+    log = current.get("log", "unavailable (legacy recording state)")
+    with recording_process(current) as descriptor:
+        if descriptor is None:
+            if current.get("status") == "stopping":
+                finish_recording(current, "stopped")
+                notify("Recording stopped", current.get("output", ""))
+                return
+            finish_recording(current, "failed", "Recorder exited before stop was requested or completed")
+            raise ValueError(f"Recorder is no longer running; session details retained under {STATE / 'recordings'}; log: {log}")
+        if current.get("status") != "stopping":
+            current.update(status="stopping", stop_requested_at=time.time())
+            atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+            try:
+                signal.pidfd_send_signal(descriptor, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                current.update(status="recording", error=f"Could not interrupt recorder: {error}")
+                atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+                raise
+        poller = select.poll()
+        poller.register(descriptor, select.POLLIN)
+        if not poller.poll(int(RECORDING_STOP_TIMEOUT * 1000)):
+            current["error"] = "Timed out waiting for recorder finalization"
+            atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+            raise ValueError(f"Recorder is still finalizing; recording state retained; retry to wait again; log: {log}")
+        finish_recording(current, "stopped")
+    notify("Recording stopped", current.get("output", ""))
+
+
+def start_recording(args):
+    directory = HOME / settings().get("recordings", "Videos")
+    directory.mkdir(parents=True, exist_ok=True)
+    # Rapid stop/start cycles must not reuse an output from the same second.
+    output = directory / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4().hex}.mp4"
+    mode = args[1] if len(args) > 1 else "screen"
+    command = [executable("gpu-screen-recorder"), "-w", "portal" if mode == "screen" else mode,
+               "-f", "60", "-fallback-cpu-encoding", "yes"]
+    if mode == "region":
+        geometry = screenshot_geometry("smart")
+        if not geometry:
+            return
+        rectangle = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
+        if not rectangle:
+            raise ValueError("Invalid recording region")
+        command += ["-region", f"{rectangle[3]}x{rectangle[4]}+{rectangle[1]}+{rectangle[2]}"]
+    if "--silent" not in args:
+        command += ["-a", "default_output"]
+    if "--microphone" in args:
+        command += ["-a", "default_input"]
+    command += ["-o", str(output)]
+    logs = STATE / "recordings"
+    logs.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, name = tempfile.mkstemp(prefix="recorder-", suffix=".log", dir=logs)
+    current = {"output": str(output), "log": name, "command": command,
+               "status": "recording", "started_at": time.time()}
+    child = None
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stream,
+                                     stderr=subprocess.STDOUT, start_new_session=True)
+        current["pid"] = child.pid
+        current["identity"] = recording_identity(child.pid)
+        atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+        time.sleep(.25)
+        if child.poll() is not None:
+            raise ValueError(f"Screen recorder exited during startup (status {child.returncode})")
+        # A launcher may exec its native binary during the startup allowance.
+        current["identity"] = recording_identity(child.pid)
+        atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+    except (OSError, ValueError) as error:
+        if child is not None and child.poll() is None:
+            child.send_signal(signal.SIGINT)
+            try:
+                child.wait(timeout=RECORDING_STOP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                current.update(status="stopping", error=str(error))
+                atomic_write(STATE / "recording.json", json.dumps(current) + "\n")
+                raise ValueError(f"Recorder startup failed and PID {child.pid} is still finalizing; state retained; log: {name}") from error
+        if child is not None:
+            current["returncode"] = child.returncode
+        finish_recording(current, "failed", str(error))
+        raise ValueError(f"Screen recorder failed to start: {error}; log: {name}") from error
+    notify("Recording started", str(output))
+
+
+def recording(args):
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        raise ValueError("Recording control requires Linux pidfd support and Python 3.9 or newer")
+    with state_lock("recording"):
+        pidfile = STATE / "recording.json"
+        if pidfile.exists():
+            current = read_json(pidfile)
+            if not isinstance(current, dict) or not current:
+                raise ValueError("Invalid recording state retained for inspection")
+            return stop_recording(current)
+        # Fail before spawning if the running kernel does not support pidfds.
+        descriptor = os.pidfd_open(os.getpid())
+        os.close(descriptor)
+        return start_recording(args)
 
 
 def capture(args):
     action = args[0] if args else "screenshot"
     if action == "record":
-        pidfile = STATE / "recording.json"
-        current = read_json(pidfile)
-        if current:
-            pid = current.get("pid")
-            try:
-                command = Path(f"/proc/{pid}/cmdline").read_bytes()
-            except FileNotFoundError:
-                command = b""
-            if b"gpu-screen-recorder" in command:
-                os.kill(pid, signal.SIGINT)
-            pidfile.unlink(missing_ok=True)
-            return
-        directory = HOME / settings().get("recordings", "Videos"); directory.mkdir(parents=True, exist_ok=True)
-        output = directory / time.strftime("%Y-%m-%d_%H-%M-%S.mp4")
-        mode = args[1] if len(args) > 1 else "screen"
-        command = ["gpu-screen-recorder", "-w", "portal" if mode == "screen" else mode, "-f", "60", "-fallback-cpu-encoding", "yes"]
-        if mode == "region":
-            geometry = screenshot_geometry("smart")
-            if not geometry:
-                return
-            rectangle = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
-            if not rectangle:
-                raise ValueError("Invalid recording region")
-            command += ["-region", f"{rectangle[3]}x{rectangle[4]}+{rectangle[1]}+{rectangle[2]}"]
-        if "--silent" not in args:
-            command += ["-a", "default_output"]
-        if "--microphone" in args:
-            command += ["-a", "default_input"]
-        child = background([*command, "-o", output])
-        time.sleep(.25)
-        if child.poll() is not None:
-            raise ValueError("Screen recorder exited before recording started; check the capture backend and driver")
-        atomic_write(pidfile, json.dumps({"pid": child.pid, "output": str(output)}))
-        notify("Recording started", str(output)); return
+        return recording(args)
     if action == "edit-latest":
         directory = HOME / settings().get("screenshots", "Pictures")
         files = sorted([*directory.glob("screenshot-*.png"), *directory.glob("Screenshot_*.png")], key=lambda path: path.stat().st_mtime_ns)
@@ -943,7 +1379,7 @@ def capture(args):
         return
     if action == "notify" and len(args) >= 2:
         output = expand(args[1])
-        response = run(["notify-send", "Screenshot saved to clipboard and file", "Edit with Super + Alt + , (or click this)", "-t", "10000", "-i", output, "-A", "default=edit"], capture=True, check=False)
+        response = run(["notify-send", "Screenshot saved to clipboard and file", "Edit with Super + Alt + , (or click this)", "-t", "10000", "-i", output, "-A", "default=edit"], capture=True, check=False, operation="notification")
         if response.stdout.strip() == "default" and output.is_file():
             edit_screenshot(output, args[2] if len(args) > 2 else "satty")
         return
@@ -959,22 +1395,21 @@ def capture(args):
         geometry = screenshot_geometry(mode)
         if not geometry:
             return
-        image = subprocess.run(["grim", "-g", geometry, "-"], check=True, capture_output=True).stdout
+        image = run(["grim", "-g", geometry, "-"], capture=True, text=False).stdout
     if action == "ocr":
-        result = subprocess.run(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", "eng", "--dpi", "300"], input=image, check=True, capture_output=True)
+        result = run(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", "eng", "--dpi", "300"], input=image, capture=True, text=False)
         copy_text(result.stdout.decode()); notify("Text copied from selection")
     else:
         if processing == "copy":
             copy_data(image, "image/png")
             return
-        directory = HOME / settings().get("screenshots", "Pictures"); directory.mkdir(parents=True, exist_ok=True)
-        output = directory / time.strftime("screenshot-%Y-%m-%d_%H-%M-%S.png")
-        output.write_bytes(image)
+        directory = HOME / settings().get("screenshots", "Pictures")
+        output = save_screenshot(directory, image)
         if "--edit" in args:
             edit_screenshot(output, editor)
         elif processing == "slurp":
             copy_data(image, "image/png")
-            background(["desktopctl", "capture", "notify", output, editor])
+            background(["desktopctl", "capture", "notify", output, editor], operation="interactive")
         if processing == "save":
             print(output)
 
@@ -1029,7 +1464,7 @@ def share(args):
         path = Path(filename)
         try:
             with os.fdopen(descriptor, "wb") as stream:
-                subprocess.run(["wl-paste", "--type", mime], stdout=stream, check=True)
+                run(["wl-paste", "--type", mime], stdout=stream, text=False)
         except BaseException:
             path.unlink(missing_ok=True)
             raise
@@ -1078,19 +1513,45 @@ def edit_config(args):
 
 def lock_config():
     source = (CONFIG / "hypr/hyprlock.conf").read_text().replace("~/.local/state/desktop", str(STATE))
-    source = re.sub(r"(?m)^(\s*font_family\s*=).*$", lambda m: m[1] + " " + selected_font(), source)
-    image = state().get("lockBackground")
-    if image and expand(image).is_file():
-        atomic_link(STATE / "lock-background", expand(image).resolve())
-        source = source.replace(str(STATE / "background"), str(STATE / "lock-background"))
-    return source
+    include = f"source = {STATE / 'theme/hyprlock.conf'}"
+    # Login can precede desktop preparation; no generated theme files are required.
+    fallback = source.replace(include, hyprlock_palette({
+        "background": "#000000", "foreground": "#a9b1d6", "accent": "#449dab",
+    }).rstrip())
+    try:
+        # Read a snapshot without recovery, migration or the shared appearance
+        # lock: an in-flight theme change must not hold up login or suspend.
+        preferences = read_json(STATE / "state.json")
+        defaults = settings()
+        theme = theme_path(preferences.get("theme", defaults.get("defaultTheme", "tokyoled")))
+        template = theme / "hyprlock.conf"
+        palette = template.read_text() if template.is_file() else hyprlock_palette(colors(theme))
+        themed = source.replace(include, palette.rstrip())
+        family = preferences.get("font", defaults.get("defaultFont", "JetBrainsMono Nerd Font"))
+        if (not isinstance(family, str) or not family.strip()
+                or re.search(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]", family)):
+            raise ValueError("Invalid lock screen font")
+        themed = re.sub(r"(?m)^(\s*font_family\s*=).*$", lambda m: m[1] + " " + family, themed)
+        image = preferences.get("lockBackground")
+        if image is not None and not isinstance(image, str):
+            raise ValueError("Invalid lock screen background")
+        if image and expand(image).is_file():
+            atomic_link(STATE / "lock-background", expand(image).resolve())
+            themed = themed.replace(str(STATE / "background"), str(STATE / "lock-background"))
+        return themed
+    except (OSError, ValueError, TypeError, AttributeError) as error:
+        # Invalid JSON shapes, missing palettes and unwritable appearance state
+        # must not prevent the locker from starting. Locker failures still propagate.
+        print(f"desktopctl: lock appearance unavailable; using defaults: {error}", file=sys.stderr)
+        return fallback
 
 
 def appearance(args):
     if args[:1] == ["terminal-colors"] and args[1:] in (["personal"], ["desktop"]):
         with state_lock():
-            value = state(); value["terminalTheme"] = args[1] == "desktop"; save_state(value)
-            prepare_theme()
+            value = state(); value["terminalTheme"] = args[1] == "desktop"
+            _prepare_theme(value)
+            save_state(value)
         run(["pkill", "-USR2", "-u", str(os.getuid()), "-x", "ghostty"], check=False)
         restart("theme")
     elif args == ["lock-background", "reset"]:
@@ -1132,7 +1593,7 @@ def image_art(args, *, width=80, height=26):
     command += ["-alpha", "extract", "-alpha", "off"] if transparent else ["-background", "white", "-alpha", "remove", "-alpha", "off", "-colorspace", "Gray", "-negate"]
     command += ["-bordercolor", "black", "-border", "1", "-trim", "+repage", "-resize", f"{width * 2}x{height * 4}",
                 "-gravity", "center", "-background", "black", "-extent", f"{width * 2}x{height * 4}", "-depth", "8", "gray:-"]
-    pixels = subprocess.run(command, check=True, capture_output=True).stdout
+    pixels = run(command, capture=True, text=False).stdout
     stride = width * 2
     if len(pixels) != stride * height * 4:
         raise ValueError("Image conversion returned unexpected dimensions")
@@ -1244,7 +1705,9 @@ def screensaver_worker(args):
         while True:
             command = ["cmatrix", "-abs", "-u", "4"] if name == "matrix" else ["tte", "-i", str(path), "--frame-rate", "30", "--canvas-width", "0", "--canvas-height", "0",
                        "--anchor-canvas", "c", "--anchor-text", "c", "--random-effect", "--exclude-effects", "dev_worm", "--no-eol"]
-            child = subprocess.Popen(command, stdin=None if name == "matrix" else subprocess.DEVNULL)
+            if child is not None:
+                child.close()
+            child = managed(command, operation="screensaver", stdin=None if name == "matrix" else subprocess.DEVNULL)
             while child.poll() is None:
                 if select.select([sys.stdin], [], [], .2)[0]:
                     return
@@ -1259,12 +1722,9 @@ def screensaver_worker(args):
             if name == "matrix":
                 return
     finally:
-        if child is not None and child.poll() is None:
-            child.terminate()
-            try:
-                child.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                child.kill(); child.wait()
+        if child is not None:
+            with processes.cancellation_ignored():
+                child.close()
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, previous)
         print("\033[?25h", end="", flush=True)
 
@@ -1324,21 +1784,92 @@ def menu(args):
 
 def transcode(args):
     backend = executable("desktop-transcode")
-    if len(args) > 1 and all(expand(value).is_file() for value in args):
+    if not (len(args) > 1 and all(expand(value).is_file() for value in args)):
+        # Keep the public command's PID through the picker and Rust supervisor.
+        os.execv(backend, [backend, *args])
+        return
+
+    child = None
+    cancelled = 0
+
+    def cancel(signum, _frame):
+        nonlocal cancelled
+        cancelled = signum
+        if child is not None and child.poll() is None:
+            try:
+                child.send_signal(signum)
+            except ProcessLookupError:
+                pass
+
+    previous = {number: signal.signal(number, cancel)
+                for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
         for value in args:
-            run([backend, value])
-    else:
-        run([backend, *args])
+            if cancelled:
+                raise SystemExit(128 + cancelled)
+            command = [backend, str(expand(value))]
+            child = subprocess.Popen(command)
+            # A signal can arrive between the loop check and starting the child.
+            if cancelled:
+                cancel(cancelled, None)
+            status = child.wait()
+            if cancelled:
+                raise SystemExit(128 + cancelled)
+            if status:
+                raise subprocess.CalledProcessError(status, command)
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+def active_keybindings():
+    # Query the compositor after unbinds, overrides and generated bindings apply.
+    bindings = json.loads(run(["hyprctl", "-j", "binds"], capture=True).stdout)
+    missing_keys = [binding for binding in bindings if binding.get("description", "").strip()
+                    and not (binding.get("key") or binding.get("keycode") or binding.get("catch_all"))]
+    if missing_keys:
+        # Some Hyprland versions expose Lua keycodes only in the text response.
+        # Match live records by identity; a reload can change their row order.
+        readable = []
+        for line in run(["hyprctl", "binds"], capture=True).stdout.splitlines():
+            if line.startswith("bind"):
+                readable.append({})
+            elif line.startswith("\t") and readable:
+                field, separator, value = line[1:].partition(": ")
+                if separator:
+                    readable[-1][field] = value
+        fields = ("modmask", "submap", "description", "dispatcher", "arg")
+        for binding in missing_keys:
+            keys = {entry["key"] for entry in readable if entry.get("key")
+                    and all(entry.get(field) == str(binding.get(field, "")) for field in fields)}
+            if len(keys) != 1:
+                raise ValueError(f"Hyprland did not report an unambiguous key for: {binding['description']}")
+            binding["display_key"] = keys.pop()
+    return bindings
 
 
 def keybindings():
-    source = CONFIG / "hypr"
-    lines = []
-    for path in source.rglob("*.lua"):
-        text = path.read_text()
-        lines.extend(f"{key}  {description}" for key, description in re.findall(r'hl\.bind\(\s*"([^"]+)".*?description\s*=\s*"([^"]+)"', text, re.S))
+    modifiers = ((64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT"),
+                 (2, "CAPS"), (16, "MOD2"), (32, "MOD3"), (128, "MOD5"))
+    lines = set()
+    for binding in active_keybindings():
+        description = " ".join(binding.get("description", "").split())
+        key = f"code:{binding['keycode']}" if binding.get("keycode") else binding.get("key", "")
+        if not key and binding.get("catch_all"):
+            key = "catchall"
+        shortcut = binding.get("display_key") or " + ".join([name for mask, name in modifiers if binding.get("modmask", 0) & mask] + [key]) if key or binding.get("display_key") else ""
+        if not description or not shortcut:
+            continue
+        if binding.get("submap"):
+            shortcut = f"[{binding['submap']}] {shortcut}"
+        for flag, label in (("release", "release"), ("longPress", "long press")):
+            if binding.get(flag):
+                shortcut += f" ({label})"
+        lines.add(f"{shortcut}  {description}")
+    if not lines:
+        raise ValueError("Hyprland has no described keybindings")
     prepare_theme()
-    run([executable("walker"), "--theme", "desktop-rounded", "--dmenu", "--placeholder", "Keybindings"], input="\n".join(sorted(set(lines))), check=False)
+    run([executable("walker"), "--theme", "desktop-rounded", "--dmenu", "--placeholder", "Keybindings"], input="\n".join(sorted(lines)), check=False)
 
 
 def seed_preferences():
@@ -1379,13 +1910,30 @@ def seed_application_preferences():
         atomic_write(marker, "")
 
 
-def integrate():
-    seed_preferences()
-    seed_application_preferences()
+def prepare_break_reminders():
     defaults = CONFIG / "breakd/default.toml"
     preferences = CONFIG / "breakd/config.toml"
     if defaults.is_file() and not preferences.exists():
         atomic_write(preferences, defaults.read_text())
+    if not preferences.is_file() or preferences.is_symlink():
+        return
+    source = preferences.read_text()
+    coop = tomllib.loads(source).get("coop", {})
+    if coop.get("mode") not in ("host", "guest") or coop.get("room_token"):
+        return
+    # A private invite must be configured before enabling authenticated co-op.
+    section = re.compile(r"(?ms)^(\[coop\][^\n]*\n)(.*?)(?=^\[|\Z)")
+    def disable_unconfigured_coop(match):
+        content = re.sub(r'(?m)^(\s*mode\s*=\s*)[\"\'](?:host|guest)[\"\']',
+                         r'\1"off"', match[2], count=1)
+        return match[1] + content
+    atomic_write(preferences, section.sub(disable_unconfigured_coop, source, count=1))
+
+
+def integrate():
+    seed_preferences()
+    seed_application_preferences()
+    prepare_break_reminders()
     for template, executable in (
         ("native-host.json", "chatgpt-dictate-audio-duck-host"),
         ("project-picker-native-host.json", "project-picker-host"),
@@ -1550,8 +2098,13 @@ def main(argv=None):
     parser.add_argument("args", nargs=argparse.REMAINDER)
     parsed = parser.parse_args(argv)
     try:
-        return dispatch(parsed.command, parsed.args) or 0
-    except (ValueError, OSError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
+        with processes.cancellation_signals():
+            return dispatch(parsed.command, parsed.args) or 0
+    except processes.Cancelled as error:
+        return 128 + error.signum
+    except KeyboardInterrupt:
+        return 130
+    except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, tomllib.TOMLDecodeError) as error:
         print(f"desktopctl: {error}", file=sys.stderr)
         return 1
 

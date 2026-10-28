@@ -1,2 +1,10 @@
 #!/usr/bin/env sh
-exec python3 "${XDG_DATA_HOME:-$HOME/.local/share}/desktop-tools/project_picker.py" "$@"
+if command -v project-picker-core >/dev/null 2>&1; then
+    exec project-picker-core "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/project-picker/bin/project-picker-core"
+if [ -x "$binary" ]; then
+    exec "$binary" "$@"
+fi
+printf '%s\n' 'project-picker: run project-picker-build or install the native package' >&2
+exit 1

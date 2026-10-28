@@ -12,9 +12,6 @@ View Style=DetailTree
 provider=Freesound
 zoom=7
 
-[Recent Dirs]
-KdenliveClipFolder[$e]=$HOME/Videos,$HOME/Documents
-
 [Scope_Histogram]
 autoRefresh=true
 bEnabled=true
@@ -66,13 +63,6 @@ v4l_parameters=qscale=4 ab=192k vcodec=mpeg2video acodec=mp2 threads=%threads
 
 [env]
 defaultprojectfolder[$e]=$HOME/Videos
-ffmpegpath[$e]=/usr/bin/ffmpeg
-ffplaypath[$e]=/usr/bin/ffplay
-ffprobepath[$e]=/usr/bin/ffprobe
-kdenliverendererpath[$e]=/usr/bin/kdenlive_render
-lastCacheCheck=2025,12,18,1,47,0.1
-meltpath[$e]=/usr/bin/melt-7
-mltpath[$e]=/usr/share/mlt-7/profiles
 
 [project]
 SupportedHWCodecs=h264_vaapi,hevc_vaapi

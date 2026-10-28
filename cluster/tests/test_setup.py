@@ -1,6 +1,7 @@
 """Exercise setup against scratch homes; never modify the real home directory."""
 
 import os
+import sys
 import json
 from pathlib import Path
 import shutil
@@ -29,7 +30,7 @@ class SetupTests(unittest.TestCase):
                         XDG_CACHE_HOME=str(self.root / "cache"),
                         CLUSTER_SOURCE_ROOT=str(SCRIPT.parents[3]))
         self.env.pop("XDG_CONFIG_HOME", None)
-        self.env["PATH"] = f"{self.bin}:/usr/bin:/bin"
+        self.env["PATH"] = f"{self.bin}:{os.environ.get('PATH', os.defpath)}"
         for command, version in {
             "nvim": "NVIM v0.12.5",
             "tmux": "tmux 3.7c",
@@ -48,10 +49,13 @@ class SetupTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         shutil.copytree(SCRIPT.parents[2], self.source / "cluster")
+        helper = self.source / "bin/.local/share/dotfiles/rust-build.sh"
+        helper.parent.mkdir(parents=True)
+        shutil.copy2(SCRIPT.parents[3] / "bin/.local/share/dotfiles/rust-build.sh", helper)
 
     def tool(self, name, body):
         path = self.bin / name
-        path.write_text("#!/bin/bash\n" + body)
+        path.write_text("#!/usr/bin/env bash\n" + body)
         path.chmod(0o755)
 
     def run_setup(self, *args, check=True, stdin=None):
@@ -98,7 +102,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_cli_setup_remote_check_with_global_host(self):
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         result = self.run_cli("--host", "test-host", "setup", "--check")
         self.assertIn("Check complete. No files changed.", result.stdout)
         self.assertFalse(self.home.exists())
@@ -109,7 +113,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_cli_setup_remote_install_and_installed_local_command(self):
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         self.run_cli("setup", "--skip-plugins", "-p", "2222", "test-host")
         command = self.home / ".local/bin/cluster"
         self.assertTrue(command.is_symlink())
@@ -199,8 +203,17 @@ class SetupTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_installed_builder_resolves_its_bundled_helper(self):
+        self.install()
+        self.assertTrue((self.home / ".local/share/cluster/Cargo.lock").is_file())
+        self.assertTrue((self.home / ".local/share/cluster/rust-build.sh").is_file())
+        result = subprocess.run([str(self.home / ".local/bin/cluster-build"), "--unexpected"],
+                                env=self.env, text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("Usage: cluster-build", result.stderr)
+
     def test_remote_check_accepts_stdin_script(self):
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         result = self.run_setup("--check", "test-host")
         self.assertIn("Check complete. No files changed.", result.stdout)
         self.assertFalse(self.home.exists())
@@ -215,10 +228,14 @@ class SetupTests(unittest.TestCase):
         self.assertIn("tmux/.tmux.conf", names)
         self.assertIn("cluster/.local/bin/cluster-setup", names)
         self.assertIn("cluster/.local/bin/cluster", names)
+        self.assertIn("cluster/.local/share/cluster/Cargo.lock", names)
+        self.assertIn("cluster/.local/share/cluster/rust-build.sh", names)
+        self.assertIn("cluster/.local/share/cluster/src/top/mod.rs", names)
         self.assertTrue(all(
             name.startswith(("nvim/", "tmux/", "cluster/.local/share/cluster/src/")) or name in (
                 "cluster/.local/bin/cluster-setup", "cluster/.local/bin/cluster", "terminal.info",
                 "cluster/.local/bin/cluster-build", "cluster/.local/share/cluster/Cargo.toml",
+                "cluster/.local/share/cluster/Cargo.lock", "cluster/.local/share/cluster/rust-build.sh",
                 "cluster/.local/share/cluster/bin/cluster-native"
             ) for name in names
         ))
@@ -226,7 +243,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_remote_install_transport_and_cleanup(self):
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         self.run_setup("--skip-plugins", "-p", "2222", "test-host")
         self.assertTrue((self.home / ".tmux.conf").is_symlink())
         self.assertTrue((self.home / ".config/nvim").is_symlink())
@@ -294,7 +311,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_remote_check_does_not_create_a_native_cache(self):
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         self.run_cli("setup", "--check", "test-host")
         self.assertFalse(self.home.exists())
         self.assertFalse((self.root / "cache").exists())
@@ -303,7 +320,7 @@ class SetupTests(unittest.TestCase):
         architecture = int.from_bytes(BINARY.read_bytes()[18:20], "little")
         other = "aarch64" if architecture == 62 else "x86_64"
         self.tool("uname", f'case "$1" in -s) echo Linux ;; -m) echo {other} ;; *) echo Linux ;; esac\n')
-        self.tool("ssh", 'exec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", 'exec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         result = self.run_cli("setup", "--skip-plugins", "test-host", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("architecture differs", result.stdout)
@@ -340,8 +357,8 @@ class SetupTests(unittest.TestCase):
         distribution.mkdir(parents=True)
         configure = distribution / "configure"
         configure.write_text(
-            '#!/bin/bash\nprefix=${1#--prefix=}\n'
-            + 'printf "all:\\n\\ttrue\\ninstall:\\n\\tmkdir -p %q/bin\\n\\tcp /usr/bin/stow %q/bin/stow\\n" "$prefix" "$prefix" > Makefile\n'
+            '#!/usr/bin/env bash\nprefix=${1#--prefix=}\n'
+            + 'printf "all:\\n\\ttrue\\ninstall:\\n\\tmkdir -p %q/bin\\n\\tcp ' + shlex.quote(shutil.which('stow')) + ' %q/bin/stow\\n" "$prefix" "$prefix" > Makefile\n'
         )
         configure.chmod(0o755)
         archive = self.root / "stow.tar.gz"
@@ -360,7 +377,7 @@ class SetupTests(unittest.TestCase):
         original = self.home / ".config/nvim/init.lua"
         original.parent.mkdir(parents=True)
         original.write_text("-- original\n")
-        self.tool("stow", '[[ $1 == --version ]] && exit 0\n/usr/bin/stow "$@" || exit $?\n[[ $1 != -R ]] || exit 1\n')
+        self.tool("stow", '[[ $1 == --version ]] && exit 0\n' + shlex.quote(shutil.which('stow')) + ' "$@" || exit $?\n[[ $1 != -R ]] || exit 1\n')
         result = self.run_setup("--local", "--skip-plugins", "--source", str(self.source), check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("original configurations restored", result.stdout)

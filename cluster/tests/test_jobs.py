@@ -3,6 +3,7 @@
 import json
 import hashlib
 import os
+import sys
 import shlex
 import shutil
 from pathlib import Path
@@ -26,7 +27,7 @@ class JobTests(unittest.TestCase):
         self.bin.mkdir()
         self.home = self.root / "home"
         self.home.mkdir()
-        self.env = dict(os.environ, PATH=str(self.bin) + ":/usr/bin:/bin",
+        self.env = dict(os.environ, PATH=str(self.bin) + ":" + os.environ.get("PATH", os.defpath),
                         HOME=str(self.home), XDG_CACHE_HOME=str(self.root / "cache"),
                         XDG_DATA_HOME=str(self.home / ".local/share"),
                         XDG_STATE_HOME=str(self.root / "state"))
@@ -35,7 +36,7 @@ class JobTests(unittest.TestCase):
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.com")
         (self.local / "scripts").mkdir()
-        (self.local / "scripts/train.sbatch").write_text("#!/bin/bash\ntrue\n")
+        (self.local / "scripts/train.sbatch").write_text("#!/usr/bin/env bash\ntrue\n")
         self.git("add", "scripts/train.sbatch")
         self.git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Initial")
         self.git("remote", "add", "origin", "git@github.com:example/project.git")
@@ -46,7 +47,7 @@ class JobTests(unittest.TestCase):
         self.stderr = self.root / "job errors.log"
         self.stdout.write_text("training output\n")
         self.stderr.write_text("training error\n")
-        self.tool("ssh", '#!/bin/bash\n[[ ${1:-} != -- ]] || shift\nshift\nexec /bin/bash -c "$*"\n')
+        self.tool("ssh", '#!/usr/bin/env bash\n[[ ${1:-} != -- ]] || shift\nshift\nexec ' + shlex.quote(shutil.which('bash')) + ' -c "$*"\n')
         self.tool("sbatch", "#!/usr/bin/env python3\nimport json,os,pathlib,sys\n"
                   + "pathlib.Path(" + repr(str(self.marker)) + ").write_text(json.dumps({"
                   + "'args':sys.argv[1:], 'cwd':os.getcwd(), 'run':os.environ.get('RUN_NAME')}))\n"
@@ -78,7 +79,7 @@ class JobTests(unittest.TestCase):
         return result
 
     def test_remote_operations_do_not_require_python(self):
-        self.tool("python3", "#!/bin/bash\necho 'Python must not run' >&2\nexit 99\n")
+        self.tool("python3", "#!/usr/bin/env bash\necho 'Python must not run' >&2\nexit 99\n")
         result = self.run_cli("submit", "--dry-run", "scripts/train.sbatch")
         self.assertIn("no job submitted", result.stdout)
         self.assertNotIn("Python must not run", result.stdout)
@@ -93,10 +94,10 @@ class JobTests(unittest.TestCase):
 
     def test_missing_link_exits_cleanly_before_ssh_or_submission(self):
         self.git("config", "--unset", "cluster.test-host.path")
-        self.tool("ssh", "#!/bin/bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
         for dirty in (False, True):
             if dirty:
-                (self.local / "scripts/train.sbatch").write_text("#!/bin/bash\necho changed\n")
+                (self.local / "scripts/train.sbatch").write_text("#!/usr/bin/env bash\necho changed\n")
             with self.subTest(dirty=dirty):
                 result = self.run_cli("submit", "scripts/train.sbatch", check=False)
                 self.assertEqual(result.returncode, 1, result.stdout)
@@ -134,7 +135,7 @@ class JobTests(unittest.TestCase):
 
     def test_remote_commands_require_explicit_host_even_with_saved_metadata(self):
         self.git("config", "cluster.host", "old-default-host")
-        self.tool("ssh", "#!/bin/bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
         for args in (("sync",), ("sync", "--dry-run"), ("fetch",),
                      ("submit", "scripts/train.sbatch"),
                      ("submit", "--sync", "scripts/train.sbatch"),
@@ -180,19 +181,19 @@ class JobTests(unittest.TestCase):
 
     def test_origin_credentials_are_not_sent_to_the_cluster(self):
         self.git("remote", "set-url", "origin", "https://fake-sensitive-token@github.com/example/project.git")
-        self.tool("ssh", '#!/bin/bash\n[[ ${!#} != *fake-sensitive-token* ]] || exit 99\nexec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", '#!/usr/bin/env bash\n[[ ${!#} != *fake-sensitive-token* ]] || exit 99\nexec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         result = self.run_cli("submit", "scripts/train.sbatch")
         self.assertIn("Submitted job 456", result.stdout)
 
     def test_local_changes_prevent_submission(self):
-        (self.local / "scripts/train.sbatch").write_text("#!/bin/bash\necho changed\n")
+        (self.local / "scripts/train.sbatch").write_text("#!/usr/bin/env bash\necho changed\n")
         result = self.run_cli("submit", "scripts/train.sbatch", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Commit your local tracked changes", result.stdout)
         self.assertFalse(self.marker.exists())
 
     def test_remote_changes_prevent_submission(self):
-        (self.checkout / "scripts/train.sbatch").write_text("#!/bin/bash\necho changed\n")
+        (self.checkout / "scripts/train.sbatch").write_text("#!/usr/bin/env bash\necho changed\n")
         result = self.run_cli("submit", "scripts/train.sbatch", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cluster checkout has uncommitted", result.stdout)
@@ -216,12 +217,12 @@ class JobTests(unittest.TestCase):
         base = self.git("rev-parse", "HEAD")
         (self.local / "deleted.txt").unlink()
         script = self.local / "scripts/train.sbatch"
-        script.write_text("#!/bin/bash\necho staged\n")
+        script.write_text("#!/usr/bin/env bash\necho staged\n")
         self.git("add", "scripts/train.sbatch")
-        script.write_text("#!/bin/bash\necho unstaged\n")
+        script.write_text("#!/usr/bin/env bash\necho unstaged\n")
         script.chmod(0o755)
         new_script = self.local / "scripts/smoke's run.sbatch"
-        new_script.write_text("#!/bin/bash\necho new\n")
+        new_script.write_text("#!/usr/bin/env bash\necho new\n")
         for name in ("keep.tmp", "-new\nfile.py", "tracked.tmp"):
             (self.local / name).write_text("local content\n")
         for name in (".venv/secret", "ignored/secret", "private/secret",
@@ -263,7 +264,7 @@ class JobTests(unittest.TestCase):
             ("status", "--porcelain"), ("diff", "--binary"),
             ("diff", "--cached", "--binary"), ("rev-parse", "HEAD"))]
         self.assertEqual(before, after)
-        self.assertEqual((self.checkout / "scripts/train.sbatch").read_text(), "#!/bin/bash\ntrue\n")
+        self.assertEqual((self.checkout / "scripts/train.sbatch").read_text(), "#!/usr/bin/env bash\ntrue\n")
 
     def test_standalone_sync_copies_only_current_directory_to_chosen_destination(self):
         self.git("config", "--unset", "cluster.test-host.path")
@@ -274,7 +275,7 @@ class JobTests(unittest.TestCase):
         (self.local / "scripts/train.sbatch").write_text("local change\n")
         (self.local / "scripts/new.sbatch").write_text("new script\n")
         before = self.git("status", "--porcelain")
-        self.tool("sbatch", "#!/bin/bash\necho 'SBATCH MUST NOT RUN' >&2\nexit 99\n")
+        self.tool("sbatch", "#!/usr/bin/env bash\necho 'SBATCH MUST NOT RUN' >&2\nexit 99\n")
         destination = self.root / "chosen output's name"
         result = self.run_cli("sync", "--to", str(destination), cwd=self.local / "scripts")
         self.assertIn("new.sbatch", result.stdout)
@@ -508,9 +509,9 @@ class JobTests(unittest.TestCase):
         (destination / 'remote-only').write_text('keep if transfer fails\n')
         before = {p.relative_to(destination): p.read_bytes()
                   for p in destination.rglob('*') if p.is_file()}
-        self.tool('ssh', '#!/bin/bash\n[[ ${1:-} != -- ]] || shift\nshift\n'
+        self.tool('ssh', '#!/usr/bin/env bash\n[[ ${1:-} != -- ]] || shift\nshift\n'
                   'if [[ ${1:-} == rsync ]]; then echo "simulated connection failure" >&2; exit 255; fi\n'
-                  'exec /bin/bash -c "$*"\n')
+                  f'exec {shlex.quote(shutil.which("bash"))} -c "$*"\n')
         result = self.run_cli('sync', '--to', str(destination), check=False)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('simulated connection failure', result.stdout)
@@ -522,10 +523,10 @@ class JobTests(unittest.TestCase):
         destination = self.root / 'ignore failure mirror'
         destination.mkdir()
         (destination / 'remote-only').write_text('keep on error\n')
-        self.tool('git', '#!/bin/bash\n'
+        self.tool('git', '#!/usr/bin/env bash\n'
                   'if [[ ${1:-} == check-ignore || ${2:-} == check-ignore ]]; then echo "simulated Git error" >&2; exit 128; fi\n'
-                  'exec /usr/bin/git "$@"\n')
-        self.tool('rsync', '#!/bin/bash\necho "RSYNC MUST NOT RUN"; exit 99\n')
+                  f'exec {shlex.quote(shutil.which("git"))} "$@"\n')
+        self.tool('rsync', '#!/usr/bin/env bash\necho "RSYNC MUST NOT RUN"; exit 99\n')
         result = self.run_cli('sync', '--to', str(destination), check=False)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('simulated Git error', result.stdout)
@@ -538,7 +539,7 @@ class JobTests(unittest.TestCase):
                  f'160000,{self.git("rev-parse", "HEAD")},unrelated-submodule')
         destination = self.root / 'scoped mirror'
         self.run_cli('sync', '--to', str(destination), cwd=self.local / 'scripts')
-        self.assertEqual((destination / 'train.sbatch').read_text(), '#!/bin/bash\ntrue\n')
+        self.assertEqual((destination / 'train.sbatch').read_text(), '#!/usr/bin/env bash\ntrue\n')
         self.assertFalse((destination / 'unrelated-submodule').exists())
 
     def test_mirror_source_directory_names_are_literal_git_paths(self):
@@ -569,7 +570,7 @@ class JobTests(unittest.TestCase):
         self.assertEqual((destination / 'remote-only').read_text(),
                          'keep if source cannot be read\n')
         self.assertEqual((destination / 'scripts/train.sbatch').read_text(),
-                         '#!/bin/bash\ntrue\n')
+                         '#!/usr/bin/env bash\ntrue\n')
 
     def test_mirror_preserves_outputs_created_after_destination_inspection(self):
         source = self.local / 'scripts'
@@ -584,8 +585,8 @@ class JobTests(unittest.TestCase):
             file = destination / name
             writes.append(f'mkdir -p -- {shlex.quote(str(file.parent))}\n'
                           f'printf "new job output\\n" > {shlex.quote(str(file))}\n')
-        self.tool('rsync', '#!/bin/bash\nset -eu\n' + ''.join(writes)
-                  + 'exec /usr/bin/rsync "$@"\n')
+        self.tool('rsync', '#!/usr/bin/env bash\nset -eu\n' + ''.join(writes)
+                  + f'exec {shlex.quote(shutil.which("rsync"))} "$@"\n')
         self.run_cli('sync', '--to', str(destination), cwd=source)
         for name in outputs:
             self.assertTrue((destination / name).is_file(), f'Lost concurrent output: {name}')
@@ -593,7 +594,7 @@ class JobTests(unittest.TestCase):
         self.assertFalse((destination / 'obsolete/old.py').exists())
 
     def test_standalone_sync_requires_destination_before_connecting(self):
-        self.tool("ssh", "#!/bin/bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
         result = self.run_cli("sync", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing sync destination. Add --to PATH", result.stdout)
@@ -662,7 +663,7 @@ class JobTests(unittest.TestCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in destination.iterdir()})
 
     def test_fetch_requires_explicit_source_and_destination_before_connecting(self):
-        self.tool('ssh', '#!/bin/bash\necho "SSH MUST NOT RUN"; exit 99\n')
+        self.tool('ssh', '#!/usr/bin/env bash\necho "SSH MUST NOT RUN"; exit 99\n')
         for args, expected in (
             (('fetch', '--to', 'runs'), 'Missing fetch source'),
             (('fetch', '--from', '~/remote/runs'), 'Missing fetch destination'),
@@ -685,7 +686,7 @@ class JobTests(unittest.TestCase):
         self.assertFalse((self.home / 'missing').exists())
 
     def test_fetch_local_mode_works_outside_git_and_rejects_overlapping_directories(self):
-        self.tool('ssh', '#!/bin/bash\necho "SSH MUST NOT RUN"; exit 99\n')
+        self.tool('ssh', '#!/usr/bin/env bash\necho "SSH MUST NOT RUN"; exit 99\n')
         source = self.root / 'local run'
         source.mkdir()
         (source / 'model.pt').write_bytes(b'checkpoint')
@@ -703,7 +704,7 @@ class JobTests(unittest.TestCase):
     def test_fetch_rejects_local_file_and_git_metadata_destinations(self):
         destination = self.root / 'existing file'
         destination.write_text('keep\n')
-        self.tool('ssh', '#!/bin/bash\necho "SSH MUST NOT RUN"; exit 99\n')
+        self.tool('ssh', '#!/usr/bin/env bash\necho "SSH MUST NOT RUN"; exit 99\n')
         for target in (destination, self.local / '.git/downloads'):
             with self.subTest(target=target):
                 result = self.run_cli('fetch', '--from', '~/remote/runs',
@@ -720,9 +721,9 @@ class JobTests(unittest.TestCase):
         destination = self.root / 'downloads'
         destination.mkdir()
         (destination / 'notes').write_text('keep\n')
-        self.tool('ssh', '#!/bin/bash\n[[ ${1:-} != -- ]] || shift\nshift\n'
+        self.tool('ssh', '#!/usr/bin/env bash\n[[ ${1:-} != -- ]] || shift\nshift\n'
                   'if [[ ${1:-} == rsync ]]; then echo "simulated connection failure" >&2; exit 255; fi\n'
-                  'exec /bin/bash -c "$*"\n')
+                  f'exec {shlex.quote(shutil.which("bash"))} -c "$*"\n')
         result = self.run_cli('fetch', '--from', str(source), '--to', str(destination), check=False)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('simulated connection failure', result.stdout)
@@ -755,7 +756,7 @@ class JobTests(unittest.TestCase):
     def test_sync_dry_run_does_not_connect_upload_or_submit(self):
         (self.local / "scripts/train.sbatch").write_text("local change\n")
         self.git("config", "--unset", "cluster.test-host.path")
-        self.tool("ssh", "#!/bin/bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\necho 'SSH MUST NOT RUN'\nexit 99\n")
         result = self.run_cli("submit", "--sync", "--dry-run", "--", "train.sbatch",
                               cwd=self.local / "scripts")
         self.assertIn("Would sync 1 files", result.stdout)
@@ -766,14 +767,14 @@ class JobTests(unittest.TestCase):
         self.assertFalse((self.home / ".local/share/cluster/runs").exists())
 
     def test_sync_failed_upload_never_calls_sbatch(self):
-        self.tool("ssh", '#!/bin/bash\n[[ ${!#} != "exec tar "* ]] || exit 99\nexec /bin/bash -c "${!#}"\n')
+        self.tool("ssh", '#!/usr/bin/env bash\n[[ ${!#} != "exec tar "* ]] || exit 99\nexec ' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\n')
         result = self.run_cli("submit", "--sync", "scripts/train.sbatch", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Snapshot upload failed", result.stdout)
         self.assertFalse(self.marker.exists())
 
     def test_sync_local_mode_uses_a_snapshot_without_ssh(self):
-        self.tool("ssh", "#!/bin/bash\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\nexit 99\n")
         (self.local / "scripts/train.sbatch").write_text("local change\n")
         self.run_cli("--local", "submit", "--sync", "scripts/train.sbatch")
         source = Path(json.loads(self.marker.read_text())["cwd"])
@@ -792,7 +793,7 @@ class JobTests(unittest.TestCase):
 
     def test_logs_follow_custom_paths_and_remain_available_after_accounting_purge(self):
         self.run_cli("submit", "scripts/train.sbatch")
-        self.tool("scontrol", "#!/bin/bash\necho 'Invalid job id' >&2\nexit 1\n")
+        self.tool("scontrol", "#!/usr/bin/env bash\necho 'Invalid job id' >&2\nexit 1\n")
         result = self.run_cli("logs", "456")
         self.assertIn("training output", result.stdout)
         result = self.run_cli("logs", "456", "--stderr")
@@ -804,7 +805,7 @@ class JobTests(unittest.TestCase):
         self.assertFalse(self.marker.exists())
 
     def test_successful_submission_is_reported_when_log_lookup_fails(self):
-        self.tool("scontrol", "#!/bin/bash\necho 'controller unavailable' >&2\nexit 1\n")
+        self.tool("scontrol", "#!/usr/bin/env bash\necho 'controller unavailable' >&2\nexit 1\n")
         result = self.run_cli("submit", "scripts/train.sbatch")
         self.assertTrue(self.marker.exists())
         self.assertIn("Submitted job 456", result.stdout)
@@ -832,19 +833,19 @@ class JobTests(unittest.TestCase):
         self.assertIn("array task output", result.stdout)
 
     def test_jobs_can_run_without_repository(self):
-        self.tool("squeue", "#!/bin/bash\nprintf 'JOBID NAME STATE\\n'\n")
+        self.tool("squeue", "#!/usr/bin/env bash\nprintf 'JOBID NAME STATE\\n'\n")
         result = self.run_cli("--host", "test-host", "jobs", cwd=self.root)
         self.assertIn("JOBID NAME STATE", result.stdout)
 
     def test_local_submission_needs_no_ssh_or_pairing(self):
-        self.tool("ssh", "#!/bin/bash\nexit 99\n")
+        self.tool("ssh", "#!/usr/bin/env bash\nexit 99\n")
         result = self.run_cli("--local", "submit", "--dry-run", "scripts/train.sbatch")
         self.assertIn("no job submitted", result.stdout)
         self.assertFalse(self.marker.exists())
 
     def test_ambiguous_scheduler_output_is_not_retried(self):
         count = self.root / "submit-count"
-        self.tool("sbatch", "#!/bin/bash\nprintf 'submitted\\n' >> " + shlex.quote(str(count)) + "\nprintf 'unexpected scheduler response\\n'\n")
+        self.tool("sbatch", "#!/usr/bin/env bash\nprintf 'submitted\\n' >> " + shlex.quote(str(count)) + "\nprintf 'unexpected scheduler response\\n'\n")
         result = self.run_cli("submit", "scripts/train.sbatch", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("check the queue before retrying", result.stdout)
@@ -852,8 +853,8 @@ class JobTests(unittest.TestCase):
 
     def test_lost_ssh_after_submission_does_not_submit_twice(self):
         count = self.root / "submit-count"
-        self.tool("sbatch", "#!/bin/bash\nprintf 'submitted\\n' >> " + shlex.quote(str(count)) + "\nprintf '456\\n'\n")
-        self.tool("ssh", '#!/bin/bash\n/bin/bash -c "${!#}"\nstatus=$?\n[[ ${!#} != *" agent submit "* ]] || exit 255\nexit "$status"\n')
+        self.tool("sbatch", "#!/usr/bin/env bash\nprintf 'submitted\\n' >> " + shlex.quote(str(count)) + "\nprintf '456\\n'\n")
+        self.tool("ssh", '#!/usr/bin/env bash\n' + shlex.quote(shutil.which('bash')) + ' -c "${!#}"\nstatus=$?\n[[ ${!#} != *" agent submit "* ]] || exit 255\nexit "$status"\n')
         result = self.run_cli("submit", "scripts/train.sbatch", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no automatic retry", result.stdout)
@@ -883,7 +884,7 @@ class JobTests(unittest.TestCase):
         path.write_text(json.dumps({"host": "test-host", "job": "456", "info": {
             "StdOut": str(self.stdout), "StdErr": str(self.stderr),
         }}) + "\n")
-        self.tool("scontrol", "#!/bin/bash\necho 'Job accounting unavailable' >&2\nexit 1\n")
+        self.tool("scontrol", "#!/usr/bin/env bash\necho 'Job accounting unavailable' >&2\nexit 1\n")
         result = self.run_cli("logs", "456")
         self.assertIn("training output", result.stdout)
         self.assertNotIn("Job accounting unavailable", result.stdout)

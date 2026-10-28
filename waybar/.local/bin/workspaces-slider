@@ -2,6 +2,6 @@
 set -euo pipefail
 native=$(desktopctl path workspaces-slider-native 2>/dev/null) || native=
 if [[ -n $native && -x $native ]]; then exec "$native" "$@"; fi
-binary="${XDG_CACHE_HOME:-$HOME/.cache}/workspaces-slider/target/release/workspaces-slider"
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/workspaces-slider/bin/workspaces-slider"
 if [[ ! -x $binary ]]; then workspaces-slider-build; fi
 exec "$binary" "$@"

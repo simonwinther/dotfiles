@@ -1,26 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-umask 077
-
-source_root="${XDG_DATA_HOME:-$HOME/.local/share}/dictate"
-cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/dictate"
-mkdir -p "$cache_root/build" "$cache_root/bin"
-exec 9>"$cache_root/build.lock"
-flock -x 9
-
-# Build output, build output, and executables stay outside the Stow repo.
-cp "$source_root/Cargo.toml" "$cache_root/build/Cargo.toml"
-cp "$source_root/Cargo.lock" "$cache_root/build/Cargo.lock"
-cp "$source_root/dictionary.example.toml" "$cache_root/build/dictionary.example.toml"
-cp -R "$source_root/src" "$cache_root/build/"
-cp -R "$source_root/tests" "$cache_root/build/"
-export CARGO_TARGET_DIR="$cache_root/target"
-if [[ "${1:-}" == --check ]]; then
-  cargo fmt --manifest-path "$cache_root/build/Cargo.toml" -- --check
-  nice -n 10 cargo clippy --locked --manifest-path "$cache_root/build/Cargo.toml" --features overlay --all-targets -- -D warnings
-  nice -n 10 cargo test --locked --manifest-path "$cache_root/build/Cargo.toml" --features overlay --all-targets
-fi
-nice -n 10 cargo build --locked --release --manifest-path "$cache_root/build/Cargo.toml" --features overlay --bins
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../bin/.local/share/dotfiles/rust-build.sh
+source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+source_root="$(dirname "$(dirname "$script")")/share/dictate"
+rust_build_init dictate "$script" "$@"
+rust_build_checks --features overlay
+rust_build_cargo build --release --features overlay --bins
 for executable in dictate dictate-overlay; do
   install -m 755 "$CARGO_TARGET_DIR/release/$executable" "$cache_root/bin/$executable.new"
 done

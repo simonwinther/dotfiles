@@ -7,7 +7,4 @@ fi
 source_file=$(readlink -f -- "${BASH_SOURCE[0]}")
 dots=${DESKTOP_DOTFILES:-$(cd -- "$(dirname -- "$source_file")/../../.." && pwd)}
 [[ -d $dots/hypr && -d $dots/zsh ]] || { echo 'Set DESKTOP_DOTFILES to the portable dotfiles/ directory.' >&2; exit 1; }
-packages=()
-for path in "$dots"/*; do [[ ! -d $path ]] || packages+=("${path##*/}"); done
-stow --dir="$dots" --target="$HOME" --no-folding --simulate --restow "${packages[@]}"
-stow --dir="$dots" --target="$HOME" --no-folding --restow "${packages[@]}"
+exec python3 "$dots/deploy.py" "$HOME" --apply

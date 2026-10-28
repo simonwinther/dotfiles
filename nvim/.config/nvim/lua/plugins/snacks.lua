@@ -199,6 +199,9 @@ return {
         },
       },
       image = {
+        config = function()
+          require("config.snacks_terminal").setup()
+        end,
         doc = {
           max_width = 40,
           max_height = 20,

@@ -1,22 +1,26 @@
 # Wallpaper grid
 
 The picker and wallpaper commands are written in Rust with GTK4. The source,
-styling, library settings, and launchers live in this Stow package. Compiled
-executables, Cargo's lockfile, and build output stay in the local cache.
+committed `Cargo.lock`, styling, library settings, and launchers live in this
+Stow package. The portable build copies the source and lockfile into the local
+cache and uses `--locked`. Compiled executables and build output stay there too.
 
-Install on an Omarchy PC after syncing this dotfiles checkout:
+On NixOS, Home Manager owns the links for `background-grid` and `wallpapers`,
+and Nix supplies the `background-grid-native` executable. The `desktop-awww` and
+`desktop-wallpaper` user services manage the renderer and restore the wallpaper.
+
+On other distributions, GNU Stow owns the links. Provide Rust/Cargo, a native
+build toolchain, GTK4 development libraries, and pkg-config, plus awww, UWSM, and
+Hyprland. From the dotfiles checkout, preview and apply the links, then build:
 
 ```sh
-sudo pacman -S --needed stow awww gtk4 rust base-devel
-cd ~/dotfiles
-stow --no-folding -n -R -v background-grid
-stow --no-folding -R background-grid
+stow --target="$HOME" --no-folding -n -R -v background-grid wallpapers
+stow --target="$HOME" --no-folding -R background-grid wallpapers
 background-grid-build
-background-grid-setup
 ```
 
-On an already configured PC, restow the package and run `background-grid-build`
-after pulling source changes; the setup helper does not need to run again.
+On an already configured Stow-managed desktop, restow these packages and run
+`background-grid-build` after pulling source changes.
 The picker uses GTK's image loaders. The picker, wallpaper commands, and setup
 helper all run in Rust; Python, PyGObject, and Pillow are not required.
 
@@ -30,24 +34,19 @@ Open with `background-grid` or Ctrl+Super+Space. `--set IMAGE`, `--next`, and
 `--restore` share the same wallpaper setter; `--list` lists library images
 without opening a window. `--help` describes these modes.
 
-Setup adds one source line to that PC's existing Hyprland configuration and
-removes the old Waypaper/awww startup entries. It backs up changed configuration
-first, checks Hyprland for errors, and restores the wallpaper. It does not replace
-the PC's monitor configuration. Use `background-grid-setup --dry-run` to preview,
-or `--no-reload` when preparing a PC outside a running Hyprland session.
+The shared `hypr` package declares the shortcut and window rules in
+`.config/hypr/background-grid.lua`. `background-grid-setup` recognizes the shared
+Lua configuration and exits without changes. Edit the shared configuration source
+for binding or window-rule changes.
 
 If Stow reports a conflicting local file, back it up and move it aside before
 retrying. Do not use `--adopt`, which would overwrite the package's source files.
 
-Hyprspace's companion integration can already own `~/.local/bin/omarchy-launch-walker`.
-If that wrapper still forwards the Background menu to `background-grid`, keep it
-and add `--ignore=omarchy-launch-walker` to both Stow commands above.
-
-The wallpapers already live in this checkout, under
-`omarchy/.config/omarchy/themes/tokyoled/backgrounds/`. The package reads that
-library through a relative path in `.config/background-grid/folders.json`, so it
-works with another username or checkout location. It does not require stowing
-the legacy `omarchy` package or modifying Omarchy's own source files.
+The wallpapers live in the separate `wallpapers` package, under
+`wallpapers/.local/share/wallpapers/tokyoled/` in this checkout. Home Manager or
+Stow exposes them at `~/.local/share/wallpapers/tokyoled`, the default library in
+`.config/background-grid/folders.json`. The paths work with another username or
+checkout location.
 
 See [.config/background-grid/README.md](.config/background-grid/README.md) for
 folder organization, keyboard controls, and implementation details.

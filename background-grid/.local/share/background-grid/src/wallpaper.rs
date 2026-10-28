@@ -1,14 +1,15 @@
 use crate::Result;
+use crate::catalog::{catalog, next_image};
 use crate::config::Paths;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -141,62 +142,131 @@ fn guard_current(path: &Path) -> Result<()> {
     }
 }
 
-fn publish_selection(current: &Path, image: &Path) -> Result<()> {
-    let parent = current.parent().ok_or("Invalid selected wallpaper path")?;
-    fs::create_dir_all(parent)?;
-    // Share the controller's lock and JSON state so theme changes and per-output
-    // wallpaper choices survive either interface being used.
-    let state_lock = OpenOptions::new()
+fn lock(path: &Path) -> Result<File> {
+    fs::create_dir_all(path.parent().ok_or("Invalid lock path")?)?;
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(parent.join("state.lock"))?;
+        .open(path)?;
     loop {
-        if unsafe { libc::flock(state_lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            break;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(file);
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::Interrupted {
             return Err(error.into());
         }
     }
-    let state_file = parent.join("state.json");
-    let mut state: Value = match fs::read(&state_file) {
+}
+
+fn read_state(paths: &Paths) -> Result<Value> {
+    let file = paths.state().join("state.json");
+    if file.is_symlink() {
+        return Err("Refusing to overwrite linked desktop state".into());
+    }
+    let state: Value = match fs::read(file) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
         Err(error) => return Err(error.into()),
     };
-    let values = state
-        .as_object_mut()
-        .ok_or("Desktop state must be an object")?;
-    values.insert("wallpaper".into(), serde_json::json!(image));
-    let wallpapers = values.entry("wallpapers").or_insert(serde_json::json!({}));
-    wallpapers
-        .as_object_mut()
-        .ok_or("Wallpaper state must be an object")?
-        .insert("*".into(), serde_json::json!(image));
-    let state_temporary = tempfile::NamedTempFile::new_in(parent)?;
-    fs::write(state_temporary.path(), serde_json::to_vec_pretty(&state)?)?;
+    if !state.is_object() {
+        return Err("Desktop state must be an object".into());
+    }
+    if let Some(wallpaper) = state.get("wallpaper")
+        && !wallpaper.is_string()
+    {
+        return Err("Wallpaper path must be a string".into());
+    }
+    if let Some(wallpapers) = state.get("wallpapers") {
+        let values = wallpapers
+            .as_object()
+            .ok_or("Wallpaper state must be an object")?;
+        if values.values().any(|value| !value.is_string()) {
+            return Err("Wallpaper paths must be strings".into());
+        }
+    }
+    Ok(state)
+}
+
+fn default_image(paths: &Paths, state: &Value) -> Result<Option<PathBuf>> {
+    // The wildcard is authoritative for legacy state whose last per-output
+    // selection also overwrote `wallpaper` and the background link.
+    if let Some(image) = state
+        .get("wallpapers")
+        .and_then(|value| value.get("*"))
+        .or_else(|| state.get("wallpaper"))
+        .and_then(Value::as_str)
+    {
+        return Ok(Some(paths.expand(Path::new(image))));
+    }
+    match fs::read_link(paths.current()) {
+        Ok(image) => return Ok(Some(paths.state().join(image))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    Ok(paths
+        .desktop_settings()?
+        .get("defaultWallpaper")
+        .and_then(Value::as_str)
+        .map(|image| paths.expand(Path::new(image))))
+}
+
+pub fn current_wallpaper(paths: &Paths) -> Result<Option<PathBuf>> {
+    default_image(paths, &read_state(paths)?)
+}
+
+fn publish_link(current: &Path, image: &Path) -> Result<()> {
     guard_current(current)?;
     let temporary = tempfile::Builder::new()
         .prefix(".background-grid-")
-        .tempdir_in(parent)?;
+        .tempdir_in(current.parent().ok_or("Invalid selected wallpaper path")?)?;
     let link = temporary.path().join("background");
     symlink(image, &link)?;
     fs::rename(link, current)?;
-    state_temporary.persist(&state_file)?;
     Ok(())
 }
 
-pub fn set_wallpaper(paths: &Paths, image: &Path, transition: Option<&str>) -> Result<()> {
-    let image = fs::canonicalize(paths.expand(image))
-        .map_err(|error| format!("This image is no longer available: {error}"))?;
-    if !image.is_file() {
-        return Err("This image is no longer available.".into());
+fn publish_selection(paths: &Paths, image: &Path, output: Option<&str>) -> Result<()> {
+    // Always take wallpaper.lock before state.lock. Re-read here so unrelated
+    // theme/font updates during rendering are preserved.
+    let _state_lock = lock(&paths.state().join("state.lock"))?;
+    let mut state = read_state(paths)?;
+    let values = state
+        .as_object_mut()
+        .ok_or("Desktop state must be an object")?;
+    if let Some(output) = output {
+        values
+            .entry("wallpapers")
+            .or_insert(serde_json::json!({}))
+            .as_object_mut()
+            .ok_or("Wallpaper state must be an object")?
+            .insert(output.into(), serde_json::json!(image));
+    } else {
+        values.insert("wallpaper".into(), serde_json::json!(image));
+        values.insert("wallpapers".into(), serde_json::json!({"*": image}));
     }
-    let animation: Animation =
-        serde_json::from_slice(&fs::read(paths.config.join("transition.json"))?)?;
+    let temporary = tempfile::NamedTempFile::new_in(paths.state())?;
+    fs::write(temporary.path(), serde_json::to_vec_pretty(&state)?)?;
+    if output.is_none() {
+        publish_link(&paths.current(), image)?;
+    }
+    temporary.persist(paths.state().join("state.json"))?;
+    Ok(())
+}
+
+fn animation(paths: &Paths) -> Result<Animation> {
+    let animation = match fs::read(paths.config.join("transition.json")) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Animation {
+            kind: "any".into(),
+            duration: 2.0,
+            fps: 60,
+            step: 80,
+        },
+        Err(error) => return Err(error.into()),
+    };
     if !animation.duration.is_finite()
         || animation.duration < 0.0
         || animation.fps == 0
@@ -204,90 +274,165 @@ pub fn set_wallpaper(paths: &Paths, image: &Path, transition: Option<&str>) -> R
     {
         return Err("Invalid wallpaper transition settings".into());
     }
-    fs::create_dir_all(&paths.cache)?;
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(paths.cache.join("apply.lock"))?;
+    Ok(animation)
+}
+
+fn start_renderer() -> Result<bool> {
+    if renderer_running()? {
+        return Ok(false);
+    }
+    let mut child = Command::new("uwsm-app")
+        .args(["--", "awww-daemon", "--no-cache"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()?;
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    let deadline = Instant::now() + Duration::from_secs(4);
     loop {
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            break;
+        if renderer_running()? {
+            return Ok(true);
         }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error.into());
+        if Instant::now() >= deadline {
+            return Err("The wallpaper renderer did not start.".into());
         }
+        thread::sleep(Duration::from_millis(50));
     }
-    let current = paths.current();
-    guard_current(&current)?;
-    if !renderer_running()? {
-        let mut child = Command::new("uwsm-app")
-            .args(["--", "awww-daemon", "--no-cache"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()?;
-        thread::spawn(move || {
-            let _ = child.wait();
-        });
-        let deadline = Instant::now() + Duration::from_secs(4);
-        loop {
-            if renderer_running()? {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err("The wallpaper renderer did not start.".into());
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        if let Ok(previous) = fs::canonicalize(&current)
-            && previous.is_file()
-        {
-            checked(
-                Command::new("awww")
-                    .args(["img", "--transition-type", "none"])
-                    .arg(previous),
-                Duration::from_secs(15),
-            )?;
-        }
+}
+
+fn render(image: &Path, output: Option<&str>, animation: Option<&Animation>) -> Result<()> {
+    let mut command = Command::new("awww");
+    command.args([
+        "img",
+        "--resize",
+        "crop",
+        "--transition-type",
+        animation.map_or("none", |animation| &animation.kind),
+    ]);
+    if let Some(animation) = animation {
+        command.args([
+            "--transition-duration",
+            &animation.duration.to_string(),
+            "--transition-fps",
+            &animation.fps.to_string(),
+            "--transition-step",
+            &animation.step.to_string(),
+        ]);
     }
-    checked(
-        Command::new("awww")
-            .args([
-                "img",
-                "--resize",
-                "crop",
-                "--transition-type",
-                transition.unwrap_or(&animation.kind),
-                "--transition-duration",
-                &animation.duration.to_string(),
-                "--transition-fps",
-                &animation.fps.to_string(),
-                "--transition-step",
-                &animation.step.to_string(),
-            ])
-            .arg(&image),
-        Duration::from_secs(15),
-    )?;
+    if let Some(output) = output {
+        command.args(["--outputs", output]);
+    }
+    checked(command.arg(image), Duration::from_secs(15))?;
+    Ok(())
+}
+
+fn confirm_surface() -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         if wallpaper_ready()? {
-            break;
+            return Ok(());
         }
         if Instant::now() >= deadline {
             return Err("The wallpaper renderer has no visible surface.".into());
         }
         thread::sleep(Duration::from_millis(50));
     }
-    // Publish the new selection only after the compositor confirms it is visible.
-    publish_selection(&current, &image)?;
+}
+
+fn stop_fallback() {
     let _ = output(
         Command::new("pkill").args(["-u", &unsafe { libc::getuid() }.to_string(), "-x", "swaybg"]),
         Duration::from_secs(2),
     );
+}
+
+fn restore_plan(paths: &Paths, state: &Value) -> Result<Vec<(Option<String>, PathBuf)>> {
+    let mut images = Vec::new();
+    if let Some(image) = default_image(paths, state)?
+        && let Ok(image) = fs::canonicalize(image)
+        && image.is_file()
+    {
+        images.push((None, image));
+    }
+    if let Some(wallpapers) = state.get("wallpapers").and_then(Value::as_object) {
+        for (output, saved) in wallpapers {
+            if output != "*"
+                && let Some(saved) = saved.as_str()
+                && let Ok(image) = fs::canonicalize(paths.expand(Path::new(saved)))
+                && image.is_file()
+            {
+                images.push((Some(output.clone()), image));
+            }
+        }
+    }
+    Ok(images)
+}
+
+fn apply_selection(paths: &Paths, image: &Path, output: Option<&str>) -> Result<()> {
+    if output.is_some_and(|output| output.is_empty() || output == "*") {
+        return Err("Specify an output name; omit OUTPUT to select all outputs".into());
+    }
+    let image = fs::canonicalize(paths.expand(image))
+        .map_err(|error| format!("This image is no longer available: {error}"))?;
+    if !image.is_file() {
+        return Err("This image is no longer available.".into());
+    }
+    let state = read_state(paths)?;
+    guard_current(&paths.current())?;
+    let animation = animation(paths)?;
+    if start_renderer()? {
+        // A newly started renderer has no cache. Recover all outputs before
+        // applying a transition or a new per-output override.
+        for (output, image) in restore_plan(paths, &state)? {
+            render(&image, output.as_deref(), None)?;
+        }
+    }
+    render(&image, output, Some(&animation))?;
+    confirm_surface()?;
+    publish_selection(paths, &image, output)?;
+    stop_fallback();
+    Ok(())
+}
+
+pub fn set_wallpaper(paths: &Paths, image: &Path, output: Option<&str>) -> Result<()> {
+    let _wallpaper_lock = lock(&paths.state().join("wallpaper.lock"))?;
+    apply_selection(paths, image, output)
+}
+
+pub fn next_wallpaper(paths: &Paths) -> Result<()> {
+    // Selection must happen under the same lock as rendering and publication:
+    // concurrent --next requests each advance from the last completed choice.
+    let _wallpaper_lock = lock(&paths.state().join("wallpaper.lock"))?;
+    let images = catalog(&paths.folders()?)?.all_images();
+    let current = current_wallpaper(paths)?
+        .and_then(|path| path.canonicalize().ok())
+        .unwrap_or_default();
+    let next = next_image(&images, &current).ok_or("No wallpapers found")?;
+    apply_selection(paths, &next, None)
+}
+
+pub fn restore_wallpapers(paths: &Paths) -> Result<()> {
+    let _wallpaper_lock = lock(&paths.state().join("wallpaper.lock"))?;
+    let state = read_state(paths)?;
+    guard_current(&paths.current())?;
+    let images = restore_plan(paths, &state)?;
+    if images.is_empty() {
+        return Err("No saved wallpaper is available.".into());
+    }
+    start_renderer()?;
+    for (output, image) in &images {
+        render(image, output.as_deref(), None)?;
+    }
+    confirm_surface()?;
+    if let Some((None, image)) = images.first() {
+        // Repair a stale legacy link without turning restoration into a new
+        // selection or dropping disconnected/missing output overrides.
+        publish_link(&paths.current(), image)?;
+    }
+    stop_fallback();
     Ok(())
 }
 

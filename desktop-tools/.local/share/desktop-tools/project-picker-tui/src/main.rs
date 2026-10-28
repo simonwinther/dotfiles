@@ -1,4 +1,3 @@
-use chrono::{DateTime, Local};
 use crossterm::{
     cursor::{SetCursorStyle, Show},
     event::{
@@ -9,6 +8,10 @@ use crossterm::{
     style::ResetColor,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use project_picker::{
+    cache::{View as Snapshot, load},
+    schema::{Project, clean},
+};
 use ratatui::{
     Frame,
     backend::CrosstermBackend,
@@ -17,10 +20,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{HighlightSpacing, List, ListState, Paragraph},
 };
-use serde_json::Value;
 use std::{
-    env, fs,
-    io::{self, IsTerminal, Read},
+    env,
+    io::{self, IsTerminal},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -30,130 +32,6 @@ const ACCENT: Color = Color::Rgb(166, 227, 161);
 const TEXT: Color = Color::Rgb(205, 214, 244);
 const MUTED: Color = Color::Rgb(133, 144, 163);
 const SELECTED: Color = Color::Rgb(40, 53, 46);
-
-#[derive(Clone, Debug, PartialEq)]
-struct Project {
-    id: String,
-    name: String,
-}
-
-#[derive(Debug, PartialEq)]
-struct Snapshot {
-    projects: Vec<Project>,
-    notice: Option<String>,
-    last_synced: String,
-}
-
-fn clean(text: &str) -> String {
-    text.chars()
-        .map(|c| {
-            if c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn read_json(path: &Path) -> Option<Value> {
-    let mut data = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(4 * 1024 * 1024 + 1)
-        .read_to_end(&mut data)
-        .ok()?;
-    if data.len() > 4 * 1024 * 1024 {
-        return None;
-    }
-    serde_json::from_slice(&data).ok()
-}
-
-fn valid_id(id: &str) -> bool {
-    id.strip_prefix("g-p-").is_some_and(|value| {
-        value.len() == 32
-            && value
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-    })
-}
-
-fn status_message(code: &str) -> &str {
-    match code {
-        "syncing" => "Syncing…",
-        "auth_required" => "Sign in to sync projects",
-        "workspace_unknown" => "Workspace lookup failed",
-        "network" => "Offline · showing saved projects",
-        "timeout" => "Sync timed out · showing saved projects",
-        "invalid_response" => "Unsupported project list · showing saved projects",
-        "account_changed" => "Account changed · waiting for sync",
-        "ok" => "Synced",
-        _ => "Sync failed · showing saved projects",
-    }
-}
-
-fn snapshot_from(cache: Option<&Value>, status: Option<&Value>) -> Snapshot {
-    let mut result = Snapshot {
-        projects: vec![Project {
-            id: "home".into(),
-            name: "Open main page".into(),
-        }],
-        notice: None,
-        last_synced: "Not synced yet".into(),
-    };
-    let context = cache.and_then(|cache| {
-        if cache["version"] != 1 {
-            return None;
-        }
-        cache["contexts"].get(cache["active"].as_str()?)
-    });
-    if let Some(context) = context.filter(|context| context["complete"] == true)
-        && let Some(projects) = context["projects"].as_array()
-    {
-        let mut rows: Vec<_> = projects
-            .iter()
-            .filter_map(|project| {
-                let id = project["id"].as_str()?;
-                let name = clean(project["name"].as_str()?);
-                (valid_id(id) && !name.is_empty()).then(|| Project {
-                    id: id.into(),
-                    name,
-                })
-            })
-            .collect();
-        rows.sort_by_cached_key(|project| (project.name.to_lowercase(), project.id.clone()));
-        rows.dedup_by(|a, b| a.id == b.id);
-        result.projects.extend(rows);
-        let workspace = clean(context["workspace_name"].as_str().unwrap_or("Projects"));
-        if let Some(synced_at) = context["synced_at"]
-            .as_i64()
-            .and_then(DateTime::from_timestamp_millis)
-        {
-            result.last_synced = format!(
-                "{workspace} · Last synced {}",
-                synced_at.with_timezone(&Local).format("%H:%M:%S")
-            );
-        }
-    }
-    if let Some(status) = status {
-        let synced_at = context.and_then(|c| c["synced_at"].as_u64()).unwrap_or(0);
-        let code = status["code"].as_str().unwrap_or("unexpected");
-        if code != "ok" && status["at"].as_u64().unwrap_or(0) > synced_at {
-            result.notice = Some(status_message(code).into());
-        }
-    }
-    result
-}
-
-fn load(cache: &Path) -> Snapshot {
-    snapshot_from(
-        read_json(cache).as_ref(),
-        read_json(&cache.with_file_name("status.json")).as_ref(),
-    )
-}
 
 fn score(name: &str, query: &str) -> Option<i64> {
     let haystack: Vec<_> = name.to_lowercase().chars().collect();
@@ -522,14 +400,22 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    fn snapshot_from(cache: Option<&Value>, status: Option<&Value>) -> Snapshot {
+        let cache = cache.map(|value| serde_json::from_value(value.clone()).unwrap());
+        let status = status.map(|value| serde_json::from_value(value.clone()).unwrap());
+        project_picker::cache::view(cache.as_ref(), status.as_ref(), 1_000)
+    }
 
     fn fixture(projects: Value) -> Value {
         json!({"version":1,"active":"personal","contexts":{"personal":{
-            "complete":true,"workspace_name":"Personal","synced_at":100,"projects":projects}}})
+            "version":1,"complete":true,"account_id":"account-one","workspace_id":"personal",
+            "workspace_name":"Personal","started_at":50,"synced_at":100,"projects":projects}}})
     }
     fn project(digit: &str, name: &str) -> Value {
-        json!({"id":format!("g-p-{}",digit.repeat(32)),"name":name})
+        json!({"id":format!("g-p-{}",digit.repeat(32)),"name":name,
+            "url":format!("https://chatgpt.com/g/g-p-{}/project", digit.repeat(32))})
     }
     #[test]
     fn matching_handles_fuzzy_unicode_and_no_results() {

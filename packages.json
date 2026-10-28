@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "packages": [
+    "appearance",
+    "application-state",
+    "applications",
+    "background-grid",
+    "bash",
+    "bin",
+    "breakd",
+    "chrome",
+    "clipboard-picker",
+    "cluster",
+    "code",
+    "desktop-ring",
+    "desktop-settings",
+    "desktop-tools",
+    "dictate",
+    "elephant",
+    "ferry",
+    "file-picker",
+    "ghostty",
+    "git",
+    "hendrix",
+    "hypr",
+    "iphone-transfer",
+    "lazygit",
+    "mako",
+    "nautilus",
+    "nvim",
+    "obs",
+    "oh-my-posh",
+    "roblox-dev",
+    "text-picker",
+    "tmux",
+    "walker",
+    "wallpapers",
+    "waybar",
+    "zathura",
+    "zsh"
+  ],
+  "ignore": {
+    "names": [
+      ".git",
+      ".gitignore",
+      ".stow-local-ignore",
+      "AGENTS.md",
+      "__pycache__"
+    ],
+    "suffixes": [
+      ".pyc",
+      ".pyo"
+    ],
+    "rootNames": [
+      "README.md",
+      "tests"
+    ]
+  }
+}

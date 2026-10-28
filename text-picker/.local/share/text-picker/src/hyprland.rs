@@ -1,6 +1,7 @@
 use crate::Result;
 use serde::Deserialize;
 use std::env;
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
@@ -72,6 +73,11 @@ impl Hyprland {
         Ok(serde_json::from_str(&self.request("j/activewindow")?)?)
     }
 
+    pub fn exec(&self, command: &str) -> Result<()> {
+        self.dispatch(&format!("hl.dsp.exec_cmd({})", lua_quote(command)))
+    }
+
+    /// Dispatch a Lua dispatcher expression on Hyprland 0.55 and later.
     pub fn dispatch(&self, command: &str) -> Result<()> {
         let response = self.request(&format!("dispatch {command}"))?;
         if response.trim() != "ok" {
@@ -81,11 +87,68 @@ impl Hyprland {
     }
 }
 
+fn lua_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\0'..='\u{1f}' | '\u{7f}' => {
+                // Lua uses decimal byte escapes, unlike JSON's \\u escapes.
+                write!(quoted, "\\{:03}", character as u32).unwrap();
+            }
+            character => quoted.push(character),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
     use std::thread;
+
+    #[test]
+    fn command_quoting_preserves_utf8_quotes_and_control_bytes() {
+        assert_eq!(
+            lua_quote("\"\\\n\r\t\0\u{7f}9æ"),
+            "\"\\\"\\\\\\010\\013\\009\\000\\1279æ\""
+        );
+    }
+
+    #[test]
+    fn exec_uses_a_lua_dispatcher_and_reports_rejections() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("hypr.sock");
+        let listener = UnixListener::bind(&path)?;
+        let server = thread::spawn(move || {
+            for reply in ["ok", "error: launch rejected"] {
+                let (mut client, _) = listener.accept().unwrap();
+                let mut message = String::new();
+                client.read_to_string(&mut message).unwrap();
+                assert_eq!(
+                    message,
+                    r#"dispatch hl.dsp.exec_cmd("'/tmp/helper \\\"quoted\\\"' --handoff '/tmp/helper.sock'")"#
+                );
+                client.write_all(reply.as_bytes()).unwrap();
+            }
+        });
+        let hyprland = Hyprland { socket: path };
+        let command = r#"'/tmp/helper \"quoted\"' --handoff '/tmp/helper.sock'"#;
+        hyprland.exec(command)?;
+        assert!(
+            hyprland
+                .exec(command)
+                .unwrap_err()
+                .to_string()
+                .contains("launch rejected")
+        );
+        server.join().unwrap();
+        Ok(())
+    }
 
     #[test]
     fn native_ipc_parses_window_json_without_external_commands() -> Result<()> {

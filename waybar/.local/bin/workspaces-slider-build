@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source_dir="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/workspaces-slider-rs"
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/workspaces-slider"
-mkdir -p "$cache"
-exec 9>"$cache/build.lock"
-flock 9
-nice -n 10 cargo build --locked --release --manifest-path "$source_dir/Cargo.toml" --target-dir "$cache/target"
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../bin/.local/share/dotfiles/rust-build.sh
+source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+source_root="$repo_root/waybar/.config/waybar/workspaces-slider-rs"
+rust_build_init workspaces-slider "$script" "$@"
+rust_build_checks
+rust_build_cargo build --release --bin workspaces-slider
+rust_build_publish "$CARGO_TARGET_DIR/release/workspaces-slider" "$cache_root/bin/workspaces-slider"
+printf 'Rust workspace slider installed in %s/bin\n' "$cache_root"

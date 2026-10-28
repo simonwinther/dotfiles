@@ -107,6 +107,16 @@ vim.keymap.set("n", "<leader>se", function()
 end, { desc = "Smart Find Files" })
 
 -----------------------------------------
+--- Grep from Neovim's working directory
+-----------------------------------------
+local function grep_cwd()
+  Snacks.picker.grep({ cwd = vim.fn.getcwd() })
+end
+
+vim.keymap.set("n", "<leader>/", grep_cwd, { desc = "Grep (cwd)" })
+vim.keymap.set("n", "<leader>sg", grep_cwd, { desc = "Grep (cwd)" })
+
+-----------------------------------------
 --- Project-wide fuzzy grep
 -----------------------------------------
 

@@ -235,6 +235,36 @@ fn validate_source(source: &Path) -> Result<()> {
     Ok(())
 }
 
+fn build_helper(source: &Path) -> Result<PathBuf> {
+    [
+        source.join("bin/.local/share/dotfiles/rust-build.sh"),
+        source.join("cluster/.local/share/cluster/rust-build.sh"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .context("The source is missing the shared Rust build helper")
+}
+
+fn append_rust_sources(source: &Path, directory: &Path, files: &mut Vec<u8>) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            append_rust_sources(source, &path, files)?;
+        } else if path.extension().is_some_and(|extension| extension == "rs")
+            || path.file_name().is_some_and(|name| name == "probe.sh")
+        {
+            ensure!(
+                entry.file_type()?.is_file(),
+                "Unexpected link in cluster Rust sources"
+            );
+            files.extend(path.strip_prefix(source)?.as_os_str().as_encoded_bytes());
+            files.push(0);
+        }
+    }
+    Ok(())
+}
+
 fn remote_install(args: &SetupArgs, host: &str, source: &Path) -> Result<()> {
     let source = source.canonicalize()?;
     validate_source(&source)?;
@@ -261,21 +291,8 @@ fn remote_install(args: &SetupArgs, host: &str, source: &Path) -> Result<()> {
     }
     let rust_root = source.join("cluster/.local/share/cluster");
     files.extend(b"cluster/.local/share/cluster/Cargo.toml\0");
-    for entry in fs::read_dir(rust_root.join("src"))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().is_none_or(|extension| extension != "rs")
-            && path.file_name().is_none_or(|name| name != "probe.sh")
-        {
-            continue;
-        }
-        ensure!(
-            entry.file_type()?.is_file(),
-            "Unexpected directory in cluster Rust sources"
-        );
-        files.extend(path.strip_prefix(&source)?.as_os_str().as_encoded_bytes());
-        files.push(0);
-    }
+    files.extend(b"cluster/.local/share/cluster/Cargo.lock\0");
+    append_rust_sources(&source, &rust_root.join("src"), &mut files)?;
     let list = bundle.path().join("files");
     fs::write(&list, files)?;
     run(Command::new("tar")
@@ -286,6 +303,10 @@ fn remote_install(args: &SetupArgs, host: &str, source: &Path) -> Result<()> {
         .arg("-cf")
         .arg(&archive))?;
     let native_relative = "cluster/.local/share/cluster/bin/cluster-native";
+    let helper_relative = "cluster/.local/share/cluster/rust-build.sh";
+    let helper = bundle.path().join(helper_relative);
+    fs::create_dir_all(helper.parent().unwrap())?;
+    fs::copy(build_helper(&source)?, &helper)?;
     let native = bundle.path().join(native_relative);
     fs::create_dir_all(native.parent().unwrap())?;
     fs::copy(executable, &native)?;
@@ -295,7 +316,7 @@ fn remote_install(args: &SetupArgs, host: &str, source: &Path) -> Result<()> {
         .arg(bundle.path())
         .arg("-rf")
         .arg(&archive)
-        .arg(native_relative))?;
+        .args([native_relative, helper_relative]))?;
     let mut terminfo = Vec::new();
     for terminal in [
         std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".into()),
@@ -612,6 +633,7 @@ fn local_install(args: &SetupArgs, source: Option<PathBuf>) -> Result<()> {
         .context("The source must include the nvim, tmux, and cluster packages")?
         .canonicalize()?;
     validate_source(&source)?;
+    let helper = build_helper(&source)?;
     for parent in [
         ".config",
         ".local",
@@ -793,6 +815,12 @@ fn local_install(args: &SetupArgs, source: Option<PathBuf>) -> Result<()> {
         for package in ["nvim", "tmux", "cluster"] {
             install.replace_package(&source.join(package), package)?;
         }
+    }
+    let installed_helper = install
+        .packages
+        .join("cluster/.local/share/cluster/rust-build.sh");
+    if helper != installed_helper {
+        fs::copy(helper, installed_helper)?;
     }
     install.replace_package(&staged_tools, "cluster-tools")?;
     let native = install
