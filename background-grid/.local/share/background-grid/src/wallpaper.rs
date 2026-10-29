@@ -406,6 +406,7 @@ pub fn next_wallpaper(paths: &Paths) -> Result<()> {
     // Selection must happen under the same lock as rendering and publication:
     // concurrent --next requests each advance from the last completed choice.
     let _wallpaper_lock = lock(&paths.state().join("wallpaper.lock"))?;
+    guard_current(&paths.current())?;
     let images = catalog(&paths.folders()?)?.all_images();
     let current = current_wallpaper(paths)?
         .and_then(|path| path.canonicalize().ok())

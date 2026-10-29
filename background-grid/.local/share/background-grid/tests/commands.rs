@@ -234,7 +234,8 @@ fn set_handles_spaces_and_leaves_originals_untouched() -> Result<()> {
     assert_eq!(saved["theme"], "tokyoled");
     assert_eq!(saved["wallpaper"], image.to_str().unwrap());
     assert_eq!(saved["wallpapers"]["*"], image.to_str().unwrap());
-    assert_eq!(saved["wallpapers"]["HDMI-A-1"], "/keep/image.png");
+    // Selecting for all outputs clears per-output overrides.
+    assert!(saved["wallpapers"].get("HDMI-A-1").is_none());
     assert_eq!(fs::read(&image)?, b"original B");
     let log = fs::read_to_string(&desktop.log)?;
     assert!(log.contains("--transition-type\nany\n"));
@@ -323,8 +324,8 @@ fn starts_renderer_and_bootstraps_previous_image_before_transition() -> Result<(
         String::from_utf8_lossy(&output.stderr)
     );
     let log = fs::read_to_string(&desktop.log)?;
-    let bootstrap = log.find("img\n--transition-type\nnone\n").unwrap();
-    let transition = log.find("img\n--resize\ncrop\n").unwrap();
+    let bootstrap = log.find("--transition-type\nnone\n").unwrap();
+    let transition = log.find("--transition-type\nany\n").unwrap();
     assert!(log.find("start renderer").unwrap() < bootstrap && bootstrap < transition);
     assert_eq!(
         fs::read_link(&desktop.current)?,
