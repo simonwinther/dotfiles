@@ -6,6 +6,7 @@
 .codex
 .gemini
 .claude
+!/application-state/.local/share/desktop-defaults/home/.claude/
 
 __pycache__/
 

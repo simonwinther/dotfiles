@@ -18,7 +18,7 @@ class Preferences:
     store: StateStore
 
     def seed_preferences(self) -> None:
-        for kind, destination in [("config", self.ctx.paths.config), ("state", self.ctx.paths.state)]:
+        for kind, destination in [("config", self.ctx.paths.config), ("state", self.ctx.paths.state), ("home", self.ctx.paths.home)]:
             defaults = self.ctx.paths.data / "desktop-defaults" / kind
             if not defaults.is_dir():
                 continue
