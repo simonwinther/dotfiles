@@ -597,6 +597,10 @@ def theme(args):
             run(["pkill", "-USR2", "-u", str(os.getuid()), "-x", "ghostty"], check=False)
             run(["pkill", "-USR1", "-u", str(os.getuid()), "-x", "kitty"], check=False)
             restart("theme")
+            # Keep a wallpaper the user picked from this theme; otherwise use the theme's first one.
+            backgrounds = sorted(p.resolve() for p in (theme_path(name) / "backgrounds").glob("*") if p.is_file())
+            if backgrounds and expand(state().get("wallpaper", "")).resolve() not in backgrounds:
+                wallpaper(["set", str(backgrounds[0])])
     elif action == "generate":
         image_args = [x for x in args[1:] if not x.startswith("--")]
         if not image_args:
@@ -1873,7 +1877,7 @@ def keybindings():
 
 
 def seed_preferences():
-    for kind, destination in [("config", CONFIG), ("state", STATE)]:
+    for kind, destination in [("config", CONFIG), ("state", STATE), ("home", HOME)]:
         defaults = DATA / "desktop-defaults" / kind
         if not defaults.is_dir():
             continue

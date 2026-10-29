@@ -73,6 +73,10 @@ class Appearance:
                 self.ctx.processes.run(["pkill", "-USR2", "-u", str(self.ctx.uid), "-x", "ghostty"], check=False)
                 self.ctx.processes.run(["pkill", "-USR1", "-u", str(self.ctx.uid), "-x", "kitty"], check=False)
                 self.services.restart("theme")
+                # Keep a wallpaper the user picked from this theme; otherwise use the theme's first one.
+                backgrounds = sorted(p.resolve() for p in (self.catalog.theme_path(name) / "backgrounds").glob("*") if p.is_file())
+                if backgrounds and self.ctx.expand(self.store.state().get("wallpaper", "")).resolve() not in backgrounds:
+                    self.wallpaper.wallpaper(["set", str(backgrounds[0])])
         elif action == "generate":
             image_args = [x for x in args[1:] if not x.startswith("--")]
             if not image_args:
