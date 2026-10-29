@@ -83,6 +83,35 @@ fn category(source: &Path, name: &str) -> Result<&'static str> {
     })
 }
 
+fn same_contents(source: &Path, existing: &Path) -> Result<bool> {
+    // Never follow a symlink or block on a FIFO at the destination name.
+    let Ok(mut existing) = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(existing)
+    else {
+        return Ok(false);
+    };
+    let metadata = existing.metadata()?;
+    let mut remaining = fs::metadata(source)?.len();
+    if !metadata.is_file() || metadata.len() != remaining {
+        return Ok(false);
+    }
+    let mut source = File::open(source)?;
+    let mut left = vec![0; 64 * 1024];
+    let mut right = vec![0; 64 * 1024];
+    while remaining > 0 {
+        let chunk = remaining.min(left.len() as u64) as usize;
+        source.read_exact(&mut left[..chunk])?;
+        existing.read_exact(&mut right[..chunk])?;
+        if left[..chunk] != right[..chunk] {
+            return Ok(false);
+        }
+        remaining -= chunk as u64;
+    }
+    Ok(true)
+}
+
 pub struct Receiver {
     root: PathBuf,
     api: Api,
@@ -155,7 +184,13 @@ impl Receiver {
                     File::open(&folder)?.sync_all()?;
                     return Ok(candidate);
                 }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                // Resending a batch from the iPhone repeats files that already
+                // arrived. Reuse an identical copy instead of adding a numbered one.
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    if same_contents(source, &candidate)? {
+                        return Ok(candidate);
+                    }
+                }
                 Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
                     bail!("The receiving folders must share a filesystem")
                 }

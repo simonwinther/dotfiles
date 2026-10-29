@@ -459,6 +459,33 @@ fn collisions_and_existing_symlinks_are_never_overwritten() {
 }
 
 #[test]
+fn resent_identical_files_are_acknowledged_without_numbered_copies() {
+    let desktop = Desktop::new();
+    fs::create_dir_all(desktop.path("received/Pictures")).unwrap();
+    desktop.write("received/Pictures/photo.jpg", b"original");
+    desktop.write("received/Pictures/photo (1).jpg", b"same name, other photo");
+    desktop.write("received/Pictures/photo (2).jpg", b"incoming");
+    let server = Server::new(
+        &desktop,
+        vec![
+            Item::new("photo.jpg", b"incoming"),
+            Item::new("other.jpg", b"new"),
+        ],
+    );
+    assert!(server.run(&desktop).status.success());
+    assert!(server.state.lock().unwrap().items.is_empty());
+    assert!(!desktop.path("received/Pictures/photo (3).jpg").exists());
+    assert_eq!(
+        fs::read(desktop.path("received/Pictures/other.jpg")).unwrap(),
+        b"new"
+    );
+    assert_eq!(
+        fs::read(desktop.path("received/Pictures/photo.jpg")).unwrap(),
+        b"original"
+    );
+}
+
+#[test]
 fn truncated_and_mismatched_files_remain_in_the_inbox() {
     for short_stream in [true, false] {
         let desktop = Desktop::new();
