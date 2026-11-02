@@ -133,7 +133,8 @@ Opening a project is tuned for speed, and the RAM use is deliberate:
    idle). A cold start takes 2-3 s before ChatGPT even begins loading; a running
    browser opens a window in about 0.6 s. The project-picker extension's
    `background` permission keeps Chromium alive after its last window closes;
-   Chromium's "Continue running background apps" setting must stay on.
+   Chromium's "Continue running background apps" setting must stay on; on NixOS
+   the `BackgroundModeEnabled` policy enforces it.
 3. The extension keeps a native connection open, and `project-picker --open` asks
    it to show the project in the open ChatGPT app window, which skips loading
    ChatGPT again. Without such a window, a new app window opens.
