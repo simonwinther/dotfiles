@@ -65,3 +65,43 @@ chrome.runtime.onInstalled.addListener(async () => {
     target: { tabId: tab.id }, files: ["api.js", "content.js"],
   })));
 });
+
+// The desktop picker shows projects in an open ChatGPT app window instead of
+// starting a new browser. The open port also keeps this worker running.
+const WINDOW_PAGE = /^https:\/\/chatgpt\.com(?:\/|$)/;
+let port;
+
+async function open(message) {
+  if (message?.action !== "open" || typeof message.url !== "string" || !WINDOW_PAGE.test(message.url)) return;
+  let ok = false;
+  try {
+    const windows = await chrome.windows.getAll({ populate: true });
+    const candidates = windows.filter((window) => ["app", "popup"].includes(window.type) &&
+      window.tabs?.length === 1 && WINDOW_PAGE.test(window.tabs[0].url || ""));
+    const target = candidates.find((window) => window.focused) || candidates.at(-1);
+    if (target) {
+      await chrome.tabs.update(target.tabs[0].id, { url: message.url });
+      await chrome.windows.update(target.id, { focused: true });
+      ok = true;
+    }
+  } catch {
+    ok = false;
+  }
+  port?.postMessage({ id: message.id, ok });
+}
+
+function listen() {
+  try {
+    port = chrome.runtime.connectNative(HOST);
+  } catch {
+    return;
+  }
+  port.onMessage.addListener((message) => { void open(message); });
+  port.onDisconnect.addListener(() => {
+    port = undefined;
+    setTimeout(listen, 10000);
+  });
+  port.postMessage({ action: "listen" });
+}
+
+listen();

@@ -1124,6 +1124,13 @@ impl App {
         } else if command == ["clipboard"] {
             self.remember_parent();
             self.show_page(shell::Page::Clipboard, false);
+        } else if command.first().is_some_and(|value| value == "project-open")
+            && let Some(url) = command.get(1)
+        {
+            // The picker reuses an open ChatGPT window or starts the browser
+            // itself, without the desktopctl hop.
+            spawn(&["project-picker", "--open", url]);
+            self.close();
         } else {
             let mut arguments = vec!["desktopctl"];
             arguments.extend(command.iter().map(String::as_str));

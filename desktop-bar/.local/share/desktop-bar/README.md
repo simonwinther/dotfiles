@@ -120,9 +120,22 @@ styles, controls, projects, volume, calendar, battery, network and system. The
 without restarting the bar.
 
 Projects lists the browser-maintained ChatGPT projects through `project-picker --catalog`
-and opens the selected one as a web app. The first row shows the workspace and sync
-state, and the page refreshes every second while it is open. With the Motion style,
-the project picker shortcut opens this page; Clean keeps the terminal picker.
+and opens the selected one with `project-picker --open`. The first row shows the
+workspace and sync state, and the page refreshes every second while it is open. With
+the Motion style, the project picker shortcut opens this page; Clean keeps the
+terminal picker.
+
+Opening a project is tuned for speed, and the RAM use is deliberate:
+
+1. The bar and picker start the browser directly instead of through desktopctl,
+   saving about 0.2 s.
+2. Chromium stays running without windows (`desktop-browser.service`, about 650 MB
+   idle). A cold start takes 2-3 s before ChatGPT even begins loading; a running
+   browser opens a window in about 0.6 s. The project-picker extension's
+   `background` permission keeps Chromium alive after its last window closes.
+3. The extension keeps a native connection open, and `project-picker --open` asks
+   it to show the project in the open ChatGPT app window, which skips loading
+   ChatGPT again. Without such a window, a new app window opens.
 
 Runtime settings come from `$XDG_RUNTIME_DIR/desktop/bar-theme.json`, published by
 desktopctl. It contains the selected style, palette, light flag, desktop font, UI

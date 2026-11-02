@@ -38,10 +38,88 @@ fn picker_binary() -> io::Result<PathBuf> {
     ))
 }
 
+/// Shows a project in the most recent ChatGPT app window when the browser
+/// extension is listening, otherwise starts a new app window directly.
 fn open_project(url: &str) -> io::Result<()> {
-    let mut command = Command::new("desktopctl");
+    if native::request_open(url) {
+        focus_project_window();
+        return Ok(());
+    }
+    launch_webapp(url)
+}
+
+/// Raises the most recently used ChatGPT app window in Hyprland.
+fn focus_project_window() {
+    let Ok(output) = Command::new("hyprctl").args(["-j", "clients"]).output() else {
+        return;
+    };
+    let Ok(clients) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
+        return;
+    };
+    let Some(address) = clients
+        .iter()
+        .filter(|client| {
+            client["class"]
+                .as_str()
+                .is_some_and(|class| class.starts_with("chrome-chatgpt.com"))
+        })
+        .min_by_key(|client| client["focusHistoryID"].as_i64().unwrap_or(i64::MAX))
+        .and_then(|client| client["address"].as_str())
+    else {
+        return;
+    };
+    let selector = serde_json::json!(format!("address:{address}"));
+    let _ = Command::new("hyprctl")
+        .args([
+            "eval",
+            &format!("hl.dispatch(hl.dsp.focus({{ window = {selector} }}))"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// The configured browser, as desktopctl reads it from its settings.
+fn browser() -> String {
+    env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .and_then(|config| std::fs::read(config.join("desktop/settings.json")).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|settings| settings["browser"].as_str().map(str::to_owned))
+        .filter(|browser| !browser.is_empty())
+        .unwrap_or_else(|| "chromium".into())
+}
+
+fn on_path(name: &str) -> bool {
+    env::var_os("PATH").is_some_and(|path| {
+        env::split_paths(&path).any(|directory| executable(&directory.join(name)))
+    })
+}
+
+/// Starts the browser in its own application scope, as desktopctl would.
+fn launch_webapp(url: &str) -> io::Result<()> {
+    if !native::project_url(url) {
+        return Err(io::Error::other("Only ChatGPT pages can be opened"));
+    }
+    let browser = [browser(), format!("--app={url}")];
+    let mut command = if on_path("uwsm-app") {
+        let mut command = Command::new("uwsm-app");
+        command.arg("--").args(&browser);
+        command
+    } else if on_path("systemd-run") {
+        let mut command = Command::new("systemd-run");
+        command
+            .args(["--user", "--scope", "--collect", "--quiet", "--"])
+            .args(&browser);
+        command
+    } else {
+        let mut command = Command::new(&browser[0]);
+        command.arg(&browser[1]);
+        command
+    };
     command
-        .args(["launch", "webapp", url])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -143,6 +221,10 @@ fn run(args: &[OsString]) -> io::Result<()> {
             .exec()),
         [flag] if flag == "--choose" => choose(),
         [flag] if flag == "--catalog" => catalog(),
+        [flag, url] if flag == "--open" => open_project(
+            url.to_str()
+                .ok_or_else(|| io::Error::other("Invalid project URL"))?,
+        ),
         [flag] if flag == "--list" => {
             for project in cache::load(&cache::cache_path()?).projects {
                 println!("{}\t{}", project.name, project.url);
@@ -151,12 +233,12 @@ fn run(args: &[OsString]) -> io::Result<()> {
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Browse projects from a local, browser-maintained snapshot.\n\nUsage: project-picker [--choose | --list | --catalog]\n  --choose   Run the picker inside the current terminal\n  --list     Print cached projects without opening a window\n  --catalog  Print projects and sync status as JSON for the notch bar\n\nWith the notch bar style, project-picker opens its Projects page."
+                "Browse projects from a local, browser-maintained snapshot.\n\nUsage: project-picker [--choose | --list | --catalog | --open URL]\n  --choose   Run the picker inside the current terminal\n  --list     Print cached projects without opening a window\n  --catalog  Print projects and sync status as JSON for the notch bar\n  --open     Show a ChatGPT page in the open app window, or start one\n\nWith the notch bar style, project-picker opens its Projects page."
             );
             Ok(())
         }
         _ => Err(io::Error::other(
-            "Usage: project-picker [--choose | --list | --catalog]",
+            "Usage: project-picker [--choose | --list | --catalog | --open URL]",
         )),
     }
 }
@@ -173,8 +255,9 @@ fn main() {
             native::serve(
                 origin,
                 &path,
-                &mut io::stdin().lock(),
-                &mut io::stdout().lock(),
+                // Unlocked: a listening host reads stdin on another thread.
+                &mut io::stdin(),
+                &mut io::stdout(),
             )
         });
         std::process::exit(if matches!(result, Ok(true)) { 0 } else { 1 });

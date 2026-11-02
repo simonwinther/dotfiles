@@ -247,7 +247,7 @@ fn project_entries(catalog: ProjectCatalog) -> Result<Vec<Entry>, String> {
                     String::new()
                 },
                 "󰉋",
-                vec!["launch".into(), "webapp".into(), project.url],
+                vec!["project-open".into(), project.url],
             )
         })
         .collect())
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(entries[1].detail, "");
         assert_eq!(
             entries[1].command,
-            ["launch", "webapp", "https://chatgpt.com/g/g-p-1/project"]
+            ["project-open", "https://chatgpt.com/g/g-p-1/project"]
         );
         let empty: ProjectCatalog = serde_json::from_value(serde_json::json!({
             "projects": [], "notice": null, "last_synced": "Not synced yet"
