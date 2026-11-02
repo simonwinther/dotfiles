@@ -266,7 +266,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let menus_only = initial_menu.is_some() || initial_picker.is_some();
     if args.first().is_some_and(|s| s == "--panel") {
-        let name = args.get(1).filter(|_| args.len() == 2).ok_or("Usage: desktop-bar --panel apps|themes|wallpapers|clipboard|styles|controls|volume|calendar|battery|network|system|close")?;
+        let name = args.get(1).filter(|_| args.len() == 2).ok_or("Usage: desktop-bar --panel apps|themes|wallpapers|clipboard|styles|controls|projects|volume|calendar|battery|network|system|close")?;
         ipc::send(name)?;
         return Ok(());
     }

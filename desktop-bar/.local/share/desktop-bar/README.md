@@ -115,8 +115,14 @@ Add actions to `$XDG_CONFIG_HOME/desktop/bar-actions.json` as a JSON array. Each
 action has `name`, optional `detail` and `keywords`, and a `command` argument list
 for desktopctl. For example, an action can use `["launch", "tui", "btop"]` or
 `["panel", "volume"]`. Native panel names are apps, themes, wallpapers, clipboard,
-styles, controls, volume, calendar, battery, network and system. The `desktopctl bar panel NAME`
-and `desktop-bar --panel NAME` interfaces open them without restarting the bar.
+styles, controls, projects, volume, calendar, battery, network and system. The
+`desktopctl bar panel NAME` and `desktop-bar --panel NAME` interfaces open them
+without restarting the bar.
+
+Projects lists the browser-maintained ChatGPT projects through `project-picker --catalog`
+and opens the selected one as a web app. The first row shows the workspace and sync
+state, and the page refreshes every second while it is open. With the Motion style,
+the project picker shortcut opens this page; Clean keeps the terminal picker.
 
 Runtime settings come from `$XDG_RUNTIME_DIR/desktop/bar-theme.json`, published by
 desktopctl. It contains the selected style, palette, light flag, desktop font, UI

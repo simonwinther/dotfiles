@@ -54,6 +54,7 @@ pub fn load(provider: &str, cancelled: impl Fn() -> bool) -> Option<Result<Vec<E
     }
     match provider {
         "keybindings" => return Some(keybindings(&cancelled).map_err(|e| e.to_string())),
+        "projects" => return Some(projects(&cancelled)),
         "audio" => {
             return Some(crate::modules::audio::entries(&cancelled).map_err(|e| e.to_string()));
         }
@@ -189,8 +190,67 @@ impl Service {
 pub fn refresh(page: Page) -> bool {
     matches!(
         page,
-        Page::Notifications | Page::Bluetooth | Page::Audio | Page::Wifi
+        Page::Notifications | Page::Bluetooth | Page::Audio | Page::Wifi | Page::Projects
     )
+}
+
+#[derive(serde::Deserialize)]
+struct ProjectCatalog {
+    projects: Vec<Project>,
+    notice: Option<String>,
+    last_synced: String,
+}
+#[derive(serde::Deserialize)]
+struct Project {
+    id: String,
+    name: String,
+    url: String,
+}
+
+/// Projects from the browser-maintained snapshot that `project-picker` reads.
+fn projects(cancelled: &impl Fn() -> bool) -> Result<Vec<Entry>, String> {
+    let output = crate::process::output(
+        Command::new("project-picker").arg("--catalog"),
+        std::time::Duration::from_secs(3),
+        4 * 1024 * 1024,
+        cancelled,
+    )
+    .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err("Projects unavailable".into());
+    }
+    let catalog: ProjectCatalog =
+        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    project_entries(catalog)
+}
+
+fn project_entries(catalog: ProjectCatalog) -> Result<Vec<Entry>, String> {
+    // The sync state sits on the first row, as the picker shows it below the list.
+    let status = match &catalog.notice {
+        Some(notice) => format!("{notice} · {}", catalog.last_synced),
+        None => catalog.last_synced.clone(),
+    };
+    if catalog.projects.is_empty() {
+        return Err(status);
+    }
+    Ok(catalog
+        .projects
+        .into_iter()
+        .enumerate()
+        .map(|(index, project)| {
+            entry(
+                format!("project/{}", project.id),
+                project.name,
+                if index == 0 {
+                    status.clone()
+                } else {
+                    String::new()
+                },
+                "󰉋",
+                vec!["launch".into(), "webapp".into(), project.url],
+            )
+        })
+        .collect())
 }
 fn keybindings(cancelled: &impl Fn() -> bool) -> anyhow::Result<Vec<Entry>> {
     let output = crate::process::output(
@@ -643,6 +703,35 @@ fn wifi_action(connection: &Connection, path: &str, method: &str) -> zbus::Resul
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn projects_keep_their_order_and_show_sync_state_on_the_first_row() {
+        let catalog: ProjectCatalog = serde_json::from_value(serde_json::json!({
+            "projects": [
+                {"id": "home", "name": "Open main page", "url": "https://chatgpt.com"},
+                {"id": "g-p-1", "name": "AADS", "url": "https://chatgpt.com/g/g-p-1/project"}
+            ],
+            "notice": "Syncing…",
+            "last_synced": "Personal · Last synced 16:45:51"
+        }))
+        .unwrap();
+        let entries = project_entries(catalog).unwrap();
+        assert_eq!(entries[0].name, "Open main page");
+        assert_eq!(
+            entries[0].detail,
+            "Syncing… · Personal · Last synced 16:45:51"
+        );
+        assert_eq!(entries[1].detail, "");
+        assert_eq!(
+            entries[1].command,
+            ["launch", "webapp", "https://chatgpt.com/g/g-p-1/project"]
+        );
+        let empty: ProjectCatalog = serde_json::from_value(serde_json::json!({
+            "projects": [], "notice": null, "last_synced": "Not synced yet"
+        }))
+        .unwrap();
+        assert_eq!(project_entries(empty).unwrap_err(), "Not synced yet");
+    }
+
     use super::*;
     #[test]
     fn notification_markup_is_plain_and_preserves_labels() {

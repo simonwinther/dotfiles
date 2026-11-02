@@ -93,8 +93,44 @@ fn choose() -> io::Result<()> {
     open_project(&project.url)
 }
 
+/// Whether the selected bar style is the notch, read from the theme that
+/// desktopctl publishes for the bar.
+fn notch_style() -> bool {
+    let Some(runtime) = env::var_os("XDG_RUNTIME_DIR") else {
+        return false;
+    };
+    std::fs::read(PathBuf::from(runtime).join("desktop/bar-theme.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|theme| theme["style"] == "native-motion")
+}
+
+/// Opens the native Projects page in a running notch bar.
+fn open_in_notch() -> bool {
+    Command::new("desktop-bar")
+        .args(["--panel", "projects"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Projects, sync notice and last-sync line for the bar's Projects page.
+fn catalog() -> io::Result<()> {
+    let view = cache::load(&cache::cache_path()?);
+    let value = serde_json::json!({
+        "projects": view.projects,
+        "notice": view.notice,
+        "last_synced": view.last_synced,
+    });
+    println!("{value}");
+    Ok(())
+}
+
 fn run(args: &[OsString]) -> io::Result<()> {
     match args {
+        [] if notch_style() && open_in_notch() => Ok(()),
         [] => Err(Command::new("desktopctl")
             .args([
                 "terminal",
@@ -106,6 +142,7 @@ fn run(args: &[OsString]) -> io::Result<()> {
             ])
             .exec()),
         [flag] if flag == "--choose" => choose(),
+        [flag] if flag == "--catalog" => catalog(),
         [flag] if flag == "--list" => {
             for project in cache::load(&cache::cache_path()?).projects {
                 println!("{}\t{}", project.name, project.url);
@@ -114,12 +151,12 @@ fn run(args: &[OsString]) -> io::Result<()> {
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Browse projects from a local, browser-maintained snapshot.\n\nUsage: project-picker [--choose | --list]\n  --choose  Run the picker inside the current terminal\n  --list    Print cached projects without opening a window"
+                "Browse projects from a local, browser-maintained snapshot.\n\nUsage: project-picker [--choose | --list | --catalog]\n  --choose   Run the picker inside the current terminal\n  --list     Print cached projects without opening a window\n  --catalog  Print projects and sync status as JSON for the notch bar\n\nWith the notch bar style, project-picker opens its Projects page."
             );
             Ok(())
         }
         _ => Err(io::Error::other(
-            "Usage: project-picker [--choose | --list]",
+            "Usage: project-picker [--choose | --list | --catalog]",
         )),
     }
 }

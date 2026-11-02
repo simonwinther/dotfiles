@@ -34,6 +34,7 @@ pub enum Page {
     Bluetooth,
     Reminder,
     Wifi,
+    Projects,
     Search,
     Picker,
 }
@@ -60,6 +61,7 @@ impl Page {
             "bluetooth" => Self::Bluetooth,
             "reminder" => Self::Reminder,
             "wifi" => Self::Wifi,
+            "projects" => Self::Projects,
             _ => return None,
         })
     }
@@ -78,6 +80,7 @@ impl Page {
             Self::Bluetooth => "Bluetooth",
             Self::Reminder => "Reminder",
             Self::Wifi => "Wi-Fi",
+            Self::Projects => "Projects",
             Self::Search => "Search",
             Self::Picker => "Select",
         }
@@ -94,6 +97,7 @@ impl Page {
             Self::Audio => "audio",
             Self::Bluetooth => "bluetooth",
             Self::Wifi => "wifi",
+            Self::Projects => "projects",
             _ => "",
         }
     }
@@ -317,7 +321,7 @@ impl Model {
             Page::Menu => (480, 336),
             Page::Keybindings | Page::Notifications => (560, 336),
             Page::Audio => (600, 366),
-            Page::Bluetooth | Page::Wifi => (560, 336),
+            Page::Bluetooth | Page::Wifi | Page::Projects => (560, 336),
             Page::Reminder => (480, 150),
             Page::Controls => (560, if self.media_visible { 360 } else { 296 }),
             Page::Themes => (680, 184),
