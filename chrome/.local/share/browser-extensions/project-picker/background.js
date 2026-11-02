@@ -104,4 +104,7 @@ function listen() {
   port.postMessage({ action: "listen" });
 }
 
+// A startup listener makes Chromium start this worker with the browser, so
+// the picker can reuse windows before any ChatGPT page has been visited.
+chrome.runtime.onStartup.addListener(() => {});
 listen();
