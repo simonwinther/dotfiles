@@ -1,5 +1,6 @@
 """Controls component with injected dependencies."""
 from __future__ import annotations
+import bar_config
 import contextlib
 import json
 from pathlib import Path
@@ -40,14 +41,13 @@ class Controls:
                     marker.unlink(missing_ok=True)
                 self.ctx.processes.run(["systemctl", "--user", "restart", "desktop-hypridle.service"])
             return
-        services = {"bar": ["desktop-waybar", "desktop-waybar-minimal", "desktop-workspaces"], "nightlight": ["desktop-hyprsunset"]}
+        services = {"bar": ["desktop-bar"], "nightlight": ["desktop-hyprsunset"]}
         if feature in services:
-            services[feature] = self.services.selected_units(services[feature])
             service = services[feature][0] + ".service"
             active = self.ctx.processes.run(["systemctl", "--user", "is-active", "--quiet", service], check=False).returncode == 0
             if feature == "bar":
                 with self.store.state_lock():
-                    disabled = self.ctx.paths.state / "toggles/waybar-off"
+                    disabled = bar_config.visibility_marker(self.ctx.paths.state)
                     if active:
                         storage.atomic_write(disabled, "")
                     else:

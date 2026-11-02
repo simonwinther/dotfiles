@@ -138,7 +138,6 @@ hl.window_rule({ match = { class = "(Alacritty|kitty|com.mitchellh.ghostty|foot)
 hl.window_rule({ match = { tag = "terminal" }, tag = "-default-opacity" })
 hl.window_rule({ match = { tag = "terminal" }, opacity = "0.985 0.96" })
 -- Application-specific animation
-hl.layer_rule({ match = { namespace = "walker" }, no_anim = true })
 -- Webcam overlay for screen recording
 hl.window_rule({ match = { title = "WebcamOverlay" }, float = true })
 hl.window_rule({ match = { title = "WebcamOverlay" }, pin = true })

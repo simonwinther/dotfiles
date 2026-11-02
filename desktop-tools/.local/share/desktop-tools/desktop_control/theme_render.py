@@ -1,16 +1,16 @@
 """ThemeRenderer component with injected dependencies."""
 from __future__ import annotations
 import hashlib
+import bar_config
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
-from .rendering import _theme_colors, hyprlock_palette, prepare_terminal_theme
+from .rendering import colors, _theme_colors, hyprlock_palette, prepare_terminal_theme
 from . import storage
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .catalog import ThemeCatalog
 
 
-THEME_FILES = ("walker.css", "swayosd.css", "waybar.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
+THEME_FILES = ("clipboard.css", "swayosd.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
                "btop.theme", "eza.yml")
 
 
@@ -55,13 +55,7 @@ class ThemeRenderer:
             "files": {filename: (source / filename).read_text() if (source / filename).is_file() else None
                       for filename in THEME_FILES},
             "colors": (source / "colors.toml").read_text(),
-            "walker": {},
         }
-        template_root = self.ctx.paths.config / "walker/templates"
-        for template in sorted(template_root.iterdir()) if template_root.is_dir() else []:
-            if template.is_dir():
-                inputs["walker"][template.name] = {item.name: item.read_text() for item in sorted(template.iterdir())
-                                                    if item.is_file()}
         c = _theme_colors(inputs["colors"], name)
         key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
         target = self.ctx.paths.state / "theme"
@@ -89,14 +83,28 @@ class ThemeRenderer:
         self._publish_theme_link(target, generation)
         config_dirs = self.ctx.env.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":")
         self.ctx.env["XDG_CONFIG_DIRS"] = ":".join([str(self.ctx.paths.runtime), *[p for p in config_dirs if p != str(self.ctx.paths.runtime)]])
+        self.write_bar_theme(value, c, inputs["light"])
         return source, c, inputs["light"]
+
+
+    def write_bar_theme(self, value, palette=None, light=None):
+        bar_config.visibility_marker(self.ctx.paths.state)
+        if palette is None:
+            source = self.catalog.theme_path(value.get("theme", self.store.settings().get("defaultTheme", "tokyoled")))
+            palette = colors(source)
+            light = (source / "light.mode").exists()
+        data = bar_config.theme_data(value, self.store.settings(), palette, light,
+                                    storage.read_json(self.ctx.paths.config / "desktop/bar-outputs.json"))
+        target = self.ctx.paths.runtime / "bar-theme.json"
+        content = json.dumps(data) + "\n"
+        if not target.is_file() or target.read_text() != content:
+            storage.atomic_write(target, content)
 
 
     def _cached_theme(self, generation: Path, key: str) -> bool:
         try:
             manifest = storage.read_json(generation / ".generation.json")
             return (manifest.get("key") == key and bool(manifest.get("files"))
-                    and "walker/themes" in manifest.get("directories", [])
                     and all((generation / path).is_dir() and not (generation / path).is_symlink()
                             for path in manifest["directories"])
                     and all(not (generation / path).is_symlink()
@@ -129,18 +137,12 @@ class ThemeRenderer:
 
 
     def _theme_aliases(self, target: Path) -> None:
-        aliases = ((self.ctx.paths.state / "fontconfig.conf", target / "fontconfig.conf"),
-                   (self.ctx.paths.runtime / "walker/themes", target / "walker/themes"))
-        for alias, destination in aliases:
-            # Seed the old directory before converting its aliases so migration
-            # readers keep seeing the old content until the pointer switches.
-            if target.is_dir() and not target.is_symlink() and alias.exists() and not alias.is_symlink():
-                destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                if alias.is_dir():
-                    shutil.copytree(alias, destination, dirs_exist_ok=True)
-                else:
-                    storage.atomic_write(destination, alias.read_bytes())
-            self._publish_theme_link(alias, destination)
+        alias = self.ctx.paths.state / "fontconfig.conf"
+        destination = target / "fontconfig.conf"
+        # Keep the previous font readable until the generation pointer switches.
+        if target.is_dir() and not target.is_symlink() and alias.exists() and not alias.is_symlink():
+            storage.atomic_write(destination, alias.read_bytes())
+        self._publish_theme_link(alias, destination)
 
 
     def _render_theme(self, target: Path, inputs: dict[str, Any], c: dict[str, str]) -> None:
@@ -153,9 +155,8 @@ class ThemeRenderer:
         }
         css_text = "\n".join(f"@define-color {k} {v};" for k, v in css.items()) + "\n"
         templates = {
-            "walker.css": css_text,
+            "clipboard.css": css_text,
             "swayosd.css": css_text,
-            "waybar.css": css_text,
             "mako.ini": f"background-color={c['background']}\ntext-color={c['foreground']}\nborder-color={c['accent']}\nborder-size=2\nfont=JetBrainsMono Nerd Font 11\n",
             "hyprland.conf": "general {\n    col.active_border = rgba(" + c['accent'][1:] + "ee)\n    col.inactive_border = rgba(" + c['color8'][1:] + "aa)\n}\n",
             "hyprlock.conf": hyprlock_palette(c),
@@ -180,13 +181,3 @@ class ThemeRenderer:
         if inputs["light"]:
             storage.atomic_write(target / "light.mode", "")
         storage.atomic_write(target / "name", inputs["name"] + "\n")
-        walker_root = target / "walker/themes"
-        walker_root.mkdir(parents=True, mode=0o700)
-        for template, items in inputs["walker"].items():
-            walker = walker_root / ("desktop-" + template)
-            walker.mkdir(mode=0o700)
-            for filename, content in items.items():
-                if filename == "style.css":
-                    content = (target / "walker.css").read_text() + "\n" + content
-                    content += "\n* { font-family: " + json.dumps(family) + ", monospace; }\n"
-                storage.atomic_write(walker / filename, content)

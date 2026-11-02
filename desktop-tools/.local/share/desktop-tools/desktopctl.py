@@ -26,6 +26,8 @@ import uuid
 from xml.sax.saxutils import escape as xml_escape
 
 import desktop_process as processes
+import bar_config
+import bar_catalog
 
 HOME = Path.home()
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
@@ -33,7 +35,7 @@ DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
 STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "desktop"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", Path(tempfile.gettempdir()) / f"desktop-{os.getuid()}")) / "desktop"
 THEME_RENDERER = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-THEME_FILES = ("walker.css", "swayosd.css", "waybar.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
+THEME_FILES = ("clipboard.css", "swayosd.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
                "btop.theme", "eza.yml")
 
 STATE_VERSION = 1
@@ -55,6 +57,7 @@ STATE_SCHEMA = {
     "desktopTheme": ("a boolean", lambda v: type(v) is bool),
     "aboutArt": ("a boolean", lambda v: type(v) is bool),
     "screensaver": ("naruto, tomoe-sharingan, matrix, or custom", lambda v: isinstance(v, str) and v in ("naruto", "tomoe-sharingan", "matrix", "custom")),
+    "bar": ("a lowercase bar name", lambda v: state_text(v) and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", v)),
 }
 STATE_MIGRATIONS = {0: lambda value: {**value, "schemaVersion": 1}}
 
@@ -329,8 +332,82 @@ def selected_theme():
     return state().get("theme", settings().get("defaultTheme", "tokyoled"))
 
 
+def theme_backgrounds(name):
+    directories = (theme_path(name) / "backgrounds", DATA / "wallpapers" / name)
+    backgrounds = sorted({p.resolve() for directory in directories for p in directory.rglob("*")
+                          if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".avif"}})
+    defaults = settings()
+    if name == defaults.get("defaultTheme", "tokyoled") and defaults.get("defaultWallpaper"):
+        preferred = expand(defaults["defaultWallpaper"]).resolve()
+        if preferred in backgrounds:
+            backgrounds.remove(preferred)
+            backgrounds.insert(0, preferred)
+    return backgrounds
+
+
 def selected_font():
     return state().get("font", settings().get("defaultFont", "JetBrainsMono Nerd Font"))
+
+
+DEFAULT_BAR = bar_config.DEFAULT_BAR
+
+
+def bar_names():
+    return bar_config.names()
+
+
+def selected_bar():
+    return bar_config.selected(state())
+
+
+def write_bar_theme(value, palette=None, light=None):
+    bar_config.visibility_marker(STATE)
+    if palette is None:
+        source = theme_path(value.get("theme", settings().get("defaultTheme", "tokyoled")))
+        palette = colors(source)
+        light = (source / "light.mode").exists()
+    data = bar_config.theme_data(value, settings(), palette, light, read_json(CONFIG / "desktop/bar-outputs.json"))
+    target = RUNTIME / "bar-theme.json"
+    content = json.dumps(data) + "\n"
+    if not target.is_file() or target.read_text() != content:
+        atomic_write(target, content)
+
+
+def signal_application(name, signum):
+    # Linux limits process names to 15 bytes; Nix runs .<name>-wrapped.
+    pattern = "|".join(re.escape(value[:15]) for value in (name, f".{name}-wrapped"))
+    run(["pkill", "-" + signum, "-u", str(os.getuid()), "-x", pattern], check=False)
+
+
+def bar(args):
+    if bar_catalog.handle(args, preferences=state(), config=CONFIG, data=DATA,
+                          cache=Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")),
+                          theme_directories=theme_directories, theme_path=theme_path,
+                          theme_backgrounds=theme_backgrounds, selected_theme=selected_theme):
+        return
+    if args[:1] == ["panel"] and len(args) == 2:
+        if not bar_config.open_panel(RUNTIME, args[1], state(), force=True):
+            raise ValueError("The native bar is not running")
+        return
+    action = args[0] if args else "current"
+    names = bar_names()
+    if action == "current":
+        print(selected_bar())
+        return
+    if action == "list":
+        print("\n".join(names))
+        return
+    if action == "next":
+        args = ["set", names[(names.index(selected_bar()) + 1) % len(names)]]
+    elif action != "set" or len(args) != 2 or args[1] not in names:
+        raise ValueError("bar: list, current, next, or set " + ", ".join(names))
+    with state_lock():
+        value = state(); value["bar"] = args[1]
+        write_bar_theme(value)
+        save_state(value)
+    if bar_config.visibility_marker(STATE).exists():
+        return
+    run(["systemctl", "--user", "kill", "--kill-whom=main", "--signal=SIGUSR2", "desktop-bar.service"], check=False)
 
 
 def font(args):
@@ -351,8 +428,8 @@ def font(args):
     if "--no-reload" not in args:
         run(["gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", args[1] + " 11"], check=False)
         run(["makoctl", "reload"], check=False)
-        run(["pkill", "-USR2", "-u", str(os.getuid()), "-x", "ghostty"], check=False)
-        run(["pkill", "-USR1", "-u", str(os.getuid()), "-x", "kitty"], check=False)
+        signal_application("ghostty", "USR2")
+        signal_application("kitty", "USR1")
         restart("theme")
 
 
@@ -416,13 +493,7 @@ def _prepare_theme(value, name=None, *, follow_terminal=None):
         "files": {filename: (source / filename).read_text() if (source / filename).is_file() else None
                   for filename in THEME_FILES},
         "colors": (source / "colors.toml").read_text(),
-        "walker": {},
     }
-    template_root = CONFIG / "walker/templates"
-    for template in sorted(template_root.iterdir()) if template_root.is_dir() else []:
-        if template.is_dir():
-            inputs["walker"][template.name] = {item.name: item.read_text() for item in sorted(template.iterdir())
-                                                if item.is_file()}
     c = _theme_colors(inputs["colors"], name)
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     target = STATE / "theme"
@@ -450,6 +521,7 @@ def _prepare_theme(value, name=None, *, follow_terminal=None):
     _publish_theme_link(target, generation)
     config_dirs = os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":")
     os.environ["XDG_CONFIG_DIRS"] = ":".join([str(RUNTIME), *[p for p in config_dirs if p != str(RUNTIME)]])
+    write_bar_theme(value, c, inputs["light"])
     return source, c, inputs["light"]
 
 
@@ -457,7 +529,6 @@ def _cached_theme(generation, key):
     try:
         manifest = read_json(generation / ".generation.json")
         return (manifest.get("key") == key and bool(manifest.get("files"))
-                and "walker/themes" in manifest.get("directories", [])
                 and all((generation / path).is_dir() and not (generation / path).is_symlink()
                         for path in manifest["directories"])
                 and all(not (generation / path).is_symlink()
@@ -490,18 +561,12 @@ def _publish_theme_link(path, target):
 
 
 def _theme_aliases(target):
-    aliases = ((STATE / "fontconfig.conf", target / "fontconfig.conf"),
-               (RUNTIME / "walker/themes", target / "walker/themes"))
-    for alias, destination in aliases:
-        # Seed the old directory before converting its aliases so migration
-        # readers keep seeing the old content until the pointer switches.
-        if target.is_dir() and not target.is_symlink() and alias.exists() and not alias.is_symlink():
-            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if alias.is_dir():
-                shutil.copytree(alias, destination, dirs_exist_ok=True)
-            else:
-                atomic_write(destination, alias.read_bytes())
-        _publish_theme_link(alias, destination)
+    alias = STATE / "fontconfig.conf"
+    destination = target / "fontconfig.conf"
+    # Keep the previous font readable until the generation pointer switches.
+    if target.is_dir() and not target.is_symlink() and alias.exists() and not alias.is_symlink():
+        atomic_write(destination, alias.read_bytes())
+    _publish_theme_link(alias, destination)
 
 
 def _render_theme(target, inputs, c):
@@ -514,9 +579,8 @@ def _render_theme(target, inputs, c):
     }
     css_text = "\n".join(f"@define-color {k} {v};" for k, v in css.items()) + "\n"
     templates = {
-        "walker.css": css_text,
+        "clipboard.css": css_text,
         "swayosd.css": css_text,
-        "waybar.css": css_text,
         "mako.ini": f"background-color={c['background']}\ntext-color={c['foreground']}\nborder-color={c['accent']}\nborder-size=2\nfont=JetBrainsMono Nerd Font 11\n",
         "hyprland.conf": "general {\n    col.active_border = rgba(" + c['accent'][1:] + "ee)\n    col.inactive_border = rgba(" + c['color8'][1:] + "aa)\n}\n",
         "hyprlock.conf": hyprlock_palette(c),
@@ -541,16 +605,6 @@ def _render_theme(target, inputs, c):
     if inputs["light"]:
         atomic_write(target / "light.mode", "")
     atomic_write(target / "name", inputs["name"] + "\n")
-    walker_root = target / "walker/themes"
-    walker_root.mkdir(parents=True, mode=0o700)
-    for template, items in inputs["walker"].items():
-        walker = walker_root / ("desktop-" + template)
-        walker.mkdir(mode=0o700)
-        for filename, content in items.items():
-            if filename == "style.css":
-                content = (target / "walker.css").read_text() + "\n" + content
-                content += "\n* { font-family: " + json.dumps(family) + ", monospace; }\n"
-            atomic_write(walker / filename, content)
 
 
 def notify(title, body=""):
@@ -558,21 +612,15 @@ def notify(title, body=""):
         run(["notify-send", title, body], check=False)
 
 
-def selected_units(units):
-    if not read_json(CONFIG / "desktop/bar-outputs.json").get("minimal", ["eDP-1"]):
-        return [unit for unit in units if unit != "desktop-waybar-minimal"]
-    return units
-
-
 def restart(group):
     groups = {
-        "launcher": ["desktop-elephant", "desktop-walker"],
-        "bar": ["desktop-waybar", "desktop-waybar-minimal", "desktop-workspaces"],
-        "theme": ["desktop-walker", "desktop-waybar", "desktop-waybar-minimal", "desktop-swayosd"],
+        "launcher": ["desktop-search", "desktop-bar"],
+        "bar": ["desktop-bar"],
+        "theme": ["desktop-swayosd", "desktop-bar"],
     }
     if group not in groups:
         raise ValueError(f"Unknown service group: {group}")
-    return run(["systemctl", "--user", "try-restart", *[x + ".service" for x in selected_units(groups[group])]], check=False).returncode
+    return run(["systemctl", "--user", "try-reload-or-restart" if group == "theme" else "try-restart", *[x + ".service" for x in groups[group]]], check=False).returncode
 
 
 def theme(args):
@@ -594,13 +642,15 @@ def theme(args):
             apply_appearance(source, light)
             run(["hyprctl", "reload"], check=False)
             run(["makoctl", "reload"], check=False)
-            run(["pkill", "-USR2", "-u", str(os.getuid()), "-x", "ghostty"], check=False)
-            run(["pkill", "-USR1", "-u", str(os.getuid()), "-x", "kitty"], check=False)
+            signal_application("ghostty", "USR2")
+            signal_application("kitty", "USR1")
+            signal_application("nvim", "USR1")
             restart("theme")
             # Keep a wallpaper the user picked from this theme; otherwise use the theme's first one.
-            backgrounds = sorted(p.resolve() for p in (theme_path(name) / "backgrounds").glob("*") if p.is_file())
-            if backgrounds and expand(state().get("wallpaper", "")).resolve() not in backgrounds:
-                wallpaper(["set", str(backgrounds[0])])
+            backgrounds = theme_backgrounds(name)
+            if backgrounds:
+                current = expand(state().get("wallpaper", "")).resolve()
+                wallpaper(["set", str(current if current in backgrounds else backgrounds[0])])
     elif action == "generate":
         image_args = [x for x in args[1:] if not x.startswith("--")]
         if not image_args:
@@ -655,6 +705,36 @@ def apply_appearance(source, light):
         run(["gsettings", "set", "org.gnome.desktop.interface", key, value], check=False)
 
 
+def apply_wallpaper(command, image, output, duration):
+    command = list(command)
+    for attempt in range(2):
+        if attempt:
+            # A compositor reload can resize an output after awww accepted the image.
+            command[command.index("--transition-type") + 1] = "none"
+        run([*command, image])
+        settling = 1 if command[command.index("--transition-type") + 1] == "none" else max(1, float(duration) + .5)
+        deadline = time.monotonic() + settling + 2
+        confirmed_since = None
+        while True:
+            result = run(["awww", "query"], check=False, capture=True)
+            outputs = [line for line in result.stdout.splitlines()
+                       if not output or re.search(r"(?:^|: )" + re.escape(output) + r": ", line)]
+            now = time.monotonic()
+            if not result.returncode and outputs and all(
+                    line.endswith(f"currently displaying: image: {image}") for line in outputs):
+                if confirmed_since is None:
+                    confirmed_since = now
+                # Output reconfiguration can launch a delayed cache restore after acceptance.
+                if now - confirmed_since >= settling:
+                    return
+            else:
+                confirmed_since = None
+            if now >= deadline:
+                break
+            time.sleep(.05)
+    raise ValueError(f"The wallpaper renderer did not display: {image}")
+
+
 def wallpaper(args):
     action = args[0] if args else "current"
     value = state()
@@ -662,6 +742,8 @@ def wallpaper(args):
         print(value.get("wallpaper", settings().get("defaultWallpaper", "")))
         return
     if action == "grid":
+        if bar_config.open_panel(RUNTIME, "wallpapers", value):
+            return
         os.execvp("background-grid", ["background-grid"])
     choices = sorted(p for d in settings().get("wallpaperDirectories", [str(DATA / "wallpapers")])
                      for p in expand(d).rglob("*") if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".avif"})
@@ -694,7 +776,7 @@ def wallpaper(args):
                "--transition-duration", str(transition['duration']), "--transition-fps", str(transition['fps']), "--transition-step", str(transition['step'])]
     if output:
         command += ["--outputs", output]
-    run([*command, image])
+    apply_wallpaper(command, image, output, transition['duration'])
     with state_lock():
         value = state(); value["wallpaper"] = str(image)
         value.setdefault("wallpapers", {})[output or "*"] = str(image)
@@ -731,6 +813,7 @@ def terminal(args):
     command = ["xdg-terminal-exec", "--dir=" + cwd(), "--app-id=" + app_id]
     if args:
         command += ["-e", "bash", "-lc", args[0]] if shell else ["-e", *args]
+    command = bar_catalog.application_command(command)
     os.execvp(command[0], command)
 
 
@@ -748,9 +831,11 @@ def launch(args):
             selector = json.dumps("address:" + found["address"])
             run(["hyprctl", "eval", f'hl.dispatch(hl.dsp.focus({{ window = {selector} }}))'])
         else:
-            command = ["uwsm-app", "--", rest[0]] if len(rest) == 1 else shlex.split(rest[1]) if len(rest) == 2 else rest[1:]
+            command = bar_catalog.application_command([rest[0]] if len(rest) == 1 else shlex.split(rest[1]) if len(rest) == 2 else rest[1:])
             os.execvp(command[0], command)
     elif what in ("audio", "bluetooth", "wifi"):
+        if what in ("audio", "bluetooth", "wifi") and not rest and bar_config.open_panel(RUNTIME, what, state()):
+            return
         terminal(["--app-id", "org.desktop." + {"audio": "wiremix", "bluetooth": "bluetui", "wifi": "impala"}[what], {"audio": "wiremix", "bluetooth": "bluetui", "wifi": "impala"}[what]])
     elif what == "tui":
         if not rest:
@@ -766,25 +851,10 @@ def launch(args):
             command += ["--app=" + rest[0]]
         else:
             command += ["--incognito" if x == "--private" else x for x in rest]
+        command = bar_catalog.application_command(command)
         os.execvp(command[0], command)
     else:
         raise ValueError(f"Unknown launch action: {what}")
-
-
-def bar_stylesheet(style, scale):
-    if scale == 1.0:
-        return "@import " + json.dumps(str(style)) + ";\n"
-
-    def inline(path, seen=()):
-        path = path.resolve()
-        if path in seen:
-            raise ValueError(f"Circular Waybar stylesheet import: {path}")
-        return re.sub(r'''@import\s+["']([^"']+)["']\s*;''',
-                      lambda match: inline(path.parent / match[1], (*seen, path)), path.read_text())
-
-    # Imported light/base rules must be scaled together; their relative paths
-    # would otherwise resolve against the generated runtime directory.
-    return re.sub(r"(?<![\w.])([0-9]+(?:\.[0-9]+)?)px", lambda m: f"{float(m[1]) * scale:g}px", inline(style))
 
 
 def run_application(args):
@@ -793,12 +863,9 @@ def run_application(args):
     app, rest = args[0], args[1:]
     if rest[:1] == ["--"]:
         rest = rest[1:]
-    _, _, light = prepare_theme()
+    prepare_theme()
     raw = executable(app)
-    if app == "walker":
-        if not any(x in ("-t", "--theme") or x.startswith("--theme=") for x in rest):
-            rest = ["--theme", "desktop-rounded", *rest]
-    elif app == "mako":
+    if app == "mako":
         source = (CONFIG / "mako/config").read_text().replace("~/.local/state/desktop", str(STATE))
         target = RUNTIME / "mako.conf"; atomic_write(target, source)
         rest = ["--config", str(target), *rest]
@@ -809,101 +876,23 @@ def run_application(args):
         rest = ["--style", str(target), *rest]
     elif app == "btop":
         rest = ["--themes-dir", str(STATE / "theme"), *rest]
-    elif app == "waybar":
-        def take(short, long, default):
-            for i, arg in enumerate(rest):
-                if arg in (short, long) and i + 1 < len(rest):
-                    return Path(rest[i + 1]).expanduser()
-            return default
-        source = take("-c", "--config", CONFIG / "waybar/config.jsonc")
-        style = take("-s", "--style", CONFIG / "waybar/style.css")
-        if source.name in ("config.jsonc", "config-minimal.jsonc"):
-            text = source.read_text()
-            bar = read_json(CONFIG / "desktop/bar-outputs.json")
-            if bar:
-                config = json.loads(text)
-                config["output"] = bar.get("minimal" if "minimal" in source.name else "full", ["*"])
-                scale = float(bar.get("scale", 1.0))
-                if not 0.75 <= scale <= 2.0:
-                    raise ValueError("Waybar scale must be between 0.75 and 2")
-                for key in ("height", "margin-top", "margin-bottom", "margin-left", "margin-right"):
-                    if key in config:
-                        config[key] = round(config[key] * scale)
-                # Tray icons use pixels too; keep them proportional to labels.
-                if "tray" in config:
-                    for key in ("icon-size", "spacing"):
-                        if key in config["tray"]:
-                            config["tray"][key] = round(config["tray"][key] * scale)
-                text = json.dumps(config)
-            else:
-                scale = 1.0
-            if light:
-                mapping = {"#f4f4f5": "#4c4f69", "#cdd6f4": "#4c4f69", "#60a5fa": "#1e66f5", "#89b4fa": "#1e66f5", "#4ade80": "#40a02b", "#eab308": "#df8e1d", "#f87171": "#d20f39"}
-                text = re.sub(r"#[0-9a-fA-F]{6}", lambda m: mapping.get(m[0].lower(), m[0]), text)
-                alternate = style.with_name(style.stem + "-light.css")
-                if alternate.exists():
-                    style = alternate
-            text = re.sub(r'("NordVPN"\s*:\s*")[^"]*(")', lambda m: m[1] + ("nordvpn-tray-black" if light else "nordvpn-tray-white") + m[2], text)
-            target = RUNTIME / ("waybar-" + source.name); atomic_write(target, text)
-            filtered = []
-            skip = False
-            for arg in rest:
-                if skip:
-                    skip = False; continue
-                if arg in ("-c", "--config", "-s", "--style"):
-                    skip = True; continue
-                filtered.append(arg)
-            css = bar_stylesheet(style, scale) + "\n* { font-family: " + json.dumps(selected_font()) + ", 'Symbols Nerd Font'; }\n"
-            if state().get("desktopTheme"):
-                c = colors(theme_path(selected_theme()))
-                css += "\n".join(f"@define-color {key} {value};" for key, value in {
-                    "text": c["foreground"], "subtext": c["color7"], "blue": c["accent"],
-                    "mauve": c["color5"], "green": c["color2"], "red": c["color1"],
-                    "yellow": c["color3"], "base": c["background"],
-                }.items()) + "\n"
-            runtime_style = RUNTIME / ("waybar-" + style.name)
-            atomic_write(runtime_style, css)
-            rest = ["--config", str(target), "--style", str(runtime_style), *filtered]
     os.execv(raw, [raw, *rest])
 
 
 def launcher(args):
-    if any(args[i] in ("-m", "--modules") and args[i + 1] == "clipboard" for i in range(len(args) - 1)):
-        return clipboard(args)
-    remember_clipboard_target()
-    run(["systemctl", "--user", "start", "desktop-elephant.service", "desktop-walker.service"], check=False)
-    run_application(["walker", "--width", "644", "--maxheight", "300", "--minheight", "300", *args])
+    if "--dmenu" in args:
+        return run_application(["desktop-bar-native", *args])
+    panel = bar_config.launcher_panel(args)
+    if panel == "clipboard" or any(args[i] in ("-m", "--modules") and args[i + 1] == "clipboard" for i in range(len(args) - 1)):
+        remember_clipboard_target()
+    if panel not in ("apps", "notifications") and not (RUNTIME.parent / "desktop-search/search.sock").exists():
+        run(["systemctl", "--user", "start", "desktop-search.service"], check=False)
+    if not bar_config.open_panel(RUNTIME, panel, state()):
+        run_application(["desktop-bar-native", "--menu", panel])
 
 
 def clipboard(args):
-    remember_clipboard_target()
-    try:
-        picker = executable("clipboard-picker-native")
-    except ValueError:
-        picker = None
-    if picker:
-        run(["systemctl", "--user", "start", "desktop-elephant.service"], check=False)
-        target = read_json(RUNTIME / "clipboard-target.json").get("address", "")
-        run_application([picker, "--target", target])
-        return
-    width, height = 1000, 520
-    try:
-        monitors = json.loads(run(["hyprctl", "-j", "monitors"], capture=True, check=False).stdout)
-        monitor = next((m for m in monitors if m.get("focused")), monitors[0] if monitors else {})
-        scale = max(float(monitor.get("scale", 1)), 0.1)
-        w, h = monitor.get("width", 1920), monitor.get("height", 1080)
-        if monitor.get("transform", 0) in (1, 3, 5, 7):
-            w, h = h, w
-        width, height = min(width, int(w / scale) - 80), min(height, int(h / scale) - 160)
-    except (OSError, ValueError, TypeError):
-        pass
-    compact = width < 900 or height < 460
-    width, height = max(360, width), max(300, height)
-    run(["systemctl", "--user", "start", "desktop-elephant.service", "desktop-walker.service"], check=False)
-    modules = [] if any(x in args for x in ("-m", "--modules")) else ["-m", "clipboard"]
-    run_application(["walker", "--theme", "desktop-clipboard-compact" if compact else "desktop-clipboard",
-                     "--width", str(width), "--height", str(height),
-                     *modules, *args])
+    launcher(args if args else ["-m", "clipboard"])
 
 
 def remember_clipboard_target():
@@ -920,11 +909,12 @@ def clipboard_paste(args):
     if not target:
         raise ValueError("No clipboard paste target; the item remains copied")
     # The provider calls us only after wl-copy has acquired the selection.
-    # Wait for Walker to release keyboard focus before delivering the shortcut.
+    # Wait for the picker to release keyboard focus before delivering the shortcut.
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
         layers = json.loads(run(["hyprctl", "-j", "layers"], capture=True).stdout)
-        if not any(layer.get("namespace") == "walker"
+        if not any(layer.get("namespace", "") == "clipboard-picker"
+                   or layer.get("namespace", "").startswith(("desktop-bar-menu-", "desktop-bar-panel-"))
                    for monitor in layers.values() for level in monitor.get("levels", {}).values()
                    for layer in level):
             window = json.loads(run(["hyprctl", "-j", "activewindow"], capture=True).stdout)
@@ -963,14 +953,13 @@ def toggle(args):
                 marker.unlink(missing_ok=True)
             run(["systemctl", "--user", "restart", "desktop-hypridle.service"])
         return
-    services = {"bar": ["desktop-waybar", "desktop-waybar-minimal", "desktop-workspaces"], "nightlight": ["desktop-hyprsunset"]}
+    services = {"bar": ["desktop-bar"], "nightlight": ["desktop-hyprsunset"]}
     if feature in services:
-        services[feature] = selected_units(services[feature])
         service = services[feature][0] + ".service"
         active = run(["systemctl", "--user", "is-active", "--quiet", service], check=False).returncode == 0
         if feature == "bar":
             with state_lock():
-                disabled = STATE / "toggles/waybar-off"
+                disabled = bar_config.visibility_marker(STATE)
                 if active:
                     atomic_write(disabled, "")
                 else:
@@ -1495,8 +1484,8 @@ def edit_config(args):
         "Hyprland configuration": "hypr/.config/hypr/hyprland.lua",
         "Input": "hypr/.config/hypr/input.lua", "Monitors": "hypr/.config/hypr/monitors.lua",
         "Hypridle": "hypr/.config/hypr/hypridle.conf", "Hyprlock": "hypr/.config/hypr/hyprlock.conf",
-        "Night light": "hypr/.config/hypr/hyprsunset.conf", "Walker": "walker/.config/walker/config.toml",
-        "Waybar": "waybar/.config/waybar/config.jsonc", "Desktop menu": "desktop-settings/.config/desktop/menus.json",
+        "Night light": "hypr/.config/hypr/hyprsunset.conf", "Desktop search": "desktop-search/.config/desktop-search/config.toml",
+        "Weather": "desktop-bar/.config/desktop/weather.json", "Desktop menu": "desktop-settings/.config/desktop/menus.json",
         "SwayOSD": "appearance/.config/swayosd/config.toml", "XCompose": "desktop-settings/.XCompose",
         "Application launchers": "appearance/.config/desktop/settings.json",
         "Default terminal": "desktop-settings/.config/xdg-terminals.list",
@@ -1556,7 +1545,8 @@ def appearance(args):
             value = state(); value["terminalTheme"] = args[1] == "desktop"
             _prepare_theme(value)
             save_state(value)
-        run(["pkill", "-USR2", "-u", str(os.getuid()), "-x", "ghostty"], check=False)
+        signal_application("ghostty", "USR2")
+        signal_application("kitty", "USR1")
         restart("theme")
     elif args == ["lock-background", "reset"]:
         with state_lock():
@@ -1735,55 +1725,13 @@ def screensaver_worker(args):
 
 def menu(args):
     group = args[0] if args else "main"
-    if group == "background":
-        wallpaper(["grid"]); return
-    if group == "reminder-set":
-        delay = run([executable("walker"), "--dmenu", "--inputonly", "--placeholder", "Minutes"], input="", check=False, capture=True)
-        if not delay.returncode and delay.stdout.strip():
-            message = run([executable("walker"), "--dmenu", "--inputonly", "--placeholder", "Reminder"], input="", check=False, capture=True)
-            if not message.returncode:
-                reminder([delay.stdout.strip(), message.stdout.strip()])
-        return
-    prepare_theme()
-    menus = read_json(CONFIG / "desktop/menus.json")
-    stack = []
-    while True:
-        choices = dict(menus.get(group, {}).get("items", {}))
-        if group == "theme":
-            names = sorted({p.name for d in theme_directories() if d.is_dir() for p in d.iterdir() if p.is_dir()})
-            choices = {("●  " if name == selected_theme() else "○  ") + name.replace("-", " ").title(): ["theme", "set", name] for name in names}
-            choices["󰸌  Generate from wallpaper…"] = ["theme", "generate"]
-        elif group == "font":
-            families = run(["fc-list", ":spacing=mono", "--format", "%{family[0]}\n"], capture=True).stdout.splitlines()
-            choices = {("●  " if family == selected_font() else "○  ") + family: ["font", "set", family] for family in sorted(set(families))}
-        elif group == "config":
-            choices = {name: ["config", name] for name in ["Hyprland configuration", "Hyprland", "Keybindings", "Input", "Monitors", "Hypridle", "Hyprlock", "Night light", "SwayOSD", "Walker", "Waybar", "XCompose", "Desktop menu"]}
-        elif group in ("hardware", "toggle"):
-            devices = json.loads(run(["hyprctl", "-j", "devices"], capture=True).stdout)
-            if not any("touchpad" in m.get("name", "").lower() for m in devices.get("mice", [])):
-                choices = {label: command for label, command in choices.items() if command != ["toggle", "touchpad"]}
-        elif group == "power-profile":
-            result = run(["powerprofilesctl", "list"], capture=True, check=False)
-            choices = {name.replace("-", " ").title(): ["exec", "powerprofilesctl", "set", name] for name in ("power-saver", "balanced", "performance") if re.search(r"(?m)^\s*\*?\s*" + name + r":", result.stdout)}
-        if not choices:
-            raise ValueError(f"No choices available for menu: {group}")
-        if stack:
-            choices["󰁍  Back"] = ["back"]
-        result = run([executable("walker"), "--theme", "desktop-menu", "--dmenu", "--width", "350", "--minheight", "1", "--maxheight", "630", "--placeholder", menus.get(group, {}).get("title", group.replace("-", " ").title() + "…")],
-                     input="\n".join(choices) + "\n", check=False, capture=True)
-        selected = result.stdout.strip()
-        if result.returncode or selected not in choices:
-            if not stack:
-                return
-            group = stack.pop()
-            continue
-        command, *rest = choices[selected]
-        if command == "back":
-            group = stack.pop()
-        elif command == "menu" and rest[0] not in ("background", "reminder-set"):
-            stack.append(group); group = rest[0]
-        else:
-            return dispatch(command, rest)
+    panel = {"bar": "styles", "theme": "themes", "background": "wallpapers"}.get(group)
+    if panel is None:
+        if group not in {"font", "power-profile", "hardware", "toggle", "config", "reminder-set"} and group not in read_json(bar_catalog.menus_path(CONFIG)):
+            raise ValueError(f"Unknown menu: {group}")
+        panel = "menu/" + group
+    if not bar_config.open_panel(RUNTIME, panel, state()):
+        run_application(["desktop-bar-native", "--menu", panel])
 
 
 def transcode(args):
@@ -1853,27 +1801,8 @@ def active_keybindings():
 
 
 def keybindings():
-    modifiers = ((64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT"),
-                 (2, "CAPS"), (16, "MOD2"), (32, "MOD3"), (128, "MOD5"))
-    lines = set()
-    for binding in active_keybindings():
-        description = " ".join(binding.get("description", "").split())
-        key = f"code:{binding['keycode']}" if binding.get("keycode") else binding.get("key", "")
-        if not key and binding.get("catch_all"):
-            key = "catchall"
-        shortcut = binding.get("display_key") or " + ".join([name for mask, name in modifiers if binding.get("modmask", 0) & mask] + [key]) if key or binding.get("display_key") else ""
-        if not description or not shortcut:
-            continue
-        if binding.get("submap"):
-            shortcut = f"[{binding['submap']}] {shortcut}"
-        for flag, label in (("release", "release"), ("longPress", "long press")):
-            if binding.get(flag):
-                shortcut += f" ({label})"
-        lines.add(f"{shortcut}  {description}")
-    if not lines:
-        raise ValueError("Hyprland has no described keybindings")
-    prepare_theme()
-    run([executable("walker"), "--theme", "desktop-rounded", "--dmenu", "--placeholder", "Keybindings"], input="\n".join(sorted(lines)), check=False)
+    if not bar_config.open_panel(RUNTIME, "keybindings", state()):
+        run_application(["desktop-bar-native", "--menu", "keybindings"])
 
 
 def seed_preferences():
@@ -2018,7 +1947,7 @@ def dispatch(command, args):
                  "launcher": launcher, "toggle": toggle, "display": display, "brightness": brightness, "osd": osd,
                  "lock": lock, "lock-worker": lock_worker, "idle-worker": idle_worker, "capture": capture, "reminder": reminder, "menu": menu,
                  "transcode": transcode, "session": session, "monitor-watch": monitor_watch,
-                 "font": font, "appearance": appearance, "config": edit_config, "clipboard": clipboard,
+                 "font": font, "bar": bar, "appearance": appearance, "config": edit_config, "clipboard": clipboard,
                  "clipboard-paste": clipboard_paste,
                  "share": share, "about": about,
                  "screensaver": screensaver, "screensaver-worker": screensaver_worker}
@@ -2045,7 +1974,7 @@ def dispatch(command, args):
     elif command == "integrate":
         integrate()
     elif command == "weather":
-        os.execv(str(CONFIG / "waybar/weather.sh"), [str(CONFIG / "waybar/weather.sh")])
+        os.execvp("desktop-bar", ["desktop-bar", "--weather", *args])
     elif command == "battery":
         batteries = list(Path("/sys/class/power_supply").glob("BAT*/capacity"))
         print(" · ".join(p.read_text().strip() + "%" for p in batteries) or "No battery")
@@ -2098,7 +2027,7 @@ def dispatch(command, args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", help="theme, font, appearance, wallpaper, clipboard, launcher, menu, launch, terminal, capture, reminder, toggle, lock, screensaver, config, session, prepare, or path")
+    parser.add_argument("command", help="theme, font, bar, appearance, wallpaper, clipboard, launcher, menu, launch, terminal, capture, reminder, toggle, lock, screensaver, config, session, prepare, or path")
     parser.add_argument("args", nargs=argparse.REMAINDER)
     parsed = parser.parse_args(argv)
     try:

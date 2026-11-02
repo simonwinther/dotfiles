@@ -308,6 +308,12 @@ unsafe extern "C" fn draw(
             11.,
             (0.4, 0.88, 1.),
         );
+        let (provider, color) = match o.view.provider.as_str() {
+            "soniox" => ("SONIOX", (0.4, 0.88, 1.)),
+            "openai" => ("OPENAI", (1., 0.72, 0.4)),
+            _ => ("UNKNOWN", (0.69, 0.7, 0.83)),
+        };
+        label(&cr, provider, width as f64 - 60., 12., 10., color);
         let text = if o.view.transcript.is_empty() {
             if recording {
                 "Listening…"
@@ -560,7 +566,7 @@ mod tests {
 
     #[test]
     fn native_frame_has_rounded_cyan_border_and_readable_content() {
-        let view=View{phase:"recording".into(),transcript:"Testing the native Rust dictation overlay.\nPyTorch · nnU-Net · 1e-4\nEnglish and dansk.".into(),bars:(0..42).map(|i|0.25+0.45*(i as f32*0.5).sin().abs()).collect(),start_ms:epoch_ms().saturating_sub(1200),..Default::default()};
+        let view=View{phase:"recording".into(),provider:"soniox".into(),transcript:"Testing the native Rust dictation overlay.\nPyTorch · nnU-Net · 1e-4\nEnglish and dansk.".into(),bars:(0..42).map(|i|0.25+0.45*(i as f32*0.5).sin().abs()).collect(),start_ms:epoch_ms().saturating_sub(1200),..Default::default()};
         let incoming = Arc::new(Mutex::new(Incoming {
             view: view.clone(),
             revision: 1,

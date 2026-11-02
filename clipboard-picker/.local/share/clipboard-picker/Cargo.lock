@@ -54,10 +54,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "clipboard-history"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "clipboard-picker"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "clipboard-history",
  "gtk4",
  "gtk4-layer-shell",
  "serde",

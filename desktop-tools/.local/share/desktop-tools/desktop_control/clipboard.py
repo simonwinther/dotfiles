@@ -1,6 +1,7 @@
 """Clipboard component with injected dependencies."""
 from __future__ import annotations
 import json
+import bar_config
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -17,33 +18,19 @@ class Clipboard:
     applications: Applications
 
     def launcher(self, args: list[str]) -> int | None:
-        if any(args[i] in ("-m", "--modules") and args[i + 1] == "clipboard" for i in range(len(args) - 1)):
-            return self.clipboard(args)
-        self.remember_clipboard_target()
-        self.ctx.processes.run(["systemctl", "--user", "start", "desktop-elephant.service", "desktop-walker.service"], check=False)
-        self.applications.run_application(["walker", "--width", "644", "--maxheight", "300", "--minheight", "300", *args])
+        if "--dmenu" in args:
+            return self.applications.run_application(["desktop-bar-native", *args])
+        panel = bar_config.launcher_panel(args)
+        if panel == "clipboard" or any(args[i] in ("-m", "--modules") and args[i + 1] == "clipboard" for i in range(len(args) - 1)):
+            self.remember_clipboard_target()
+        if panel not in ("apps", "notifications") and not (self.ctx.paths.runtime.parent / "desktop-search/search.sock").exists():
+            self.ctx.processes.run(["systemctl", "--user", "start", "desktop-search.service"], check=False)
+        if not bar_config.open_panel(self.ctx.paths.runtime, panel, storage.read_json(self.ctx.paths.state / "state.json")):
+            self.applications.run_application(["desktop-bar-native", "--menu", panel])
 
 
     def clipboard(self, args: list[str]) -> int | None:
-        self.remember_clipboard_target()
-        width, height = 1000, 520
-        try:
-            monitors = json.loads(self.ctx.processes.run(["hyprctl", "-j", "monitors"], capture=True, check=False).stdout)
-            monitor = next((m for m in monitors if m.get("focused")), monitors[0] if monitors else {})
-            scale = max(float(monitor.get("scale", 1)), 0.1)
-            w, h = monitor.get("width", 1920), monitor.get("height", 1080)
-            if monitor.get("transform", 0) in (1, 3, 5, 7):
-                w, h = h, w
-            width, height = min(width, int(w / scale) - 80), min(height, int(h / scale) - 160)
-        except (OSError, ValueError, TypeError):
-            pass
-        compact = width < 900 or height < 460
-        width, height = max(360, width), max(300, height)
-        self.ctx.processes.run(["systemctl", "--user", "start", "desktop-elephant.service", "desktop-walker.service"], check=False)
-        modules = [] if any(x in args for x in ("-m", "--modules")) else ["-m", "clipboard"]
-        self.applications.run_application(["walker", "--theme", "desktop-clipboard-compact" if compact else "desktop-clipboard",
-                         "--width", str(width), "--height", str(height),
-                         *modules, *args])
+        return self.launcher(args if args else ["-m", "clipboard"])
 
 
     def remember_clipboard_target(self) -> None:
@@ -60,11 +47,12 @@ class Clipboard:
         if not target:
             raise ValueError("No clipboard paste target; the item remains copied")
         # The provider calls us only after wl-copy has acquired the selection.
-        # Wait for Walker to release keyboard focus before delivering the shortcut.
+        # Wait for the picker to release keyboard focus before delivering the shortcut.
         deadline = self.ctx.clock.monotonic() + 2
         while self.ctx.clock.monotonic() < deadline:
             layers = json.loads(self.ctx.processes.run(["hyprctl", "-j", "layers"], capture=True).stdout)
-            if not any(layer.get("namespace") == "walker"
+            if not any(layer.get("namespace", "") == "clipboard-picker"
+                       or layer.get("namespace", "").startswith(("desktop-bar-menu-", "desktop-bar-panel-"))
                        for monitor in layers.values() for level in monitor.get("levels", {}).values()
                        for layer in level):
                 window = json.loads(self.ctx.processes.run(["hyprctl", "-j", "activewindow"], capture=True).stdout)

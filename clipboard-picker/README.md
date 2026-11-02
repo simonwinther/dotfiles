@@ -1,11 +1,16 @@
 # Clipboard picker
 
-An independent Rust/GTK4 frontend for the existing Elephant clipboard history.
+An independent Rust/GTK4 frontend for the native desktop-search clipboard history.
 It does not run another clipboard watcher or rewrite saved history. Home Manager
 installs it on NixOS; the portable wrapper also works in a Stow-managed home with
-`clipboard-picker-native` installed. It requires Hyprland, Elephant and wl-clipboard.
+`clipboard-picker-native` installed. It requires Hyprland, desktop-search and wl-clipboard.
 
-Open with Alt+V. The frameless grid follows the desktop's current Walker palette
+The pure Rust `core` crate supplies history access, selection payloads and guarded
+batch paste to both this GTK frontend and the native desktop bar. Both Clean and
+Motion route Alt+V to the bar; this standalone frontend remains available for
+direct use.
+
+The standalone frameless grid follows the desktop's current clipboard palette
 and selected monospace font. Four columns show images and text; numbered corner
 badges show selection order. Space toggles the focused card; arrow keys and
 Vim's h/j/k/l move between cards. Ctrl+J / Ctrl+K also move down / up and work

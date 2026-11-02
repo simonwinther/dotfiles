@@ -286,6 +286,76 @@ pub fn init(directory: &Path) -> Result<()> {
     println!("{}", directory.join("suite.toml").display());
     Ok(())
 }
+
+async fn stream_clip(
+    c: &Config,
+    p: &Processor,
+    clip: &Clip,
+    language: &str,
+) -> Result<(String, Value)> {
+    use tokio::{
+        sync::{mpsc, watch},
+        time::{Duration, Instant as Clock, sleep_until},
+    };
+
+    let decoded = tokio::process::Command::new("ffmpeg")
+        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(&clip.audio)
+        .args(["-vn", "-ac", "1", "-ar", "24000", "-f", "s16le", "pipe:1"])
+        .output()
+        .await
+        .context("Cannot decode benchmark audio with ffmpeg")?;
+    ensure!(decoded.status.success(), "Benchmark audio decoding failed");
+    let duration_ms = decoded.stdout.len() as f64 / 48.;
+    let started = Clock::now();
+    let (tx, rx) = mpsc::channel(4);
+    let (view, mut previews) = watch::channel(crate::ui::View::default());
+    let sender = tokio::spawn(async move {
+        let mut sent = 0;
+        for chunk in decoded.stdout.chunks(4800) {
+            sent += chunk.len();
+            sleep_until(started + Duration::from_secs_f64(sent as f64 / 48000.)).await;
+            if tx
+                .send(network::Chunk::Audio(chunk.to_vec()))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        let _ = tx.send(network::Chunk::End(true)).await;
+    });
+    let request = network::live(c, p, language, rx, &view);
+    tokio::pin!(request);
+    let mut first_text_ms = None;
+    let result = loop {
+        tokio::select! {
+            result = &mut request => break result,
+            changed = previews.changed() => {
+                if changed.is_ok() && first_text_ms.is_none() && !previews.borrow().transcript.is_empty() {
+                    first_text_ms = Some(started.elapsed().as_secs_f64() * 1000.);
+                }
+            }
+        }
+    };
+    sender.abort();
+    let text = result?;
+    let total_ms = started.elapsed().as_secs_f64() * 1000.;
+    if first_text_ms.is_none() && !text.is_empty() {
+        first_text_ms = Some(total_ms);
+    }
+    Ok((
+        text,
+        json!({
+            "audio_ms": duration_ms,
+            "first_text_ms": first_text_ms,
+            "final_after_audio_ms": (total_ms - duration_ms).max(0.),
+            "session_ms": total_ms,
+            "includes_connection_setup": true,
+        }),
+    ))
+}
+
 pub async fn run(
     c: &Config,
     action: &str,
@@ -358,18 +428,23 @@ pub async fn run(
             .collect()
     } else {
         c.validate()?;
-        c.key()?;
+        if action == "live" {
+            c.live_key()?;
+        } else {
+            c.key()?;
+        }
         let p = Processor::load(c)?;
         for clip in &suite.clips {
-            network::batch_fields(
-                c,
-                &p,
-                if language.is_empty() {
-                    &clip.language
-                } else {
-                    language
-                },
-            )?;
+            let lang = if language.is_empty() {
+                &clip.language
+            } else {
+                language
+            };
+            if action == "live" {
+                network::live_update(c, &p, lang)?;
+            } else {
+                network::batch_fields(c, &p, lang)?;
+            }
         }
         let mut results = Vec::new();
         for clip in &suite.clips {
@@ -379,7 +454,16 @@ pub async fn run(
                 language
             };
             let started = Instant::now();
-            let (text, error) = match network::batch(c, &p, lang, &clip.audio).await {
+            let mut timing = Value::Null;
+            let response = if action == "live" {
+                stream_clip(c, &p, clip, lang).await.map(|(text, metrics)| {
+                    timing = metrics;
+                    text
+                })
+            } else {
+                network::batch(c, &p, lang, &clip.audio).await
+            };
+            let (text, error) = match response {
                 Ok(t) => {
                     let t = p.process(&t);
                     let error = if t.is_empty() {
@@ -389,12 +473,19 @@ pub async fn run(
                     };
                     (t, error.to_owned())
                 }
-                Err(e) => (String::new(), e.to_string()),
+                Err(e) => (String::new(), c.redact(&e.to_string())),
             };
             let mut result = score(clip, &text);
             result["error"] = json!(error);
             result["request_ms"] = json!(started.elapsed().as_millis() as u64);
-            result["request_fields"] = json!(network::batch_fields(c, &p, lang)?);
+            result["request_fields"] = if action == "live" {
+                network::live_update(c, &p, lang)?
+            } else {
+                json!(network::batch_fields(c, &p, lang)?)
+            };
+            if action == "live" {
+                result["timing"] = timing;
+            }
             results.push(result);
         }
         results
@@ -404,11 +495,15 @@ pub async fn run(
         results,
         if action == "score" {
             "offline"
+        } else if action == "live" {
+            "live"
         } else {
             "batch"
         },
         if action == "score" {
             ""
+        } else if action == "live" {
+            c.get(c.live_model_setting())
         } else {
             c.get("TRANSCRIBE_MODEL")
         },

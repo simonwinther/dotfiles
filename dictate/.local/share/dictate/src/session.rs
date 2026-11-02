@@ -282,7 +282,7 @@ pub async fn start(
     if !model.is_empty() {
         c.set(
             if mode == "live" {
-                "LIVE_MODEL"
+                c.live_model_setting()
             } else {
                 "TRANSCRIBE_MODEL"
             },
@@ -302,7 +302,11 @@ pub async fn start(
         );
     }
     c.validate()?;
-    c.key()?;
+    if mode == "live" {
+        c.live_key()?;
+    } else {
+        c.key()?;
+    }
     let p = Processor::load(&c)?;
     if mode == "live" {
         network::live_update(&c, &p, language)?;
@@ -415,11 +419,19 @@ pub async fn worker(fd: i32) -> Result<()> {
     let state = Arc::new(Mutex::new(session));
     let settings = Arc::new(Mutex::new(c.clone()));
     let rate = c
-        .get("OPENAI_COST_USD_PER_MINUTE")
+        .get(if live && c.get("LIVE_PROVIDER") == "soniox" {
+            "SONIOX_COST_USD_PER_MINUTE"
+        } else {
+            "OPENAI_COST_USD_PER_MINUTE"
+        })
         .parse::<f64>()
         .ok()
         .unwrap_or(if live {
-            0.
+            if c.get("LIVE_PROVIDER") == "soniox" {
+                0.002
+            } else {
+                0.017
+            }
         } else {
             match c.get("TRANSCRIBE_MODEL") {
                 "gpt-transcribe" => 0.0045,
@@ -430,6 +442,12 @@ pub async fn worker(fd: i32) -> Result<()> {
     let (view_tx, view_rx) = watch::channel(View {
         start_ms: stamp,
         live,
+        provider: if live {
+            c.get("LIVE_PROVIDER")
+        } else {
+            "openai"
+        }
+        .into(),
         cost_rate: if c.yes("SHOW_COST_ESTIMATE") {
             rate
         } else {
@@ -553,6 +571,7 @@ fn request_control(
             state.phase = "stopping".into();
             state.save()?;
             view.send_modify(|v| v.phase = "processing".into());
+            storage::log(&settings.lock().unwrap(), "event=stop_requested");
             control.send_replace(Control::Stop);
             Ok("Finishing dictation".into())
         }
@@ -857,9 +876,7 @@ async fn pipeline(
         if source.is_file()
             && fs::metadata(source).is_ok_and(|m| m.len() > if live { 0 } else { 44 })
         {
-            let reason = error
-                .to_string()
-                .replace(c.get("OPENAI_API_KEY"), "[redacted]");
+            let reason = c.redact(&error.to_string());
             match Recovery::save(
                 source,
                 s.settings.clone(),

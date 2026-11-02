@@ -2,7 +2,7 @@ use anyhow::{Result, ensure};
 use clap::{Args, Parser, Subcommand};
 use dictate::{
     config::{self, Config},
-    desktop, evaluation, network, session,
+    desktop, evaluation, network, session, storage,
     text::Processor,
 };
 use std::{io::Write, path::PathBuf};
@@ -31,6 +31,11 @@ enum Commands {
     Check,
     /// List supported transcription models.
     Models,
+    /// Show or save the live transcription provider for the recording shortcut.
+    Provider {
+        #[arg(value_parser = ["openai", "soniox"])]
+        name: Option<String>,
+    },
     /// Create or validate personal vocabulary.
     Dictionary {
         #[arg(value_parser=["init","path","check"])]
@@ -57,9 +62,19 @@ struct Mode {
     language: String,
     #[arg(long, default_value = "")]
     model: String,
+    #[arg(long, value_parser = ["openai", "soniox"])]
+    provider: Option<String>,
 }
 #[derive(Subcommand)]
 enum Eval {
+    /// Replay the same recordings at microphone speed through a live backend.
+    Live {
+        manifest: PathBuf,
+        #[arg(long, value_parser = ["openai", "soniox"])]
+        provider: String,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     Init {
         #[arg(default_value = "benchmarks/scientific")]
         directory: PathBuf,
@@ -106,6 +121,10 @@ async fn run() -> Result<()> {
     match cli.command {
         Commands::Live(mode) | Commands::Batch(mode) => {
             let live = args[1] == "live";
+            if let Some(provider) = mode.provider {
+                ensure!(live, "--provider is available only in live mode");
+                c.set("LIVE_PROVIDER", provider);
+            }
             ensure!(
                 !live || !matches!(mode.action.as_str(), "once" | "retry" | "discard"),
                 "That action is available in batch mode"
@@ -126,7 +145,7 @@ async fn run() -> Result<()> {
         Commands::Status => session::action(c, "batch", "status", "", "").await,
         Commands::Check => {
             c.validate()?;
-            c.key()?;
+            c.live_key()?;
             let p = Processor::load(&c)?;
             network::live_update(&c, &p, "")?;
             network::batch_fields(&c, &p, "")?;
@@ -138,9 +157,9 @@ async fn run() -> Result<()> {
                 env!("CARGO_PKG_VERSION")
             );
             println!(
-                "Live: {} (delay={}); batch: {}",
-                c.get("LIVE_MODEL"),
-                c.get("LIVE_DELAY"),
+                "Live: {} / {}; batch: {}",
+                c.get("LIVE_PROVIDER"),
+                c.get(c.live_model_setting()),
                 c.get("TRANSCRIBE_MODEL")
             );
             println!(
@@ -170,9 +189,30 @@ async fn run() -> Result<()> {
         }
         Commands::Models => {
             println!(
-                "Batch: gpt-transcribe, gpt-4o-transcribe, gpt-4o-mini-transcribe, whisper-1\nLive: gpt-live-transcribe\nCurrent: {} / {}",
+                "Batch: gpt-transcribe, gpt-4o-transcribe, gpt-4o-mini-transcribe, whisper-1\nLive: openai / gpt-live-transcribe; soniox / stt-rt-v5\nCurrent: batch {} / live {} / {}",
                 c.get("TRANSCRIBE_MODEL"),
-                c.get("LIVE_MODEL")
+                c.get("LIVE_PROVIDER"),
+                c.get(c.live_model_setting())
+            );
+            Ok(())
+        }
+        Commands::Provider { name } => {
+            if let Some(name) = name {
+                let _lock = storage::Lock::acquire()?;
+                ensure!(
+                    storage::Session::active().is_none() && storage::legacy_active().is_none(),
+                    "Finish the current recording before switching providers"
+                );
+                c.set("LIVE_PROVIDER", name);
+                c.validate()?;
+                c.live_key()?;
+                network::live_update(&c, &Processor::load(&c)?, "")?;
+                storage::write_private(&config::provider_path(), c.get("LIVE_PROVIDER"))?;
+            }
+            println!(
+                "Live provider: {} ({})",
+                c.get("LIVE_PROVIDER"),
+                c.get(c.live_model_setting())
             );
             Ok(())
         }
@@ -224,6 +264,14 @@ async fn run() -> Result<()> {
             language,
         } => evaluation::bench(&c, &source, &factors, &language).await,
         Commands::Eval { action } => match action {
+            Eval::Live {
+                manifest,
+                provider,
+                output,
+            } => {
+                c.set("LIVE_PROVIDER", provider);
+                evaluation::run(&c, "live", &manifest, None, output.as_deref(), "").await
+            }
             Eval::Init { directory } => evaluation::init(&directory),
             Eval::Check { manifest } => {
                 evaluation::run(&c, "check", &manifest, None, None, "").await

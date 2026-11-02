@@ -37,6 +37,7 @@
       "󰸌  Theme": ["menu", "theme"],
       "󰟵  Lock screen": ["menu", "lock-screen"],
       "  Font": ["menu", "font"],
+      "󰍜  Bar style": ["menu", "bar"],
       "  Background": ["wallpaper", "grid"],
       "  Hyprland": ["config", "Hyprland"],
       "󱄄  Screensaver": ["menu", "screensaver"],

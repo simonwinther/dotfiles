@@ -214,6 +214,8 @@ return {
       },
       explorer = { enabled = false }, -- disable built-in explorer (i use neotree)
       picker = {
+        -- LuaJIT cannot resolve bare library names on NixOS.
+        db = { sqlite3_path = vim.env.NVIM_SQLITE_LIBRARY },
         sources = (function()
           local picker_ignore = require("config.picker_ignore")
 

@@ -28,5 +28,5 @@ Snapshots, Cargo output, and published executables live under
 `${XDG_CACHE_HOME:-$HOME/.cache}/<tool>/{build,target,bin}`. Executables are
 replaced atomically after a successful build. Build failures preserve the
 published executables, and copying failures also preserve the previous source
-snapshot. The workspace slider uses this workflow too; its launcher runs the
-published copy in `workspaces-slider/bin/`.
+snapshot. The desktop bar uses this workflow too; its launcher runs the published copy
+in `desktop-bar/bin/`, including the workspace slider and tray.

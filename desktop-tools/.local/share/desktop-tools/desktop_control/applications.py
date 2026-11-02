@@ -1,6 +1,8 @@
 """Applications component with injected dependencies."""
 from __future__ import annotations
 import json
+import bar_catalog
+import bar_config
 from pathlib import Path
 import re
 import shlex
@@ -9,7 +11,6 @@ import socket
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from .rendering import bar_stylesheet, colors
 from . import storage
 
 if TYPE_CHECKING:
@@ -51,6 +52,7 @@ class Applications:
         command = ["xdg-terminal-exec", "--dir=" + self.cwd(), "--app-id=" + app_id]
         if args:
             command += ["-e", "bash", "-lc", args[0]] if shell else ["-e", *args]
+        command = bar_catalog.application_command(command)
         self.ctx.processes.execvp(command[0], command)
 
 
@@ -68,9 +70,11 @@ class Applications:
                 selector = json.dumps("address:" + found["address"])
                 self.ctx.processes.run(["hyprctl", "eval", f'hl.dispatch(hl.dsp.focus({{ window = {selector} }}))'])
             else:
-                command = ["uwsm-app", "--", rest[0]] if len(rest) == 1 else shlex.split(rest[1]) if len(rest) == 2 else rest[1:]
+                command = bar_catalog.application_command([rest[0]] if len(rest) == 1 else shlex.split(rest[1]) if len(rest) == 2 else rest[1:])
                 self.ctx.processes.execvp(command[0], command)
         elif what in ("audio", "bluetooth", "wifi"):
+            if what in ("audio", "bluetooth", "wifi") and not rest and bar_config.open_panel(self.ctx.paths.runtime, what, self.store.state()):
+                return
             self.terminal(["--app-id", "org.desktop." + {"audio": "wiremix", "bluetooth": "bluetui", "wifi": "impala"}[what], {"audio": "wiremix", "bluetooth": "bluetui", "wifi": "impala"}[what]])
         elif what == "tui":
             if not rest:
@@ -86,6 +90,7 @@ class Applications:
                 command += ["--app=" + rest[0]]
             else:
                 command += ["--incognito" if x == "--private" else x for x in rest]
+            command = bar_catalog.application_command(command)
             self.ctx.processes.execvp(command[0], command)
         else:
             raise ValueError(f"Unknown launch action: {what}")
@@ -97,12 +102,9 @@ class Applications:
         app, rest = args[0], args[1:]
         if rest[:1] == ["--"]:
             rest = rest[1:]
-        _, _, light = self.renderer.prepare_theme()
+        self.renderer.prepare_theme()
         raw = self.ctx.executable(app)
-        if app == "walker":
-            if not any(x in ("-t", "--theme") or x.startswith("--theme=") for x in rest):
-                rest = ["--theme", "desktop-rounded", *rest]
-        elif app == "mako":
+        if app == "mako":
             source = (self.ctx.paths.config / "mako/config").read_text().replace("~/.local/state/desktop", str(self.ctx.paths.state))
             target = self.ctx.paths.runtime / "mako.conf"; storage.atomic_write(target, source)
             rest = ["--config", str(target), *rest]
@@ -113,61 +115,6 @@ class Applications:
             rest = ["--style", str(target), *rest]
         elif app == "btop":
             rest = ["--themes-dir", str(self.ctx.paths.state / "theme"), *rest]
-        elif app == "waybar":
-            def take(short, long, default):
-                for i, arg in enumerate(rest):
-                    if arg in (short, long) and i + 1 < len(rest):
-                        return Path(rest[i + 1]).expanduser()
-                return default
-            source = take("-c", "--config", self.ctx.paths.config / "waybar/config.jsonc")
-            style = take("-s", "--style", self.ctx.paths.config / "waybar/style.css")
-            if source.name in ("config.jsonc", "config-minimal.jsonc"):
-                text = source.read_text()
-                bar = storage.read_json(self.ctx.paths.config / "desktop/bar-outputs.json")
-                if bar:
-                    config = json.loads(text)
-                    config["output"] = bar.get("minimal" if "minimal" in source.name else "full", ["*"])
-                    scale = float(bar.get("scale", 1.0))
-                    if not 0.75 <= scale <= 2.0:
-                        raise ValueError("Waybar scale must be between 0.75 and 2")
-                    for key in ("height", "margin-top", "margin-bottom", "margin-left", "margin-right"):
-                        if key in config:
-                            config[key] = round(config[key] * scale)
-                    # Tray icons use pixels too; keep them proportional to labels.
-                    if "tray" in config:
-                        for key in ("icon-size", "spacing"):
-                            if key in config["tray"]:
-                                config["tray"][key] = round(config["tray"][key] * scale)
-                    text = json.dumps(config)
-                else:
-                    scale = 1.0
-                if light:
-                    mapping = {"#f4f4f5": "#4c4f69", "#cdd6f4": "#4c4f69", "#60a5fa": "#1e66f5", "#89b4fa": "#1e66f5", "#4ade80": "#40a02b", "#eab308": "#df8e1d", "#f87171": "#d20f39"}
-                    text = re.sub(r"#[0-9a-fA-F]{6}", lambda m: mapping.get(m[0].lower(), m[0]), text)
-                    alternate = style.with_name(style.stem + "-light.css")
-                    if alternate.exists():
-                        style = alternate
-                text = re.sub(r'("NordVPN"\s*:\s*")[^"]*(")', lambda m: m[1] + ("nordvpn-tray-black" if light else "nordvpn-tray-white") + m[2], text)
-                target = self.ctx.paths.runtime / ("waybar-" + source.name); storage.atomic_write(target, text)
-                filtered = []
-                skip = False
-                for arg in rest:
-                    if skip:
-                        skip = False; continue
-                    if arg in ("-c", "--config", "-s", "--style"):
-                        skip = True; continue
-                    filtered.append(arg)
-                css = bar_stylesheet(style, scale) + "\n* { font-family: " + json.dumps(self.catalog.selected_font()) + ", 'Symbols Nerd Font'; }\n"
-                if self.store.state().get("desktopTheme"):
-                    c = colors(self.catalog.theme_path(self.catalog.selected_theme()))
-                    css += "\n".join(f"@define-color {key} {value};" for key, value in {
-                        "text": c["foreground"], "subtext": c["color7"], "blue": c["accent"],
-                        "mauve": c["color5"], "green": c["color2"], "red": c["color1"],
-                        "yellow": c["color3"], "base": c["background"],
-                    }.items()) + "\n"
-                runtime_style = self.ctx.paths.runtime / ("waybar-" + style.name)
-                storage.atomic_write(runtime_style, css)
-                rest = ["--config", str(target), "--style", str(runtime_style), *filtered]
         self.ctx.processes.execv(raw, [raw, *rest])
 
 
@@ -177,8 +124,8 @@ class Applications:
             "Hyprland configuration": "hypr/.config/hypr/hyprland.lua",
             "Input": "hypr/.config/hypr/input.lua", "Monitors": "hypr/.config/hypr/monitors.lua",
             "Hypridle": "hypr/.config/hypr/hypridle.conf", "Hyprlock": "hypr/.config/hypr/hyprlock.conf",
-            "Night light": "hypr/.config/hypr/hyprsunset.conf", "Walker": "walker/.config/walker/config.toml",
-            "Waybar": "waybar/.config/waybar/config.jsonc", "Desktop menu": "desktop-settings/.config/desktop/menus.json",
+            "Night light": "hypr/.config/hypr/hyprsunset.conf", "Desktop search": "desktop-search/.config/desktop-search/config.toml",
+            "Weather": "desktop-bar/.config/desktop/weather.json", "Desktop menu": "desktop-settings/.config/desktop/menus.json",
             "SwayOSD": "appearance/.config/swayosd/config.toml", "XCompose": "desktop-settings/.XCompose",
             "Application launchers": "appearance/.config/desktop/settings.json",
             "Default terminal": "desktop-settings/.config/xdg-terminals.list",
@@ -238,7 +185,7 @@ class Applications:
 
 
     def weather(self, args: list[str]) -> None:
-        self.ctx.processes.execv(str(self.ctx.paths.config / "waybar/weather.sh"), [str(self.ctx.paths.config / "waybar/weather.sh")])
+        self.ctx.processes.execvp("desktop-bar", ["desktop-bar", "--weather", *args])
 
 
     def dictation_status(self, args: list[str]) -> None:

@@ -17,7 +17,7 @@ usage() {
 Usage:
   desktopctl transcode [--path path] [input] [format] [resolution]
 
-With no input, pick a picture or video with Walker from ~/Pictures and ~/Videos,
+With no input, pick a picture or video in the Morphing Notch Bar from ~/Pictures and ~/Videos,
 or only from --path when provided. Then pick the output format and resolution.
 
 Options:

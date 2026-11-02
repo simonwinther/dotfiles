@@ -17,7 +17,6 @@ return {
     },
     config = function(_, opts)
       local function sync_appearance()
-        local config_home = vim.env.XDG_CONFIG_HOME or (vim.env.HOME .. "/.config")
         local light = vim.uv.fs_stat((vim.env.XDG_STATE_HOME or (vim.env.HOME .. "/.local/state")) .. "/desktop/theme/light.mode") ~= nil
         local background = light and "light" or "dark"
         if vim.o.background ~= background then
@@ -33,11 +32,19 @@ return {
       require("catppuccin").setup(opts)
       vim.cmd.colorscheme("catppuccin")
 
+      local group = vim.api.nvim_create_augroup("UserSystemAppearance", { clear = true })
       vim.api.nvim_create_autocmd({ "VimEnter", "FocusGained", "VimResume" }, {
-        group = vim.api.nvim_create_augroup("UserSystemAppearance", { clear = true }),
+        group = group,
         callback = sync_appearance,
         nested = true,
         desc = "Follow Desktop light/dark appearance",
+      })
+      vim.api.nvim_create_autocmd("Signal", {
+        group = group,
+        pattern = "SIGUSR1",
+        callback = sync_appearance,
+        nested = true,
+        desc = "Apply Desktop appearance immediately after a theme switch",
       })
     end,
   },

@@ -8,6 +8,8 @@ pub struct View {
     pub start_ms: u64,
     pub recording_ms: u64,
     pub live: bool,
+    #[serde(default)]
+    pub provider: String,
     pub cost_rate: f64,
     pub currency: String,
     pub exchange: f64,
@@ -22,6 +24,7 @@ impl Default for View {
             start_ms: 0,
             recording_ms: 0,
             live: true,
+            provider: String::new(),
             cost_rate: 0.,
             currency: "DKK".into(),
             exchange: 6.4104,

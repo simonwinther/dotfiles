@@ -17,9 +17,10 @@ Commands:
 
 - Read `LAST_UPDATED` when asked to update old or stale components. Dates use `DD/MM/YYYY`; compare them with today's local date.
 - Keep one alphabetically sorted `component: DD/MM/YYYY` line per package or tool. Package names match their directories.
-- After changing a component, set its date to today's local date and include the tracker change in the same commit. Change only the entries affected by the work; checking a component does not reset its date.
+- After changing a component, set its date to today's local date and include the tracker update in the same change. Commit only when explicitly requested. Change only the entries affected by the work; checking, building or testing a component alone does not reset its date.
 - Add an entry for a new package or tool, and remove it when the component is removed.
 - `pdf-picker` covers `hypr/.local/bin/pdf-picker` and PDF mode in `file-picker/.local/bin/file-picker`. Shared picker changes update both `pdf-picker` and `file-picker`; update `hypr` only when files in that package change.
+- When this is the `dotfiles/` submodule in the NixOS checkout, [../LAST_UPDATED](../LAST_UPDATED) separately tracks Nix packaging and repository infrastructure. Update that tracker only when those sources change; portable package dates remain canonical here.
 
 - Keep credentials and private recovery material outside Git and the Nix store.
 - Commit dependency locks and source, never compiled binaries or caches.

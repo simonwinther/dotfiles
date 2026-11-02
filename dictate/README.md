@@ -45,33 +45,73 @@ Rebuild after pulling source changes on either PC.
 dictate live  {start,stop,cancel,toggle,status} [--language xx] [--model NAME]
 dictate batch {start,stop,cancel,toggle,once,status,retry,discard} [--language xx] [--model NAME]
 dictate {cancel,status,check,models}
+dictate provider [openai|soniox]
 dictate dictionary {init,path,check}
 dictate bench AUDIO [SPEEDUP_FACTOR ...] [--language xx]
 dictate eval init [DIRECTORY]
 dictate eval check SUITE.toml
 dictate eval run SUITE.toml [--language xx] [--model NAME] [--output REPORT.json]
+dictate eval live SUITE.toml --provider {openai,soniox} [--output REPORT.json]
 dictate eval score SUITE.toml TRANSCRIPTS.json [--output REPORT.json]
 ```
 
-`bench` and `eval run` make paid API requests. `check`, `eval check`,
+`bench`, `eval run`, and `eval live` make paid API requests. `check`, `eval check`,
 `eval score`, and the automated tests are offline. Evaluation suites and saved
 reports use the same format as the Python version, including word error rate,
 technical-term recall, and number recall.
+`eval live` replays recordings at microphone speed with the same live settings
+as the shortcut, without clipboard delivery. Reports include first visible text
+and final transcript delay after the audio ends; connection setup is included.
+The reference text is used only for scoring and is never sent to the model.
+
+## Switch live providers
+
+Choose providers by total cost first, latency second, and accuracy third.
+Compare billed context and output costs as well as audio rates, using the
+same recordings and settings when measuring alternatives.
+
+Add `SONIOX_API_KEY` to the existing private
+`~/.config/dictate/secrets.env`, then run `dictate provider soniox`.
+Super+D continues to run `dictate live toggle` and uses the saved choice.
+Run `dictate provider openai` to switch back, or `dictate provider` to see
+the current choice. Finish the current recording before switching.
+The live overlay shows `SONIOX` or `OPENAI` in its upper-right corner using
+that recording's provider settings.
+The choice is stored in `$XDG_STATE_HOME/dictate/live-provider`, outside
+the managed configuration. Missing credentials leave the previous choice intact.
+`LIVE_PROVIDER` supplies the default when no choice has been saved.
+For a single recording, use `dictate live toggle --provider soniox`.
+
+The Soniox backend uses `stt-rt-v5`, streams mono PCM16 at 24 kHz, and displays
+provisional tokens as they arrive. Confirmed tokens accumulate while provisional
+tokens are replaced, so revisions do not duplicate words. Stopping drains queued
+audio and sends end-of-stream immediately; only the completed transcript is
+copied and pasted. No additional cleanup request or artificial paste delay is
+added. Connection failures and finalization timeouts retain audio for the
+existing batch retry command; batch transcription still uses its original backend.
+Language hints, prompt context, personal vocabulary, and local corrections carry
+over. The live cost display estimates $0.002/minute for Soniox; token billing
+can vary with context and output length. Override it with
+`SONIOX_COST_USD_PER_MINUTE` if needed. The log records `stop_requested`,
+`live_commit`, `live_final`, and `done` timestamps for latency measurements.
 
 ## Data science vocabulary
 
-The personal dictionary and starter dictionary contain 65 focused hints for
-machine learning, statistics, and Python tools, including linear classifiers,
-cross-validation, regularization, PyTorch, JAX, and Weights & Biases. A short
-`OPENAI_PROMPT` in the personal configuration describes everyday English/Danish
-dictation that often discusses these subjects. Both live and batch requests
-receive the hints; explicit `LIVE_PROMPT` overrides still take precedence.
+The starter dictionary contains 65 hints for machine learning, statistics,
+and Python tools. The personal dictionary uses a shorter list of library and
+name hints, including PyTorch, JAX, Mostafa, and dotfiles, to reduce repeated
+context charges. The topic prompt is `Machine learning, AI, Python, statistics.`
+English/Danish language hints still apply. The original full hint list and
+topic prompt are preserved as comments in `dictionary.toml` and `config.env`.
+Both live and batch requests receive the active hints; explicit `LIVE_PROMPT`
+overrides take precedence. All local corrections are retained, including
+`Mustafa` to `Mostafa` and `our.files` to `our dotfiles`.
 This follows OpenAI's [transcription context guidance](https://developers.openai.com/api/docs/guides/realtime-transcription#add-transcription-context).
 
-Hints help recognition without forcing the terms into ordinary speech. The 42
+Hints help recognition without forcing the terms into ordinary speech. The
 local corrections cover specific spelling and grammar mistakes; ordinary
 "weights and biases" remains unchanged. There is no extra cleanup API request.
-Edit `~/.config/dictate/dictionary.toml` and run `dictate dictionary check`;
+Edit the file shown by `dictate dictionary path` and run `dictate dictionary check`;
 changes apply to the next recording without rebuilding. Existing punctuation
 commands remain available. For literal words such as "training period", set
 `PUNCTUATION_MODE=explicit` and say "punctuation comma" for a command.

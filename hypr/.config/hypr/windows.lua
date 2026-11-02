@@ -16,22 +16,6 @@ hl.window_rule({
 
 -- Window rules migrated from legacy-overrides/hypr/hyprland-overrides.conf
 hl.window_rule({
-    match = { class = "^global\\.snip$" },
-    name = "global-snip",
-    float = true,
-    size = { "(monitor_w*0.9)", "(monitor_h*0.6)" },
-    center = true,
-})
-
-hl.window_rule({
-    match = { class = "^macro\\.picker$" },
-    name = "macro-picker",
-    float = true,
-    size = { "(monitor_w*0.9)", "(monitor_h*0.5)" },
-    center = true,
-})
-
-hl.window_rule({
     match = { class = "^(pdf\\.picker|file\\.picker|recent\\.picker)$" },
     name = "file-pickers",
     no_anim = true,

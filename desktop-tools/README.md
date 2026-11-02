@@ -1,7 +1,7 @@
 # Desktop transcoding
 
 `desktopctl transcode [--path path] [input] [format] [resolution]` keeps the
-Walker file, format, and resolution pickers. Pictures support JPG/PNG at high,
+native file, format, and resolution pickers. Pictures support JPG/PNG at high,
 medium, or low resolution; videos support MP4/GIF at 4k, 1080p, or 720p.
 FFmpeg and ImageMagick retain the existing encoding settings.
 

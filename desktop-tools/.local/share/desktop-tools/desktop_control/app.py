@@ -43,7 +43,7 @@ class Desktop:
         self.recording = Recording(ctx, self.store, self.screenshots)
         self.menus = Menus(ctx, self.store, self.catalog, self.renderer, self.wallpaper, self.reminders, self.dispatch)
         self.dispatcher = Dispatcher({
-            Name.THEME: self.appearance.theme, Name.FONT: self.appearance.font,
+            Name.THEME: self.appearance.theme, Name.FONT: self.appearance.font, Name.BAR: self.appearance.bar,
             Name.APPEARANCE: self.appearance.appearance, Name.WALLPAPER: self.wallpaper.wallpaper,
             Name.TERMINAL: self.applications.terminal, Name.LAUNCH: self.applications.launch,
             Name.RUN: self.applications.run_application, Name.LAUNCHER: self.clipboard.launcher,

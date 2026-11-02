@@ -30,7 +30,7 @@ PROGRAM_OPERATIONS = {
     "systemctl": "service", "systemd-run": "service", "uwsm": "service",
     "grim": "capture", "wl-paste": "clipboard", "wl-copy": "clipboard",
     "matugen": "image", "magick": "image", "tesseract": "ocr",
-    "zenity": "selection", "slurp": "selection", "walker": "selection",
+    "zenity": "selection", "slurp": "selection",
     "satty": "interactive", "nautilus": "interactive",
     "localsend": "transfer", "desktop-transcode": "media", "awww": "image",
 }

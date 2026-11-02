@@ -67,6 +67,12 @@ hl.bind(
 
 hl.bind("SUPER + SHIFT + F", hl.dsp.exec_cmd("uwsm-app -- nautilus --new-window"), { description = "File manager" })
 
+hl.bind(
+	"SUPER + SHIFT + I",
+	hl.dsp.exec_cmd('uwsm-app -- nautilus --new-window "$HOME/From iPhone"'),
+	{ description = "From iPhone" }
+)
+
 -- Use SUPER+ALT+Z for file search; leave SUPER+R unassigned.
 hl.unbind("SUPER + R")
 
@@ -258,7 +264,7 @@ hl.bind(
 -- NOTIFICATIONS
 -- =============================================================================
 
-hl.bind("SUPER + N", hl.dsp.exec_cmd("~/.local/bin/notification-menu"), { description = "Notification menu" })
+hl.bind("SUPER + N", hl.dsp.exec_cmd("desktop-bar --menu notifications"), { description = "Notification menu" })
 hl.bind("SUPER + ALT + Comma", hl.dsp.exec_cmd("makoctl invoke"), { description = "Invoke last notification" })
 
 -- =============================================================================
@@ -278,5 +284,3 @@ hl.bind(
 	require("file-picker").show,
 	{ description = "Copy or drag a file" }
 )
-hl.bind("SUPER + ALT + PERIOD", hl.dsp.exec_cmd("ghostty --class=global.snip -e ~/.local/bin/globalsnip"))
-hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("ghostty --class=macro.picker -e ~/.local/bin/macro-picker"))

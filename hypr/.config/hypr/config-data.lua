@@ -35,6 +35,63 @@ local function config_value(value)
     return scalar(value)
 end
 
+local function comma_values(value)
+    local values = {}
+    for part in (value .. ","):gmatch("(.-),") do
+        values[#values + 1] = trim(part)
+    end
+    return values
+end
+
+local function directive(section, key, value)
+    if section == "animations" and key == "bezier" then
+        local parts = comma_values(value)
+        hl.curve(parts[1], {
+            type = "bezier",
+            points = { { tonumber(parts[2]), tonumber(parts[3]) }, { tonumber(parts[4]), tonumber(parts[5]) } },
+        })
+    elseif section == "animations" and key == "animation" then
+        local parts = comma_values(value)
+        hl.animation({
+            leaf = parts[1], enabled = parts[2] ~= "0" and scalar(parts[2]) ~= false,
+            speed = tonumber(parts[3]), bezier = parts[4], style = parts[5],
+        })
+    elseif section == "gestures" and key == "gesture" then
+        local parts = comma_values(value)
+        local action = parts[3]
+        if action == "dispatcher" then
+            assert(parts[4] == "workspace", "Unsupported Desktop gesture dispatcher: " .. tostring(parts[4]))
+            local dispatch = hl.dsp.focus({ workspace = parts[5] })
+            action = function() return hl.dispatch(dispatch) end
+        end
+        hl.gesture({ fingers = tonumber(parts[1]), direction = parts[2], action = action })
+    elseif section == nil and key == "layerrule" then
+        local parts = comma_values(value)
+        local rule = { match = { namespace = parts[2] } }
+        if parts[1] == "ignorezero" then
+            rule.ignore_alpha = 0
+        else
+            assert(parts[1] == "blur", "Unsupported Desktop layer rule: " .. parts[1])
+            rule.blur = true
+        end
+        hl.layer_rule(rule)
+    elseif section == nil and key == "windowrule" then
+        local parts = comma_values(value)
+        local effect, argument = parts[1]:match("^(%w+)%s+(.+)$")
+        assert(effect == "opacity", "Unsupported Desktop window rule: " .. parts[1])
+        local rule = { match = {}, opacity = argument }
+        for i = 2, #parts do
+            local property, match = parts[i]:match("^match:([%w_]+)%s+(.+)$")
+            assert(property, "Unsupported Desktop window match: " .. parts[i])
+            rule.match[property] = scalar(match)
+        end
+        hl.window_rule(rule)
+    else
+        return false
+    end
+    return true
+end
+
 function M.environment(path)
     local file = io.open(expand(path))
     if not file then
@@ -77,11 +134,10 @@ function M.apply(path)
             value = value:gsub("%$([%w_]+)", variables)
             if key:sub(1, 1) == "$" then
                 variables[key:sub(2)] = value
+            elseif directive(sections[#sections], key, value) then
+                -- Curves, animations, gestures and rules have dedicated Lua APIs.
             elseif key == "monitor" then
-                local parts = {}
-                for part in (value .. ","):gmatch("(.-),") do
-                    parts[#parts + 1] = trim(part)
-                end
+                local parts = comma_values(value)
                 local monitor = { output = parts[1] }
                 if parts[2] == "disable" then
                     monitor.disabled = true

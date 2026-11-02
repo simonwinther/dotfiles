@@ -45,19 +45,3 @@ def hyprlock_palette(c):
         "color": c["background"], "inner_color": c["background"], "outer_color": c["foreground"],
         "font_color": c["foreground"], "check_color": c["accent"],
     }.items()) + "\n"
-
-
-def bar_stylesheet(style, scale):
-    if scale == 1.0:
-        return "@import " + json.dumps(str(style)) + ";\n"
-
-    def inline(path, seen=()):
-        path = path.resolve()
-        if path in seen:
-            raise ValueError(f"Circular Waybar stylesheet import: {path}")
-        return re.sub(r'''@import\s+["']([^"']+)["']\s*;''',
-                      lambda match: inline(path.parent / match[1], (*seen, path)), path.read_text())
-
-    # Imported light/base rules must be scaled together; their relative paths
-    # would otherwise resolve against the generated runtime directory.
-    return re.sub(r"(?<![\w.])([0-9]+(?:\.[0-9]+)?)px", lambda m: f"{float(m[1]) * scale:g}px", inline(style))

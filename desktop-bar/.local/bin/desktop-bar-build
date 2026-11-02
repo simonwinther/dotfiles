@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script")/../../.." && pwd -P)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../bin/.local/share/dotfiles/rust-build.sh
+source "$repo_root/bin/.local/share/dotfiles/rust-build.sh"
+source_root="$repo_root/desktop-bar/.local/share/desktop-bar"
+rust_build_init desktop-bar "$script" "$@"
+# Keep shared sources in their owning packages; the portable build snapshot
+# relocates these path dependencies without writing into the checkout.
+if [[ -d $repo_root/desktop-ring/.local/share/desktop-ring/vendor/libpulse-binding ]]; then
+  mkdir -p "$cache_root/build/deps"
+  cp -R "$repo_root/desktop-ring/.local/share/desktop-ring/vendor/libpulse-binding" "$cache_root/build/deps/libpulse-binding"
+  sed -i \
+    -e 's|../../../../desktop-ring/.local/share/desktop-ring/vendor/libpulse-binding|deps/libpulse-binding|' \
+    "$cache_root/build/Cargo.toml"
+fi
+if [[ -d $repo_root/clipboard-picker/.local/share/clipboard-picker/core ]]; then
+  mkdir -p "$cache_root/build/deps"
+  cp -R "$repo_root/clipboard-picker/.local/share/clipboard-picker/core" "$cache_root/build/deps/clipboard-history"
+  sed -i \
+    -e 's|../../../../clipboard-picker/.local/share/clipboard-picker/core|deps/clipboard-history|' \
+    "$cache_root/build/Cargo.toml"
+fi
+# The helper accepts Cargo flags; --check was consumed by rust_build_init.
+# shellcheck disable=SC2119
+rust_build_checks
+rust_build_cargo build --release --bin desktop-bar
+rust_build_publish "$CARGO_TARGET_DIR/release/desktop-bar" "$cache_root/bin/desktop-bar"
+printf 'Desktop bar installed in %s/bin\n' "$cache_root"

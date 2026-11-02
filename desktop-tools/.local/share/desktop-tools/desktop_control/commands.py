@@ -9,6 +9,7 @@ from enum import Enum
 class CommandName(str, Enum):
     THEME = "theme"
     FONT = "font"
+    BAR = "bar"
     APPEARANCE = "appearance"
     WALLPAPER = "wallpaper"
     TERMINAL = "terminal"

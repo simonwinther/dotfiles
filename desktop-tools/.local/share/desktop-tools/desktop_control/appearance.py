@@ -1,6 +1,8 @@
 """Appearance component with injected dependencies."""
 from __future__ import annotations
 import hashlib
+import bar_config
+import bar_catalog
 import json
 from pathlib import Path
 import re
@@ -28,6 +30,43 @@ class Appearance:
     services: Services
     wallpaper: Wallpaper
 
+    def signal_application(self, name: str, signum: str) -> None:
+        # Linux limits process names to 15 bytes; Nix runs .<name>-wrapped.
+        pattern = "|".join(re.escape(value[:15]) for value in (name, f".{name}-wrapped"))
+        self.ctx.processes.run(["pkill", "-" + signum, "-u", str(self.ctx.uid), "-x", pattern], check=False)
+
+    def bar(self, args: list[str]) -> int | None:
+        if bar_catalog.handle(args, preferences=self.store.state(), config=self.ctx.paths.config, data=self.ctx.paths.data,
+                              cache=Path(self.ctx.env.get("XDG_CACHE_HOME", self.ctx.paths.home / ".cache")),
+                              theme_directories=self.catalog.theme_directories,
+                              theme_path=self.catalog.theme_path,
+                              theme_backgrounds=self.catalog.theme_backgrounds,
+                              selected_theme=self.catalog.selected_theme, environment=self.ctx.env):
+            return
+        if args[:1] == ["panel"] and len(args) == 2:
+            if not bar_config.open_panel(self.ctx.paths.runtime, args[1], self.store.state(), force=True):
+                raise ValueError("The native bar is not running")
+            return
+        action = args[0] if args else "current"
+        names = self.catalog.bar_names()
+        if action == "current":
+            print(self.catalog.selected_bar())
+            return
+        if action == "list":
+            print("\n".join(names))
+            return
+        if action == "next":
+            args = ["set", names[(names.index(self.catalog.selected_bar()) + 1) % len(names)]]
+        elif action != "set" or len(args) != 2 or args[1] not in names:
+            raise ValueError("bar: list, current, next, or set " + ", ".join(names))
+        with self.store.state_lock():
+            value = self.store.state(); value["bar"] = args[1]
+            self.renderer.write_bar_theme(value)
+            self.store.save_state(value)
+        if bar_config.visibility_marker(self.ctx.paths.state).exists():
+            return
+        self.ctx.processes.run(["systemctl", "--user", "kill", "--kill-whom=main", "--signal=SIGUSR2", "desktop-bar.service"], check=False)
+
     def font(self, args: list[str]) -> int | None:
         action = args[0] if args else "current"
         if action == "current":
@@ -46,8 +85,8 @@ class Appearance:
         if "--no-reload" not in args:
             self.ctx.processes.run(["gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", args[1] + " 11"], check=False)
             self.ctx.processes.run(["makoctl", "reload"], check=False)
-            self.ctx.processes.run(["pkill", "-USR2", "-u", str(self.ctx.uid), "-x", "ghostty"], check=False)
-            self.ctx.processes.run(["pkill", "-USR1", "-u", str(self.ctx.uid), "-x", "kitty"], check=False)
+            self.signal_application("ghostty", "USR2")
+            self.signal_application("kitty", "USR1")
             self.services.restart("theme")
 
 
@@ -70,13 +109,15 @@ class Appearance:
                 self.apply_appearance(source, light)
                 self.ctx.processes.run(["hyprctl", "reload"], check=False)
                 self.ctx.processes.run(["makoctl", "reload"], check=False)
-                self.ctx.processes.run(["pkill", "-USR2", "-u", str(self.ctx.uid), "-x", "ghostty"], check=False)
-                self.ctx.processes.run(["pkill", "-USR1", "-u", str(self.ctx.uid), "-x", "kitty"], check=False)
+                self.signal_application("ghostty", "USR2")
+                self.signal_application("kitty", "USR1")
+                self.signal_application("nvim", "USR1")
                 self.services.restart("theme")
                 # Keep a wallpaper the user picked from this theme; otherwise use the theme's first one.
-                backgrounds = sorted(p.resolve() for p in (self.catalog.theme_path(name) / "backgrounds").glob("*") if p.is_file())
-                if backgrounds and self.ctx.expand(self.store.state().get("wallpaper", "")).resolve() not in backgrounds:
-                    self.wallpaper.wallpaper(["set", str(backgrounds[0])])
+                backgrounds = self.catalog.theme_backgrounds(name)
+                if backgrounds:
+                    current = self.ctx.expand(self.store.state().get("wallpaper", "")).resolve()
+                    self.wallpaper.wallpaper(["set", str(current if current in backgrounds else backgrounds[0])])
         elif action == "generate":
             image_args = [x for x in args[1:] if not x.startswith("--")]
             if not image_args:
@@ -172,7 +213,8 @@ class Appearance:
                 value = self.store.state(); value["terminalTheme"] = args[1] == "desktop"
                 self.renderer._prepare_theme(value)
                 self.store.save_state(value)
-            self.ctx.processes.run(["pkill", "-USR2", "-u", str(self.ctx.uid), "-x", "ghostty"], check=False)
+            self.signal_application("ghostty", "USR2")
+            self.signal_application("kitty", "USR1")
             self.services.restart("theme")
         elif args == ["lock-background", "reset"]:
             with self.store.state_lock():

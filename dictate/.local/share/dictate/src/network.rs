@@ -21,6 +21,8 @@ use tokio_tungstenite::{
     },
 };
 
+mod soniox;
+
 pub enum Chunk {
     Audio(Vec<u8>),
     End(bool),
@@ -63,6 +65,9 @@ pub fn keywords(c: &Config, p: &Processor, live: bool) -> Result<Vec<String>> {
     Ok(words)
 }
 pub fn live_update(c: &Config, p: &Processor, language: &str) -> Result<Value> {
+    if c.get("LIVE_PROVIDER") == "soniox" {
+        return soniox::config(c, p, language);
+    }
     ensure!(
         c.get("LIVE_MODEL") == "gpt-live-transcribe",
         "Unsupported LIVE_MODEL: {}",
@@ -265,6 +270,9 @@ pub async fn live(
     mut audio: mpsc::Receiver<Chunk>,
     view: &watch::Sender<crate::ui::View>,
 ) -> Result<String> {
+    if c.get("LIVE_PROVIDER") == "soniox" {
+        return soniox::live(c, p, language, audio, view).await;
+    }
     let update = live_update(c, p, language)?;
     let mut request = c.get("OPENAI_REALTIME_URL").into_client_request()?;
     request.headers_mut().insert(
@@ -319,6 +327,7 @@ pub async fn live(
             && let Some(text) = transcripts.take_final(id)
         {
             view.send_modify(|v| v.transcript = live_preview(p, &text));
+            storage::log(c, "event=live_final provider=openai");
             return Ok(text);
         }
         let wait = deadline

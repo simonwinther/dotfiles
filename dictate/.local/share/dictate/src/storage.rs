@@ -117,7 +117,7 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
 }
 pub fn log(c: &Config, line: &str) {
     if let Ok(mut f) = private_file(&c.path("LAST_LOG_FILE"), true) {
-        let _ = writeln!(f, "{} {line}", now_ms());
+        let _ = writeln!(f, "{} {}", now_ms(), c.redact(line));
     }
 }
 pub struct Lock(pub File);

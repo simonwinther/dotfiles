@@ -22,6 +22,7 @@ STATE_SCHEMA = {
     "desktopTheme": ("a boolean", lambda v: type(v) is bool),
     "aboutArt": ("a boolean", lambda v: type(v) is bool),
     "screensaver": ("naruto, tomoe-sharingan, matrix, or custom", lambda v: isinstance(v, str) and v in ("naruto", "tomoe-sharingan", "matrix", "custom")),
+    "bar": ("a lowercase bar name", lambda v: state_text(v) and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", v)),
 }
 
 

@@ -1,6 +1,6 @@
 -- Wallpaper grid: override the earlier Desktop/Waypaper shortcut.
 hl.unbind("SUPER + CTRL + SPACE")
-hl.bind("SUPER + CTRL + SPACE", hl.dsp.exec_cmd("~/.local/bin/background-grid"), { description = "Wallpaper grid" })
+hl.bind("SUPER + CTRL + SPACE", hl.dsp.exec_cmd("desktopctl wallpaper grid"), { description = "Wallpaper grid" })
 
 hl.window_rule({
     match = { class = "^(com\\.simon\\.BackgroundGrid)$" },

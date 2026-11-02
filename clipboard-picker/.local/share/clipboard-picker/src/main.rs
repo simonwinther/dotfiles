@@ -79,7 +79,7 @@ fn apply_style() {
         .as_str()
         .or(settings["defaultFont"].as_str())
         .unwrap_or("monospace");
-    let palette = std::fs::read_to_string(state.join("theme/walker.css")).unwrap_or_default();
+    let palette = std::fs::read_to_string(state.join("theme/clipboard.css")).unwrap_or_default();
     let custom =
         std::fs::read_to_string(config.join("clipboard-picker/style.css")).unwrap_or_default();
     let css = gtk::CssProvider::new();

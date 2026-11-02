@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+search=$(python3 - "${XDG_CONFIG_HOME:-$HOME/.config}/desktop/paths.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+print(json.loads(path.read_text()).get("desktop-search-native", "") if path.is_file() else "")
+PY
+)
+if [ -n "$search" ] && [ -x "$search" ]; then
+    exec "$search" "$@"
+fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-search/bin/desktop-search"
+if [ ! -x "$binary" ]; then desktop-search-build; fi
+exec "$binary" "$@"

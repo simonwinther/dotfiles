@@ -3,6 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 const DEFAULTS: &[(&str, &str)] = &[
+    ("LIVE_PROVIDER", "openai"),
+    ("SONIOX_MODEL", "stt-rt-v5"),
+    ("SONIOX_COST_USD_PER_MINUTE", "auto"),
+    (
+        "SONIOX_REALTIME_URL",
+        "wss://stt-rt.soniox.com/transcribe-websocket",
+    ),
     (
         "OPENAI_REALTIME_URL",
         "wss://api.openai.com/v1/realtime?intent=transcription",
@@ -164,7 +171,10 @@ impl Config {
     pub fn load() -> Result<Self> {
         let mut c = Self::default();
         for (key, val) in env::vars() {
-            if c.0.contains_key(&key) || key.starts_with("LIVE_") || key == "OPENAI_API_KEY" {
+            if c.0.contains_key(&key)
+                || key.starts_with("LIVE_")
+                || matches!(key.as_str(), "OPENAI_API_KEY" | "SONIOX_API_KEY")
+            {
                 c.0.insert(key, val);
             }
         }
@@ -175,6 +185,11 @@ impl Config {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
                 Err(e) => return Err(e).with_context(|| format!("Cannot read {}", path.display())),
             }
+        }
+        match fs::read_to_string(provider_path()) {
+            Ok(provider) => c.set("LIVE_PROVIDER", provider.trim()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e).context("Cannot read saved live provider"),
         }
         Ok(c)
     }
@@ -223,6 +238,10 @@ impl Config {
             .collect()
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            matches!(self.get("LIVE_PROVIDER"), "openai" | "soniox"),
+            "LIVE_PROVIDER must be openai or soniox"
+        );
         ensure!(
             matches!(self.get("PUNCTUATION_MODE"), "spoken" | "explicit" | "off"),
             "PUNCTUATION_MODE must be spoken, explicit, or off"
@@ -313,6 +332,7 @@ impl Config {
         for (key, schemes) in [
             ("OPENAI_API_URL", &["http", "https"][..]),
             ("OPENAI_REALTIME_URL", &["ws", "wss"][..]),
+            ("SONIOX_REALTIME_URL", &["ws", "wss"][..]),
         ] {
             let url =
                 reqwest::Url::parse(self.get(key)).with_context(|| format!("Invalid {key}"))?;
@@ -330,14 +350,41 @@ impl Config {
         Ok(())
     }
     pub fn key(&self) -> Result<&str> {
-        let key = self.get("OPENAI_API_KEY");
+        self.credential("OPENAI_API_KEY")
+    }
+    pub fn live_key(&self) -> Result<&str> {
+        self.credential(if self.get("LIVE_PROVIDER") == "soniox" {
+            "SONIOX_API_KEY"
+        } else {
+            "OPENAI_API_KEY"
+        })
+    }
+    fn credential(&self, name: &str) -> Result<&str> {
+        let key = self.get(name);
         if key.is_empty() || key == "replace_me" {
             bail!(
-                "OPENAI_API_KEY is not configured in {}/secrets.env",
+                "{name} is not configured in {}/secrets.env",
                 config_dir().display()
             );
         }
         Ok(key)
+    }
+    pub fn live_model_setting(&self) -> &'static str {
+        if self.get("LIVE_PROVIDER") == "soniox" {
+            "SONIOX_MODEL"
+        } else {
+            "LIVE_MODEL"
+        }
+    }
+    pub fn redact(&self, text: &str) -> String {
+        let mut result = text.to_owned();
+        for name in ["OPENAI_API_KEY", "SONIOX_API_KEY"] {
+            let key = self.get(name);
+            if !key.is_empty() {
+                result = result.replace(key, "[redacted]");
+            }
+        }
+        result
     }
     pub fn live_recovery(&self, language: &str) -> Result<BTreeMap<String, String>> {
         let mut result = self.snapshot();
@@ -398,6 +445,9 @@ impl Config {
         }
         Ok(values)
     }
+}
+pub fn provider_path() -> PathBuf {
+    state_dir().join("live-provider")
 }
 pub fn validate_language(s: &str) -> Result<()> {
     let s = s.to_ascii_lowercase();

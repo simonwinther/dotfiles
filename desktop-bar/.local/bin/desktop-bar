@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+native=$(desktopctl path desktop-bar-native 2>/dev/null) || native=
+if [[ -n $native && -x $native ]]; then exec "$native" "$@"; fi
+binary="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-bar/bin/desktop-bar"
+if [[ ! -x $binary ]]; then desktop-bar-build; fi
+exec "$binary" "$@"

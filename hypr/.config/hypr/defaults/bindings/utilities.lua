@@ -1,20 +1,22 @@
 -- Menus
-hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("desktopctl launcher"), { description = "Launch apps" })
-hl.bind("SUPER + CTRL + E", hl.dsp.exec_cmd("desktopctl launcher -m symbols"), { description = "Emoji picker" })
-hl.bind("SUPER + CTRL + C", hl.dsp.exec_cmd("desktopctl menu capture"), { description = "Capture menu" })
-hl.bind("SUPER + CTRL + O", hl.dsp.exec_cmd("desktopctl menu toggle"), { description = "Toggle menu" })
-hl.bind("SUPER + CTRL + H", hl.dsp.exec_cmd("desktopctl menu hardware"), { description = "Hardware menu" })
-hl.bind("SUPER + ALT + SPACE", hl.dsp.exec_cmd("desktopctl menu"), { description = "Desktop menu" })
-hl.bind("SUPER + SHIFT + code:201", hl.dsp.exec_cmd("desktopctl menu"), { description = "Desktop menu" })
-hl.bind("SUPER + ESCAPE", hl.dsp.exec_cmd("desktopctl menu system"), { description = "System menu" })
-hl.bind("XF86PowerOff", hl.dsp.exec_cmd("desktopctl menu system"), { description = "Power menu", locked = true })
-hl.bind("SUPER + K", hl.dsp.exec_cmd("desktopctl keybindings"), { description = "Show key bindings" })
+hl.bind("CTRL + SPACE", hl.dsp.exec_cmd("desktop-bar --menu apps"), { description = "Launch apps" })
+hl.bind("SUPER + CTRL + ALT + SPACE", hl.dsp.exec_cmd("desktop-bar --menu styles"), { description = "Choose top bar style" })
+hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("desktop-bar --menu apps"), { description = "Launch apps" })
+hl.bind("SUPER + CTRL + E", hl.dsp.exec_cmd("desktop-bar --menu symbols"), { description = "Emoji picker" })
+hl.bind("SUPER + CTRL + C", hl.dsp.exec_cmd("desktop-bar --menu menu/capture"), { description = "Capture menu" })
+hl.bind("SUPER + CTRL + O", hl.dsp.exec_cmd("desktop-bar --menu menu/toggle"), { description = "Toggle menu" })
+hl.bind("SUPER + CTRL + H", hl.dsp.exec_cmd("desktop-bar --menu menu/hardware"), { description = "Hardware menu" })
+hl.bind("SUPER + ALT + SPACE", hl.dsp.exec_cmd("desktop-bar --menu menu/main"), { description = "Desktop menu" })
+hl.bind("SUPER + SHIFT + code:201", hl.dsp.exec_cmd("desktop-bar --menu menu/main"), { description = "Desktop menu" })
+hl.bind("SUPER + ESCAPE", hl.dsp.exec_cmd("desktop-bar --menu menu/system"), { description = "System menu" })
+hl.bind("XF86PowerOff", hl.dsp.exec_cmd("desktop-bar --menu menu/system"), { description = "Power menu", locked = true })
+hl.bind("SUPER + K", hl.dsp.exec_cmd("desktop-bar --menu keybindings"), { description = "Show key bindings" })
 hl.bind("XF86Calculator", hl.dsp.exec_cmd("gnome-calculator"), { description = "Calculator" })
 
 -- Aesthetics
 hl.bind("SUPER + SHIFT + SPACE", hl.dsp.exec_cmd("desktopctl toggle bar"), { description = "Toggle top bar" })
-hl.bind("SUPER + CTRL + SPACE", hl.dsp.exec_cmd("desktopctl menu background"), { description = "Theme background menu" })
-hl.bind("SUPER + SHIFT + CTRL + SPACE", hl.dsp.exec_cmd("desktopctl menu theme"), { description = "Theme menu" })
+hl.bind("SUPER + CTRL + SPACE", hl.dsp.exec_cmd("desktop-bar --menu wallpapers"), { description = "Theme background menu" })
+hl.bind("SUPER + SHIFT + CTRL + SPACE", hl.dsp.exec_cmd("desktop-bar --menu themes"), { description = "Theme menu" })
 hl.bind(
     "SUPER + BACKSPACE",
     hl.dsp.window.set_prop({ prop = "opaque", value = "toggle" }),
@@ -78,7 +80,7 @@ hl.bind(
     hl.dsp.exec_cmd([[sh -c 'screenshot_path=$(desktopctl capture screenshot smart save) && [ -n "$screenshot_path" ] && printf "%s" "$screenshot_path" | wl-copy --foreground --type text/plain']]),
     { description = "Copy screenshot path" }
 )
-hl.bind("ALT + SHIFT + PRINT", hl.dsp.exec_cmd("desktopctl menu screenrecord"), { description = "Screenrecording" })
+hl.bind("ALT + SHIFT + PRINT", hl.dsp.exec_cmd("desktop-bar --menu menu/screenrecord"), { description = "Screenrecording" })
 hl.bind("SUPER + PRINT", hl.dsp.exec_cmd("pkill hyprpicker || hyprpicker -a"), { description = "Color picker" })
 hl.bind(
     "SUPER + CTRL + PRINT",
@@ -87,13 +89,13 @@ hl.bind(
 )
 
 -- File sharing
-hl.bind("SUPER + CTRL + S", hl.dsp.exec_cmd("desktopctl menu share"), { description = "Share" })
+hl.bind("SUPER + CTRL + S", hl.dsp.exec_cmd("desktop-bar --menu menu/share"), { description = "Share" })
 
 -- Transcoding
 hl.bind("SUPER + CTRL + PERIOD", hl.dsp.exec_cmd("desktopctl transcode"), { description = "Transcode" })
 
 -- Reminders
-hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("desktopctl menu reminder-set"), { description = "Set reminder" })
+hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("desktop-bar --menu menu/reminder-set"), { description = "Set reminder" })
 hl.bind("SUPER + CTRL + ALT + R", hl.dsp.exec_cmd("desktopctl reminder show"), { description = "Show reminders" })
 hl.bind("SUPER + SHIFT + CTRL + R", hl.dsp.exec_cmd("desktopctl reminder clear"), { description = "Clear reminders" })
 
@@ -115,9 +117,10 @@ hl.bind(
 )
 
 -- Control panels
-hl.bind("SUPER + CTRL + A", hl.dsp.exec_cmd("desktopctl launch audio"), { description = "Audio controls" })
-hl.bind("SUPER + CTRL + B", hl.dsp.exec_cmd("desktopctl launch bluetooth"), { description = "Bluetooth controls" })
-hl.bind("SUPER + CTRL + W", hl.dsp.exec_cmd("desktopctl launch wifi"), { description = "Wifi controls" })
+hl.bind("SUPER + CTRL + D", hl.dsp.exec_cmd("desktop-bar --menu controls"), { description = "Toggle dashboard" })
+hl.bind("SUPER + CTRL + A", hl.dsp.exec_cmd("desktop-bar --menu audio"), { description = "Audio controls" })
+hl.bind("SUPER + CTRL + B", hl.dsp.exec_cmd("desktop-bar --menu bluetooth"), { description = "Bluetooth controls" })
+hl.bind("SUPER + CTRL + W", hl.dsp.exec_cmd("desktop-bar --menu wifi"), { description = "Wifi controls" })
 hl.bind("SUPER + CTRL + T", hl.dsp.exec_cmd("desktopctl launch tui btop"), { description = "Activity" })
 
 -- Dictation
