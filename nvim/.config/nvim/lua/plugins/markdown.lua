@@ -2,7 +2,7 @@
 return {
   {
     "OXY2DEV/markview.nvim",
-    ft = { "markdown" },
+    lazy = false, -- Markview handles filetype attachment itself.
     opts = {
       preview = { icon_provider = "internal" }, -- optional
     },
