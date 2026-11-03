@@ -43,7 +43,7 @@ fn switch_persists_for_shortcut_and_missing_key_keeps_previous_choice() {
         String::from_utf8_lossy(&output.stderr)
     );
     let output = sandbox.command().arg("provider").output().unwrap();
-    assert!(String::from_utf8_lossy(&output.stdout).contains("soniox (stt-rt-v5)"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("soniox (stt-rt-v6)"));
     let file = sandbox.0.join("state/dictate/live-provider");
     assert_eq!(fs::read_to_string(&file).unwrap(), "soniox");
     let output = sandbox

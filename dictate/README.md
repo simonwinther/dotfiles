@@ -82,7 +82,7 @@ the managed configuration. Missing credentials leave the previous choice intact.
 `LIVE_PROVIDER` supplies the default when no choice has been saved.
 For a single recording, use `dictate live toggle --provider soniox`.
 
-The Soniox backend uses `stt-rt-v5`, streams mono PCM16 at 24 kHz, and displays
+The Soniox backend uses `stt-rt-v6`, streams mono PCM16 at 24 kHz, and displays
 provisional tokens as they arrive. Confirmed tokens accumulate while provisional
 tokens are replaced, so revisions do not duplicate words. Stopping drains queued
 audio and sends end-of-stream immediately; only the completed transcript is

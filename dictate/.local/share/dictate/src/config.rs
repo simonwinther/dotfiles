@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 const DEFAULTS: &[(&str, &str)] = &[
     ("LIVE_PROVIDER", "openai"),
-    ("SONIOX_MODEL", "stt-rt-v5"),
+    ("SONIOX_MODEL", "stt-rt-v6"),
     ("SONIOX_COST_USD_PER_MINUTE", "auto"),
     (
         "SONIOX_REALTIME_URL",

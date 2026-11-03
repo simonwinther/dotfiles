@@ -34,7 +34,7 @@ fn carries_language_and_vocabulary_without_credentials_in_start_or_snapshot() {
     c.set("OPENAI_PROMPT", "English and Danish scientific dictation");
     c.set("LIVE_KEYWORDS", "PyTorch,MeanFlows");
     let start = network::live_update(&c, &Processor::load(&c).unwrap(), "").unwrap();
-    assert_eq!(start["model"], "stt-rt-v5");
+    assert_eq!(start["model"], "stt-rt-v6");
     assert_eq!(start["audio_format"], "pcm_s16le");
     assert_eq!(start["sample_rate"], 24000);
     assert_eq!(start["num_channels"], 1);

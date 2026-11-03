@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn config(c: &Config, p: &Processor, language: &str) -> Result<Value> {
     ensure!(
-        c.get("SONIOX_MODEL") == "stt-rt-v5",
+        c.get("SONIOX_MODEL") == "stt-rt-v6",
         "Unsupported SONIOX_MODEL: {}",
         c.get("SONIOX_MODEL")
     );

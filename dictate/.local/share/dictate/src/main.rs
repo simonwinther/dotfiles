@@ -189,7 +189,7 @@ async fn run() -> Result<()> {
         }
         Commands::Models => {
             println!(
-                "Batch: gpt-transcribe, gpt-4o-transcribe, gpt-4o-mini-transcribe, whisper-1\nLive: openai / gpt-live-transcribe; soniox / stt-rt-v5\nCurrent: batch {} / live {} / {}",
+                "Batch: gpt-transcribe, gpt-4o-transcribe, gpt-4o-mini-transcribe, whisper-1\nLive: openai / gpt-live-transcribe; soniox / stt-rt-v6\nCurrent: batch {} / live {} / {}",
                 c.get("TRANSCRIBE_MODEL"),
                 c.get("LIVE_PROVIDER"),
                 c.get(c.live_model_setting())
