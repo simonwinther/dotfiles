@@ -1,5 +1,4 @@
 -- Menus
-hl.bind("CTRL + SPACE", hl.dsp.exec_cmd("desktop-bar --menu apps"), { description = "Launch apps" })
 hl.bind("SUPER + CTRL + ALT + SPACE", hl.dsp.exec_cmd("desktop-bar --menu styles"), { description = "Choose top bar style" })
 hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("desktop-bar --menu apps"), { description = "Launch apps" })
 hl.bind("SUPER + CTRL + E", hl.dsp.exec_cmd("desktop-bar --menu symbols"), { description = "Emoji picker" })
