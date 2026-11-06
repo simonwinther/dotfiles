@@ -1,6 +1,7 @@
 {
   "version": 1,
   "packages": [
+    "agent-skills",
     "appearance",
     "application-state",
     "applications",
