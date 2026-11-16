@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "PDF Better Copy",
+  "version": "0.1.0",
+  "description": "Open PDFs in a viewer that copies text and equations as LaTeX or Markdown.",
+  "minimum_chrome_version": "128",
+  "permissions": [
+    "contextMenus",
+    "declarativeNetRequestWithHostAccess",
+    "storage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PDF Better Copy",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "viewer.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

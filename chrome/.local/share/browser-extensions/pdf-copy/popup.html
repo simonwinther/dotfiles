@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PDF Better Copy settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+  }
+
+  body {
+    width: 248px;
+    margin: 0;
+    font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #ffffff;
+    color: #18181b;
+  }
+
+  main {
+    padding: 14px 16px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .title {
+    font-weight: 600;
+  }
+
+  .hint {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #71717a;
+  }
+
+  .switch {
+    position: relative;
+    display: inline-block;
+    flex: none;
+    width: 36px;
+    height: 20px;
+  }
+
+  .switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    border-radius: 999px;
+    background: #d4d4d8;
+    transition: background 120ms ease;
+  }
+
+  .slider::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 120ms ease;
+  }
+
+  input:checked + .slider {
+    background: #16a34a;
+  }
+
+  input:checked + .slider::before {
+    transform: translateX(16px);
+  }
+
+  input:focus-visible + .slider {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+
+  fieldset {
+    min-width: 0;
+    margin: 16px 0 0;
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    margin-bottom: 8px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .formats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 8px;
+    background: #f4f4f5;
+  }
+
+  .format {
+    position: relative;
+    cursor: pointer;
+  }
+
+  .format input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+  }
+
+  .format span {
+    display: block;
+    padding: 7px 8px;
+    border-radius: 5px;
+    text-align: center;
+  }
+
+  .format input:checked + span {
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    font-weight: 600;
+  }
+
+  .format input:focus-visible + span {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+
+  fieldset:disabled .formats {
+    opacity: 0.5;
+  }
+
+  fieldset:disabled .format {
+    cursor: default;
+  }
+
+  #format-hint {
+    margin: 10px 0 0;
+  }
+
+  #error {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #b91c1c;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      background: #202124;
+      color: #e8eaed;
+    }
+
+    .hint {
+      color: #9aa0a6;
+    }
+
+    .slider {
+      background: #5f6368;
+    }
+
+    .formats {
+      background: #303134;
+    }
+
+    .format input:checked + span {
+      background: #4a4b50;
+    }
+
+    #error {
+      color: #fca5a5;
+    }
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .actions {
+    margin-top: 14px;
+  }
+
+  .action {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #d4d4d8;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .action:hover {
+    background: #f4f4f5;
+  }
+
+  .note {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #fef3c7;
+    color: #78350f;
+    font-size: 12px;
+  }
+
+  .note button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .action {
+      border-color: #5f6368;
+    }
+
+    .action:hover {
+      background: #303134;
+    }
+
+    .note {
+      background: #3b2f12;
+      color: #fde68a;
+    }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="title">PDF Better Copy</div>
+      <div class="hint" id="status" role="status">Loading settings…</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="toggle" aria-label="Enable copy formatting" checked disabled>
+      <span class="slider" aria-hidden="true"></span>
+    </label>
+  </header>
+  <fieldset id="format-picker" disabled aria-describedby="format-hint">
+    <legend>Copy format</legend>
+    <div class="formats">
+      <label class="format">
+        <input type="radio" name="format" value="latex" checked>
+        <span>LaTeX</span>
+      </label>
+      <label class="format">
+        <input type="radio" name="format" value="markdown">
+        <span>Markdown</span>
+      </label>
+    </div>
+  </fieldset>
+  <p class="hint" id="format-hint">Text and equations for a LaTeX document.</p>
+  <div class="row">
+    <div>
+      <div>Open PDFs here</div>
+      <div class="hint">Instead of Chrome’s PDF viewer</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="open-pdfs" aria-label="Open PDFs in PDF Better Copy" checked disabled>
+      <span class="slider" aria-hidden="true"></span>
+    </label>
+  </div>
+  <p class="note" id="file-access" hidden>
+    Local PDFs need “Allow access to file URLs”.
+    <button type="button" id="file-access-settings">Open extension settings</button>
+  </p>
+  <div class="actions" id="open-current-row" hidden>
+    <button type="button" class="action" id="open-current">Open this PDF here</button>
+  </div>
+  <p id="error" role="alert" hidden></p>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

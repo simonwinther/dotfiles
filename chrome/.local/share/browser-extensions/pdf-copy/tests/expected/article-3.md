@@ -1,0 +1,26 @@
+# 3 Symbols
+
+$\epsilon\varepsilon\phi\varphi\theta\vartheta\Gamma\Delta\Omega\ell\hbar\partial\nabla\forall\exists\emptyset\neg$
+
+$\pm\times\div\cdot\circ\ast\cap\cup\oplus\otimes\setminus$
+
+$\leq \geq \ll \approx \equiv \sim \simeq \propto \subset \subseteq \in \ni \perp$
+
+$\to \leftarrow \Rightarrow \Leftrightarrow \mapsto \longrightarrow \Longrightarrow \Longleftrightarrow$
+
+$\langle x\rangle\lfloor x\rfloor\lceil x\rceil\{x\}\ldots\cdots$
+
+$\mathbb{R}\mathcal{A}\mathfrak{g}\mathrm{d}x\boldsymbol{\theta}\mathbf{A}$
+
+$\left[ \frac{1}{2} \right]\left\{ \frac{x}{y} \right\}\left| \frac{x}{2} \right|\widehat{abc}\widetilde{xy}\dot{a}\ddot{b}\tilde{c}$
+
+$$
+\begin{pmatrix}
+1 & \cdots & 0 \\
+\vdots & \ddots & \vdots \\
+0 & \cdots & 1
+\end{pmatrix} \begin{Vmatrix}
+1 & 0 \\
+0 & 1
+\end{Vmatrix} \sqrt[3]{x}\sqrt{\frac{a}{b}}
+$$

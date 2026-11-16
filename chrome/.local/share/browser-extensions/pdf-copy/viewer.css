@@ -1,0 +1,260 @@
+:root {
+  color-scheme: dark;
+  --toolbar: #323639;
+  --canvas: #525659;
+  --text: #f1f1f1;
+  --muted: #bdc1c6;
+  --field: #202124;
+  --hover: #ffffff20;
+  --focus: #8ab4f8;
+  --toolbar-height: 56px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--text);
+  font: 13px Roboto, Arial, sans-serif;
+}
+
+#toolbar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: var(--toolbar-height);
+  padding: 0 16px 0 20px;
+  background: var(--toolbar);
+  box-shadow: 0 2px 5px #0005;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.tools.end {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 6px;
+  background: #ffffff30;
+}
+
+.count,
+.of {
+  color: var(--muted);
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--hover);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+input {
+  height: 24px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+
+#page-number {
+  width: 40px;
+}
+
+#zoom {
+  width: 52px;
+}
+
+button:focus-visible,
+input:focus-visible,
+#viewerContainer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+#findbar {
+  position: fixed;
+  top: calc(var(--toolbar-height) + 8px);
+  right: 16px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 8px;
+  background: var(--toolbar);
+  box-shadow: 0 4px 16px #0007;
+}
+
+#findbar[hidden] {
+  display: none;
+}
+
+#find-input {
+  width: 220px;
+  text-align: left;
+}
+
+#find-count {
+  min-width: 56px;
+  padding: 0 4px;
+  text-align: right;
+  font-size: 12px;
+}
+
+#viewerContainer {
+  position: absolute;
+  inset: var(--toolbar-height) 0 0;
+  overflow: auto;
+  outline: none;
+  scrollbar-color: #999 #45494c;
+}
+
+.pdfViewer {
+  padding: 12px 0 24px;
+}
+
+.pdfViewer.removePageBorders .page {
+  margin: 0 auto 12px;
+  box-shadow: 0 2px 7px #0007;
+}
+
+#status {
+  position: fixed;
+  inset: var(--toolbar-height) 0 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text);
+  font-size: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+#status[hidden] {
+  display: none;
+}
+
+#status .detail {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#status button {
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: #8ab4f8;
+  color: #202124;
+  font-weight: 500;
+  pointer-events: auto;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 12;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: #202124;
+  color: var(--text);
+  box-shadow: 0 4px 16px #0007;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+
+#toast[data-visible] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (max-width: 720px) {
+  #toolbar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .title,
+  #fit,
+  #rotate,
+  .divider {
+    display: none;
+  }
+
+  #find-input {
+    width: 140px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #toast {
+    transition: none;
+  }
+}

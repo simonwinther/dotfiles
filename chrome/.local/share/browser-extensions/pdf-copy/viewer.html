@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/pdfjs/web/pdf_viewer.css">
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<header id="toolbar">
+  <div id="title" class="title">Loading…</div>
+  <div class="tools center">
+    <input id="page-number" type="text" inputmode="numeric" value="0" aria-label="Page number" disabled>
+    <span class="of">/</span>
+    <span id="page-count" class="count">0</span>
+    <span class="divider" aria-hidden="true"></span>
+    <button id="zoom-out" type="button" title="Zoom out (Ctrl+−)" aria-label="Zoom out">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+    </button>
+    <input id="zoom" type="text" value="100%" aria-label="Zoom level" disabled>
+    <button id="zoom-in" type="button" title="Zoom in (Ctrl++)" aria-label="Zoom in">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>
+    </button>
+    <span class="divider" aria-hidden="true"></span>
+    <button id="fit" type="button" title="Fit to page" aria-label="Fit to page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3.5" width="12" height="17" rx="1.5"/><path d="M9.5 9 12 6.5 14.5 9M9.5 15l2.5 2.5 2.5-2.5"/></svg>
+    </button>
+    <button id="rotate" type="button" title="Rotate clockwise" aria-label="Rotate clockwise">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4"/></svg>
+    </button>
+  </div>
+  <div class="tools end">
+    <button id="find-toggle" type="button" title="Find (Ctrl+F)" aria-label="Find in document">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
+    </button>
+    <button id="download" type="button" title="Download (Ctrl+S)" aria-label="Download">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></svg>
+    </button>
+    <button id="print" type="button" title="Print (Ctrl+P)" aria-label="Print">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V4h10v4M7 17H5a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="7" y="14" width="10" height="6"/></svg>
+    </button>
+    <button id="open-in-chrome" type="button" title="Open in Chrome’s PDF viewer" aria-label="Open in Chrome’s PDF viewer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+    </button>
+  </div>
+</header>
+<div id="findbar" role="search" hidden>
+  <input id="find-input" type="search" placeholder="Find in document" aria-label="Find in document" autocomplete="off">
+  <span id="find-count" class="count" aria-live="polite"></span>
+  <button id="find-previous" type="button" title="Previous (Shift+Enter)" aria-label="Previous match">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+  </button>
+  <button id="find-next" type="button" title="Next (Enter)" aria-label="Next match">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+  </button>
+  <button id="find-close" type="button" title="Close (Escape)" aria-label="Close find bar">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+  </button>
+</div>
+<div id="viewerContainer" tabindex="0">
+  <div id="viewer" class="pdfViewer"></div>
+</div>
+<div id="status" role="status">Loading…</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="viewer.js"></script>
+<script src="controls.js"></script>
+</body>
+</html>

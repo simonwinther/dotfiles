@@ -1,0 +1,66 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb}
+\pagestyle{plain}
+\title{Exercise Sheet: Vectors and Matrices}
+\author{Course Staff}
+\date{}
+\begin{document}
+\maketitle
+These exercises practise vector and matrix operations by hand. \textbf{Show every step} so that partial answers can be graded.
+
+\section{Vector Matrix Calculations}
+\begin{enumerate}
+\item Let $\mathbf{v}$ be the vector $[-2, b, 7, 2, a]^T$. Compute $\mathbf{v}^T\mathbf{v}$ and $\mathbf{v}\mathbf{v}^T$.
+\item Let $A$ and $B$ be the following matrices
+\[ A = \begin{bmatrix} -5 & 4 & -6 \\ 3 & 4 & -6 \\ 8 & -6 & 8 \end{bmatrix}, \quad B = \begin{bmatrix} -4 & 8 \\ -5 & -9 \\ 4 & -7 \end{bmatrix} \]
+Compute $\mathbf{v} = B.[x,y]^T$, $\mathbf{w} = A.\mathbf{v}$. Then compute $C = A.B$ and $\mathbf{z} = C.[x,y]^T$.
+\item Let $A$ be the matrix:
+\[ A = \begin{bmatrix} 1 & -1 & -1 \\ 8-x & x-6 & x-6 \\ x-7 & 5-x & 5-x \end{bmatrix} \]
+Compute respectively $A^2 = A.A$ and $A^3 = A.A.A$. Such a matrix $A$ is called \emph{nilpotent}.
+\end{enumerate}
+
+\section{Inline math}
+Let $x_i^2 + y_{ij} = e^{x^2}$ and $\alpha \in \mathbb{R}^n$ with $\mathcal{L}(\theta) \leq \infty$.
+The inverse $A^{-1}$ exists, $f'(x) = \sin x + \log(2x)$, and $\|\mathbf{w}\| \cdot |a| \to 0$.
+Text has special characters: 50\% of \$5 \& \#1 under\_score.
+A fraction $\frac{a}{b+1}$ inline, a root $\sqrt{x+1}$, the interval $[0, 1)$ and $\beta_1, \beta_2 \in [0, 1)$.
+We write $a \neq b$, $x \notin A$, $x \cong y$, $\overline{z}$ and $\underline{w}$.
+\newpage
+\subsection{Display math}
+Consider
+\[ \frac{\partial f}{\partial x} = \sum_{i=1}^{n} \frac{1}{\sqrt{x_i}} = \int_0^1 e^{-x^2} \, dx \]
+and the matrices
+\[ M = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}, \quad D = \begin{vmatrix} a & b \\ c & d \end{vmatrix}, \quad \hat{x} + \bar{y} + \vec{v}. \]
+Cases:
+\[ f(x) = \begin{cases} 1 & x > 0 \\ 0 & \text{otherwise} \end{cases} \]
+Aligned:
+\begin{align*}
+a &= b + c \\
+  &= d
+\end{align*}
+A numbered equation:
+\begin{equation}
+\mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V = \lim_{n \to \infty} \max_x \det A
+\end{equation}
+\begin{itemize}
+\item First item with $\int_0^1 x\,dx$.
+\item Second item.
+\end{itemize}
+\newpage
+\section{Symbols}
+$\epsilon \varepsilon \phi \varphi \theta \vartheta \Gamma \Delta \Omega \ell \hbar \partial \nabla \forall \exists \emptyset \neg$
+
+$\pm \times \div \cdot \circ \ast \cap \cup \oplus \otimes \setminus$
+
+$\leq \geq \ll \approx \equiv \sim \simeq \propto \subset \subseteq \in \ni \perp$
+
+$\to \leftarrow \Rightarrow \Leftrightarrow \mapsto \longrightarrow \Longrightarrow \iff$
+
+$\langle x \rangle \lfloor x \rfloor \lceil x \rceil \{x\} \ldots \cdots$
+
+$\mathbb{R} \mathcal{A} \mathfrak{g} \mathrm{d}x \boldsymbol{\theta} \mathbf{A}$
+
+$\left[ \frac{1}{2} \right] \left\{ \frac{x}{y} \right\} \left| \frac{x}{2} \right| \widehat{abc} \widetilde{xy} \dot{a} \ddot{b} \tilde{c}$
+
+\[ \begin{pmatrix} 1 & \cdots & 0 \\ \vdots & \ddots & \vdots \\ 0 & \cdots & 1 \end{pmatrix} \begin{Vmatrix} 1 & 0 \\ 0 & 1 \end{Vmatrix} \sqrt[3]{x} \sqrt{\frac{a}{b}} \]
+\end{document}
