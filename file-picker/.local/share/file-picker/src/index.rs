@@ -10,6 +10,7 @@ use rusqlite::{
 mod events;
 use events::{Refresh, Watch};
 use std::{
+    collections::HashMap,
     env,
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -487,44 +488,51 @@ impl Index {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(
-            "CREATE TEMP TABLE fresh (
-            path BLOB PRIMARY KEY, changed_sec INTEGER NOT NULL, changed_nsec INTEGER NOT NULL
-        ) WITHOUT ROWID;",
-        )?;
+        // Diff in memory and write only changed rows; a typical refresh touches
+        // a handful of the scope's rows instead of rewriting all of them.
+        let mut stale: HashMap<Vec<u8>, (i64, i64)> = HashMap::with_capacity(files.len());
         {
-            let mut insert = transaction.prepare("INSERT INTO fresh VALUES(?1,?2,?3)")?;
-            for (changed, path) in &files {
-                insert.execute(params![
-                    path.as_os_str().as_bytes(),
-                    changed.div_euclid(1_000_000_000) as i64,
-                    changed.rem_euclid(1_000_000_000) as i64
-                ])?;
+            let mut select = transaction
+                .prepare("SELECT path,changed_sec,changed_nsec FROM files WHERE scope=?1")?;
+            let mut rows = select.query([scope.id])?;
+            while let Some(row) = rows.next()? {
+                stale.insert(row.get(0)?, (row.get(1)?, row.get(2)?));
             }
         }
-        let added: i64 = transaction.query_row(
-            "SELECT count(*) FROM fresh n WHERE NOT EXISTS(SELECT 1 FROM files o WHERE o.scope=?1 AND o.path=n.path)",
-            [scope.id], |row| row.get(0),
-        )?;
-        let updated: i64 = transaction.query_row(
-            "SELECT count(*) FROM fresh n JOIN files o ON o.path=n.path AND o.scope=?1
-                WHERE o.changed_sec!=n.changed_sec OR o.changed_nsec!=n.changed_nsec",
-            [scope.id],
-            |row| row.get(0),
-        )?;
-        let removed = transaction.execute(
-            "DELETE FROM files WHERE scope=?1 AND NOT EXISTS(SELECT 1 FROM fresh n WHERE n.path=files.path)", [scope.id],
-        )?;
-        transaction.execute("INSERT INTO files(scope,path,changed_sec,changed_nsec)
-            SELECT ?1,path,changed_sec,changed_nsec FROM fresh WHERE true
-            ON CONFLICT(scope,path) DO UPDATE SET changed_sec=excluded.changed_sec, changed_nsec=excluded.changed_nsec
-            WHERE files.changed_sec!=excluded.changed_sec OR files.changed_nsec!=excluded.changed_nsec", [scope.id])?;
+        let (mut added, mut updated) = (0_i64, 0_i64);
+        {
+            let mut upsert = transaction.prepare(
+                "INSERT INTO files(scope,path,changed_sec,changed_nsec) VALUES(?1,?2,?3,?4)
+                ON CONFLICT(scope,path) DO UPDATE SET
+                changed_sec=excluded.changed_sec, changed_nsec=excluded.changed_nsec",
+            )?;
+            for (changed, path) in &files {
+                let path = path.as_os_str().as_bytes();
+                let changed = (
+                    changed.div_euclid(1_000_000_000) as i64,
+                    changed.rem_euclid(1_000_000_000) as i64,
+                );
+                match stale.remove(path) {
+                    Some(cached) if cached == changed => continue,
+                    Some(_) => updated += 1,
+                    None => added += 1,
+                }
+                upsert.execute(params![scope.id, path, changed.0, changed.1])?;
+            }
+        }
+        // Every row the scan did not see again belongs to a deleted file.
+        let removed = stale.len();
+        {
+            let mut delete = transaction.prepare("DELETE FROM files WHERE scope=?1 AND path=?2")?;
+            for path in stale.keys() {
+                delete.execute(params![scope.id, path])?;
+            }
+        }
         transaction.execute(
             "UPDATE scopes SET updated=?2,
             revision=revision + CASE WHEN updated IS NULL OR ?3 THEN 1 ELSE 0 END WHERE id=?1",
             params![scope.id, timestamp(), added + updated + removed as i64 != 0],
         )?;
-        transaction.execute_batch("DROP TABLE fresh")?;
         transaction.commit()?;
         Ok(Some(
             serde_json::json!({"files": files.len(), "added": added, "updated": updated,

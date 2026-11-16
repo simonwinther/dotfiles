@@ -282,21 +282,38 @@ fn scan_files(options: &Options) -> Result<Vec<(i128, PathBuf)>> {
     if !output.status.success() {
         return Err(format!("File scan failed ({})", output.status).into());
     }
-    let mut files = Vec::new();
-    for name in output
+    let paths: Vec<_> = output
         .stdout
         .split(|byte| *byte == 0)
         .filter(|name| !name.is_empty())
-    {
-        let path = PathBuf::from(OsString::from_vec(name.to_vec()));
-        let Ok(metadata) = path.metadata() else {
-            continue;
-        };
-        if metadata.is_file() {
-            files.push((changed_time(&metadata), path));
-        }
-    }
-    Ok(files)
+        .map(|name| PathBuf::from(OsString::from_vec(name.to_vec())))
+        .collect();
+    // Metadata dominates a refresh. fd walks in parallel, so stat in parallel too.
+    let workers = thread::available_parallelism().map_or(1, |count| count.get().min(8));
+    let changed: Vec<Option<i128>> = thread::scope(|scope| {
+        paths
+            .chunks(paths.len().div_ceil(workers).max(1))
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|path| {
+                            let metadata = path.metadata().ok()?;
+                            metadata.is_file().then(|| changed_time(&metadata))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("metadata worker panicked"))
+            .collect()
+    });
+    Ok(paths
+        .into_iter()
+        .zip(changed)
+        .filter_map(|(path, changed)| Some((changed?, path)))
+        .collect())
 }
 
 fn sorted_paths(options: &Options) -> Result<Vec<PathBuf>> {
