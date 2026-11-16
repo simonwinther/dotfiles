@@ -427,7 +427,14 @@ impl Picker {
             return false;
         }
         let next = self.replacement.take().unwrap();
-        let selected = self.current_path();
+        // The top row follows the newest match, so files changed since the
+        // cached snapshot appear under the cursor. A moved cursor, or a queued
+        // action, keeps the file the user actually saw.
+        let selected = if self.selected == 0 && self.pending.is_none() {
+            None
+        } else {
+            self.current_path()
+        };
         let snapshot = next.snapshot();
         self.selected = selected
             .and_then(|path| {
@@ -1191,6 +1198,47 @@ mod tests {
         assert_eq!(picker.marked, [alpha]);
         assert_eq!(picker.count(), 1);
         assert_eq!(picker.matcher.snapshot().item_count(), 3);
+    }
+
+    #[test]
+    fn fresh_snapshots_move_an_untouched_cursor_to_the_newest_file() {
+        let old = PathBuf::from("/tmp/old.pdf");
+        let older = PathBuf::from("/tmp/older.pdf");
+        let refresh = |picker: &mut Picker| {
+            let (sender, receiver) = mpsc::channel();
+            read_updates(
+                b"fresh\0/tmp/new.pdf\0/tmp/old.pdf\0/tmp/older.pdf\0\0".as_slice(),
+                &sender,
+            )
+            .unwrap();
+            for event in receiver.try_iter() {
+                if let ScanEvent::Update(update) = event {
+                    picker.receive(update);
+                }
+            }
+            let start = Instant::now();
+            while !picker.replace_if_ready() {
+                assert!(start.elapsed() < Duration::from_secs(3));
+                thread::sleep(Duration::from_millis(1));
+            }
+        };
+
+        let mut untouched = fixture(&[old.clone(), older.clone()]);
+        refresh(&mut untouched);
+        assert_eq!(
+            untouched.current_path(),
+            Some(PathBuf::from("/tmp/new.pdf"))
+        );
+
+        let mut moved = fixture(&[old.clone(), older.clone()]);
+        moved.move_by(1);
+        refresh(&mut moved);
+        assert_eq!(moved.current_path(), Some(older.clone()));
+
+        let mut accepted = fixture(&[old.clone(), older]);
+        accepted.pending = Some(Choice::Default);
+        refresh(&mut accepted);
+        assert_eq!(accepted.current_path(), Some(old));
     }
 
     #[test]
