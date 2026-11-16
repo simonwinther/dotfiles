@@ -1,0 +1,7 @@
+# Shadows the mako package's activation file. A notification sent while the
+# daemon is down must start desktop-mako.service with the desktop config;
+# a bare mako would hold the bus name and make that service fail forever.
+[D-BUS Service]
+Name=org.freedesktop.Notifications
+Exec=/bin/false
+SystemdService=desktop-mako.service
