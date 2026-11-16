@@ -23,6 +23,11 @@ enum Commands {
     Live(Mode),
     /// Record, transcribe, retry, or discard a clip.
     Batch(Mode),
+    /// Speak an instruction that revises the selected text or focused field.
+    Revise {
+        #[arg(value_parser=["start","stop","cancel","toggle","status"])]
+        action: String,
+    },
     /// Cancel whichever mode is active.
     Cancel,
     /// Show session and recovery status without a network request.
@@ -141,6 +146,7 @@ async fn run() -> Result<()> {
             )
             .await
         }
+        Commands::Revise { action } => session::action(c, "revise", &action, "", "").await,
         Commands::Cancel => session::action(c, "batch", "cancel", "", "").await,
         Commands::Status => session::action(c, "batch", "status", "", "").await,
         Commands::Check => {
@@ -167,7 +173,28 @@ async fn run() -> Result<()> {
                 p.dictionary.terms.len(),
                 p.dictionary.replacements.len()
             );
-            for name in ["ffmpeg", "ffprobe", "hyprctl", "wpctl", "notify-send"] {
+            println!(
+                "Revision: {} ({}, {} tier)",
+                c.get("REVISE_MODEL"),
+                if c.get("REVISE_REASONING").is_empty() {
+                    "default reasoning"
+                } else {
+                    c.get("REVISE_REASONING")
+                },
+                if c.get("REVISE_SERVICE_TIER").is_empty() {
+                    "project"
+                } else {
+                    c.get("REVISE_SERVICE_TIER")
+                }
+            );
+            for name in [
+                "ffmpeg",
+                "ffprobe",
+                "hyprctl",
+                "wpctl",
+                "notify-send",
+                "wl-paste",
+            ] {
                 println!(
                     "{name}: {}",
                     if desktop::exists(name) {

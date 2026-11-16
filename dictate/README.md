@@ -5,6 +5,7 @@ batch recording, the transcript overlay, personal vocabulary, local cleanup,
 volume ducking, recovery, retries, and accuracy benchmarks.
 
 Super+D still runs `dictate live toggle`. Super+Ctrl+Shift+X cancels.
+Hold Super+Shift+E to speak a revision instruction; release to apply it.
 Existing `config.env`, `secrets.env`, and `dictionary.toml` files work unchanged.
 Credentials stay in `~/.config/dictate/secrets.env`; they are never included in
 session or recovery metadata. Configuration files override environment variables,
@@ -44,6 +45,7 @@ Rebuild after pulling source changes on either PC.
 ```text
 dictate live  {start,stop,cancel,toggle,status} [--language xx] [--model NAME]
 dictate batch {start,stop,cancel,toggle,once,status,retry,discard} [--language xx] [--model NAME]
+dictate revise {start,stop,cancel,toggle,status}
 dictate {cancel,status,check,models}
 dictate provider [openai|soniox]
 dictate dictionary {init,path,check}
@@ -94,6 +96,41 @@ over. The live cost display estimates $0.002/minute for Soniox; token billing
 can vary with context and output length. Override it with
 `SONIOX_COST_USD_PER_MINUTE` if needed. The log records `stop_requested`,
 `live_commit`, `live_final`, and `done` timestamps for latency measurements.
+
+## Spoken revisions
+
+Hold Super+Shift+E, say an instruction such as "fix the spelling" or "make
+this more formal", and release. The instruction streams through the live
+provider (Soniox), then a small OpenAI text model (`REVISE_MODEL`, default
+`gpt-6-luna` with `REVISE_REASONING=none`) rewrites the text through the
+Responses API. Requests are sent with `store: false` and Fast mode
+(`REVISE_SERVICE_TIER=fast`; empty uses the project default).
+
+Measured on 10/11/2026 with a two-sentence grammar fix, five requests each:
+`gpt-6-luna` in Fast mode averaged 909 ms (823–1,008 ms), versus 1,488 ms in
+Standard mode and 1,351 ms for the deprecated `gpt-5.4-nano`, which has no
+Fast mode. Short edits are dominated by request overhead, so Fast mode mainly
+removes slow outliers. Fast mode costs about twice the Standard rate, which is
+roughly $0.0001 per revision.
+
+Outside terminals, revision copies the current selection; if nothing is
+selected it presses Ctrl+A and copies the whole field. The revised text replaces
+that selection with Ctrl+V in the original window. Surrounding whitespace is
+kept. In terminals, Ctrl+A and Ctrl+C are shell keys and TUIs such as OpenCode
+handle their own mouse selections, so revision uses the text you last copied
+(dragging over text in OpenCode copies it; in a shell, select and press
+Ctrl+Shift+C). The result is only copied to the clipboard; paste it with
+Ctrl+Shift+V. A terminal cannot reliably select and replace a TUI's input, so
+pasting there would add the text rather than replace it. While you speak, the
+overlay shows `ON:` and the first line of the text being revised.
+
+Spoken punctuation commands are disabled for instructions, so "add a comma"
+reaches the model as words. Dictionary corrections still apply. Revisions are
+never saved for `dictate batch retry`. The clipboard ends up holding the
+revised text. If Super is released before E, the release is not seen; press
+Super+Shift+E again to apply, or Super+Ctrl+Shift+X to cancel. Selections longer
+than `REVISE_MAX_CHARS` (20,000) are rejected. `REVISE_COPY_TIMEOUT_MS` (300)
+is how long to wait for an application to copy before assuming no selection.
 
 ## Data science vocabulary
 

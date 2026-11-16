@@ -219,6 +219,12 @@ pub async fn action(
                 }
                 bail!("Dictate is not recording");
             }
+            let s = active.unwrap();
+            ensure!(
+                mode != "revise" || s.mode == "revise",
+                "{} dictation is active",
+                s.mode
+            );
             let message = send(&Request {
                 action: action.into(),
                 language: language.into(),
@@ -279,9 +285,14 @@ pub async fn start(
     if storage::recover_stale(&c)? {
         let _ = desktop::duck(&c, false).await;
     }
+    let streaming = mode != "batch";
+    if mode == "revise" {
+        // Spoken instructions such as "add a comma" must reach the model as words.
+        c.set("PUNCTUATION_MODE", "off");
+    }
     if !model.is_empty() {
         c.set(
-            if mode == "live" {
+            if streaming {
                 c.live_model_setting()
             } else {
                 "TRANSCRIBE_MODEL"
@@ -302,13 +313,20 @@ pub async fn start(
         );
     }
     c.validate()?;
-    if mode == "live" {
+    if streaming {
         c.live_key()?;
-    } else {
+    }
+    if mode != "live" {
         c.key()?;
     }
+    if mode == "revise" {
+        ensure!(
+            desktop::exists("wl-paste"),
+            "Revision needs wl-paste to read the selected text"
+        );
+    }
     let p = Processor::load(&c)?;
-    if mode == "live" {
+    if streaming {
         network::live_update(&c, &p, language)?;
     } else if !retry {
         network::batch_fields(&c, &p, language)?;
@@ -363,6 +381,8 @@ pub async fn start(
         "{}",
         if retry {
             "Retrying saved dictation"
+        } else if mode == "revise" {
+            "Listening for a revision. Run `dictate revise stop` to apply it."
         } else if mode == "live" {
             "Live dictation recording. Run `dictate live stop` to paste."
         } else {
@@ -389,7 +409,7 @@ pub async fn worker(fd: i32) -> Result<()> {
         .join("sessions")
         .join(storage::generation());
     storage::private_dir(&directory)?;
-    let live = launch.mode == "live";
+    let live = launch.mode != "batch";
     let session = Session {
         owner: Identity::get(std::process::id()).context("Cannot identify session process")?,
         recorder: None,
@@ -442,6 +462,7 @@ pub async fn worker(fd: i32) -> Result<()> {
     let (view_tx, view_rx) = watch::channel(View {
         start_ms: stamp,
         live,
+        revise: launch.mode == "revise",
         provider: if live {
             c.get("LIVE_PROVIDER")
         } else {
@@ -765,7 +786,21 @@ async fn pipeline(
     ready: oneshot::Sender<()>,
 ) -> Result<()> {
     let mut c = launch.config.clone();
-    let live = launch.mode == "live";
+    let live = launch.mode != "batch";
+    let revise = launch.mode == "revise";
+    let mut revision_source = revise.then(|| {
+        let c = c.clone();
+        let view = view.clone();
+        tokio::spawn(async move {
+            let source = desktop::revision_source(&c).await;
+            let preview = match &source {
+                Ok(source) => desktop::source_preview(&source.text),
+                Err(error) => format!("{error:#}"),
+            };
+            view.send_modify(|v| v.source = preview);
+            source
+        })
+    });
     let p = Processor::load(&c)?;
     let mut transcript = None::<String>;
     let mut recovery_id = None::<String>;
@@ -856,6 +891,29 @@ async fn pipeline(
         }
         if *controls.borrow()==Control::Cancel{return Ok(());}
         if text.is_empty(){storage::log(&c,"event=skipped reason=empty_transcript");return Ok(());}
+        if let Some(source_task)=revision_source.as_mut(){
+            view.send_modify(|v|v.transcript=text.clone());
+            let source=tokio::select!{r=source_task=>r.context("Revision source task failed")??,_=cancelled(&mut controls)=>return Ok(())};
+            let limit=c.millis("REVISE_MAX_CHARS") as usize;
+            let length=source.text.chars().count();
+            ensure!(length<=limit,"Text is too long to revise ({length} characters; REVISE_MAX_CHARS is {limit})");
+            let body=source.text.trim();
+            let leading=&source.text[..source.text.len()-source.text.trim_start().len()];
+            let trailing=&source.text[source.text.trim_end().len()..];
+            let revised=tokio::select!{r=network::revise(&c,&text,body)=>r?,_=cancelled(&mut controls)=>return Ok(())};
+            let revised=format!("{leading}{}{trailing}",revised.trim());
+            if *controls.borrow()==Control::Cancel{return Ok(());}
+            phase(&state,&view,"delivering")?;
+            storage::write_private(&c.path("LAST_TRANSCRIPT_FILE"),revised.as_bytes())?;
+            desktop::copy(&revised).await.context("Clipboard failed")?;
+            if source.window.terminal{
+                desktop::notify("Revision copied","Paste it with Ctrl+Shift+V").await;
+            }else{
+                desktop::send_shortcut("CTRL","V",&source.window.address).await.context("Paste failed; revised text remains on clipboard")?;
+            }
+            storage::log(&c,&format!("event=done instruction_chars={} revised_chars={}",text.chars().count(),revised.chars().count()));
+            return Ok(());
+        }
         transcript=Some(text.clone());storage::write_private(&c.path("LAST_TRANSCRIPT_FILE"),text.as_bytes())?;
         {let mut s=state.lock().unwrap();s.transcript=Some(text.clone());s.save()?;}
         // No await between checking cancellation and entering delivery. Controls now reject cancellation.
@@ -866,6 +924,9 @@ async fn pipeline(
         if let Some(id)=&recovery_id{Recovery::discard(Some(id))?;}
         storage::log(&c,&format!("event=done transcript_chars={} recording_ms={duration}",text.chars().count()));Ok(())
     }.await;
+    if let Some(task) = revision_source {
+        task.abort();
+    }
     let cancelled = *controls.borrow() == Control::Cancel;
     let mut retained = false;
     if let Err(error) = &outcome
@@ -873,7 +934,9 @@ async fn pipeline(
     {
         let s = state.lock().unwrap().clone();
         let source = retry_path.as_ref().unwrap_or(&s.audio_file);
-        if source.is_file()
+        // A spoken revision instruction must never be retried as dictated text.
+        if !revise
+            && source.is_file()
             && fs::metadata(source).is_ok_and(|m| m.len() > if live { 0 } else { 44 })
         {
             let reason = c.redact(&error.to_string());

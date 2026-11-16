@@ -241,6 +241,19 @@ hl.unbind("SUPER + CTRL + X")
 hl.unbind("SUPER + D")
 hl.bind("SUPER + D", hl.dsp.exec_cmd("dictate live toggle"), { description = "Dictation (live toggle)" })
 
+-- Hold to speak a revision for the selection or focused field; release applies it.
+-- Pressing again also applies it, in case Super was released before E.
+hl.bind(
+	"SUPER + SHIFT + E",
+	hl.dsp.exec_cmd("dictate revise toggle"),
+	{ description = "Dictation revision (hold to speak)" }
+)
+hl.bind(
+	"SUPER + SHIFT + E",
+	hl.dsp.exec_cmd("dictate revise stop"),
+	{ description = "Dictation revision apply", release = true }
+)
+
 hl.bind(
 	"SUPER + CTRL + SHIFT + X",
 	hl.dsp.exec_cmd("dictate cancel"),

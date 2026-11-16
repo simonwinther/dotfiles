@@ -298,10 +298,11 @@ unsafe extern "C" fn draw(
     if o.view.live {
         label(
             &cr,
-            if recording {
-                "LIVE TRANSCRIPT"
-            } else {
-                "FINISHING…"
+            match (o.view.revise, recording) {
+                (true, true) => "REVISION INSTRUCTION",
+                (true, false) => "REVISING…",
+                (false, true) => "LIVE TRANSCRIPT",
+                (false, false) => "FINISHING…",
             },
             18.,
             12.,
@@ -353,6 +354,16 @@ unsafe extern "C" fn draw(
             cr.move_to(18., 34. - (h - 82).max(0) as f64);
             pango_cairo_show_layout(raw, o.layout);
             let _ = cr.restore();
+        }
+        if o.view.revise && !o.view.source.is_empty() {
+            label(
+                &cr,
+                &format!("ON: {}", o.view.source),
+                18.,
+                134.,
+                10.,
+                (0.55, 0.57, 0.68),
+            );
         }
         cr.set_source_rgb(0.15, 0.19, 0.25);
         cr.move_to(18., 128.5);

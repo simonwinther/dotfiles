@@ -9,6 +9,11 @@ pub struct View {
     pub recording_ms: u64,
     pub live: bool,
     #[serde(default)]
+    pub revise: bool,
+    /// Preview of the text a revision will change.
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
     pub provider: String,
     pub cost_rate: f64,
     pub currency: String,
@@ -24,6 +29,8 @@ impl Default for View {
             start_ms: 0,
             recording_ms: 0,
             live: true,
+            revise: false,
+            source: String::new(),
             provider: String::new(),
             cost_rate: 0.,
             currency: "DKK".into(),

@@ -331,7 +331,8 @@ pub fn recover_stale(c: &Config) -> Result<bool> {
         if let Some(recorder) = &stale.recorder {
             recorder.signal(libc::SIGKILL);
         }
-        if stale.audio_file.is_file()
+        if stale.mode != "revise"
+            && stale.audio_file.is_file()
             && fs::metadata(&stale.audio_file)?.len() > if stale.mode == "live" { 0 } else { 44 }
         {
             let pcm = stale.audio_file.extension().is_some_and(|s| s == "pcm");

@@ -121,7 +121,7 @@ impl Desktop {
         let state = self.state();
         let audio = PathBuf::from(state["audio_file"].as_str().unwrap());
         // The test microphone emits mono PCM16 at the mode's default rate.
-        let (header, rate) = if state["mode"] == "live" {
+        let (header, rate) = if state["mode"] != "batch" {
             (0, 24_000)
         } else {
             (44, 16_000)
@@ -767,4 +767,152 @@ async fn interrupted_batch_header_is_repaired_for_recovery() {
             .unwrap()
             > 0
     );
+}
+
+/// Answers one Responses API request and returns its JSON body.
+async fn responses(revised: &'static str) -> (String, tokio::task::JoinHandle<Value>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1/responses", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        let body = loop {
+            let n = stream.read(&mut buffer).await.unwrap();
+            assert!(n > 0, "request ended early");
+            request.extend_from_slice(&buffer[..n]);
+            let text = String::from_utf8_lossy(&request);
+            if let Some(end) = text.find("\r\n\r\n") {
+                let length: usize = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse().unwrap())
+                    })
+                    .unwrap();
+                if request.len() >= end + 4 + length {
+                    break request[end + 4..end + 4 + length].to_vec();
+                }
+            }
+        };
+        let reply = json!({"output":[{"type":"message","content":[{"type":"output_text","text":revised}]}]}).to_string();
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    });
+    (url, task)
+}
+
+fn revision_desktop(realtime_url: &str, responses_url: &str, class: &str) -> Desktop {
+    let desktop = Desktop::new(
+        realtime_url,
+        &format!("OPENAI_RESPONSES_URL={responses_url}\nREVISE_COPY_TIMEOUT_MS=150"),
+    );
+    // Ctrl+C copies only after Ctrl+A, simulating a field with no selection.
+    fs::write(
+        desktop.root.join("tools/hyprctl"),
+        format!(
+            "#!/bin/sh\ncase \"$1\" in\nactivewindow) echo '{{\"class\":\"{class}\",\"address\":\"0x42\"}}' ;;\nstatus) echo 'configProvider: lua' ;;\ndispatch)\n  printf '%s\\n' \"$2\" >> \"$DICTATE_TEST_PASTE\"\n  case \"$2\" in\n  *'key = \"A\"'*) touch \"$DICTATE_TEST_PASTE.all\" ;;\n  *'key = \"C\"'*) if test -f \"$DICTATE_TEST_PASTE.all\"; then printf '  Teh fild\\n' > \"$DICTATE_TEST_CLIPBOARD\"; fi ;;\n  esac\n  echo ok ;;\n*) exit 1 ;;\nesac\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        desktop.root.join("tools/wl-paste"),
+        "#!/bin/sh\nif test \"$1\" = --primary; then printf 'stale mouse selection'; exit 0; fi\ncat \"$DICTATE_TEST_CLIPBOARD\" 2>/dev/null || exit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(
+        desktop.root.join("tools/wl-paste"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    desktop
+}
+
+#[tokio::test]
+async fn revision_selects_field_without_selection_and_pastes_over_it() {
+    let (url, first, server) = realtime(Some("fix the spelling, add a comma")).await;
+    let (responses_url, request) = responses("The field\n").await;
+    let desktop = revision_desktop(&url, &responses_url, "firefox");
+    desktop.ok(&["revise", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.wait_audio_ms(100).await;
+    assert!(desktop.ok(&["status"]).await.contains("recording (revise)"));
+    desktop.ok(&["revise", "stop"]).await;
+    desktop.idle().await;
+    let body = request.await.unwrap();
+    let input = body["input"].as_str().unwrap();
+    assert!(input.contains("fix the spelling, add a comma"));
+    assert!(input.contains("<text>\nTeh fild\n</text>"));
+    // Surrounding whitespace from the field is kept around the revised text.
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "  The field\n"
+    );
+    let dispatched = fs::read_to_string(desktop.root.join("paste.txt")).unwrap();
+    let keys: Vec<_> = dispatched
+        .lines()
+        .filter_map(|l| l.split("key = \"").nth(1)?.split('"').next())
+        .collect();
+    assert_eq!(keys, ["C", "A", "C", "V"]);
+    assert!(dispatched.contains("address:0x42"));
+    assert!(desktop.recovery().is_none());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn terminal_revision_uses_clipboard_and_only_copies_the_result() {
+    let (url, first, server) = realtime(Some("fix the typo")).await;
+    let (responses_url, request) = responses("git commit -m wip").await;
+    let desktop = revision_desktop(&url, &responses_url, "com.mitchellh.ghostty");
+    fs::write(desktop.root.join("clipboard.txt"), "git comit -m wip").unwrap();
+    desktop.ok(&["revise", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.wait_audio_ms(100).await;
+    desktop.ok(&["revise", "stop"]).await;
+    desktop.idle().await;
+    assert!(
+        request.await.unwrap()["input"]
+            .as_str()
+            .unwrap()
+            .contains("git comit -m wip")
+    );
+    assert_eq!(
+        fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
+        "git commit -m wip"
+    );
+    assert!(!desktop.root.join("paste.txt").exists());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn revision_stop_never_ends_live_dictation() {
+    let (url, first, server) = realtime(Some("Still dictating.")).await;
+    let desktop = Desktop::new(&url, "");
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!desktop.call(&["revise", "stop"]).await.status.success());
+    assert!(!desktop.call(&["revise", "cancel"]).await.status.success());
+    assert!(desktop.ok(&["status"]).await.contains("recording (live)"));
+    desktop.ok(&["live", "stop"]).await;
+    desktop.idle().await;
+    server.await.unwrap();
 }

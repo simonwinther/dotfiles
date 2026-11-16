@@ -74,6 +74,32 @@ pub async fn paste(c: &Config) -> Result<()> {
         capture(cmd, &args, 2000).await?;
         return Ok(());
     }
+    let window = active_window()
+        .await
+        .map_err(|e| anyhow::anyhow!("Automatic paste skipped: {e}"))?;
+    let (mods, key) = match method {
+        "hyprctl-super-v" => (
+            if window.terminal {
+                "CTRL SHIFT"
+            } else {
+                "CTRL"
+            },
+            "V",
+        ),
+        "hyprctl-ctrl-v" => ("CTRL", "V"),
+        "hyprctl-ctrl-shift-v" => ("CTRL SHIFT", "V"),
+        "hyprctl-shift-insert" => ("SHIFT", "Insert"),
+        _ => bail!("Unknown PASTE_METHOD: {method}"),
+    };
+    send_shortcut(mods, key, &window.address).await
+}
+
+pub struct Window {
+    pub address: String,
+    pub terminal: bool,
+}
+
+pub async fn active_window() -> Result<Window> {
     let window = hypr_json("activewindow").await?;
     let class = window["class"].as_str().unwrap_or("");
     let address = window["address"].as_str().unwrap_or("");
@@ -81,11 +107,11 @@ pub async fn paste(c: &Config) -> Result<()> {
         !class.is_empty()
             && address.starts_with("0x")
             && u64::from_str_radix(&address[2..], 16).is_ok_and(|n| n > 0),
-        "Automatic paste skipped: application focus is unknown"
+        "application focus is unknown"
     );
     ensure!(
         !(class == "Tk" && window["title"] == "Dictate") && class != "local.dictate.overlay",
-        "Automatic paste skipped: overlay has focus"
+        "overlay has focus"
     );
     let terminal = [
         "com.mitchellh.ghostty",
@@ -103,13 +129,13 @@ pub async fn paste(c: &Config) -> Result<()> {
     ]
     .contains(&class)
         || class.contains("Ghostty");
-    let (mods, key) = match method {
-        "hyprctl-super-v" => (if terminal { "CTRL SHIFT" } else { "CTRL" }, "V"),
-        "hyprctl-ctrl-v" => ("CTRL", "V"),
-        "hyprctl-ctrl-shift-v" => ("CTRL SHIFT", "V"),
-        "hyprctl-shift-insert" => ("SHIFT", "Insert"),
-        _ => bail!("Unknown PASTE_METHOD: {method}"),
-    };
+    Ok(Window {
+        address: address.into(),
+        terminal,
+    })
+}
+
+pub async fn send_shortcut(mods: &str, key: &str, address: &str) -> Result<()> {
     let target = format!("address:{address}");
     let result = if lua().await {
         let cmd = format!(
@@ -159,6 +185,81 @@ pub async fn copy(text: &str) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(2), operation).await??;
     Ok(())
 }
+pub async fn read_clipboard(primary: bool) -> String {
+    let mut args = vec!["--no-newline", "--type", "text"];
+    if primary {
+        args.insert(0, "--primary");
+    }
+    capture("wl-paste", &args, 500).await.unwrap_or_default()
+}
+
+/// Text that a spoken revision applies to, and the window it came from.
+pub struct RevisionSource {
+    pub window: Window,
+    pub text: String,
+}
+
+/// Terminals use the clipboard, because Ctrl+A and Ctrl+C are shell keys
+/// there and TUIs such as OpenCode copy their own mouse selections. Elsewhere,
+/// copy the selection or else the whole field, leaving it selected so the
+/// revised text can be pasted over it.
+pub async fn revision_source(c: &Config) -> Result<RevisionSource> {
+    let window = active_window()
+        .await
+        .map_err(|e| anyhow::anyhow!("Revision skipped: {e}"))?;
+    if window.terminal {
+        let text = read_clipboard(false).await;
+        ensure!(
+            !text.trim().is_empty(),
+            "Copy the text to revise before using it in a terminal"
+        );
+        return Ok(RevisionSource { window, text });
+    }
+    let wait = Duration::from_millis(c.millis("REVISE_COPY_TIMEOUT_MS"));
+    let text = match copy_from(&window, false, wait).await? {
+        Some(selection) => selection,
+        None => copy_from(&window, true, wait).await?.unwrap_or_default(),
+    };
+    Ok(RevisionSource { window, text })
+}
+
+async fn copy_from(window: &Window, select_all: bool, wait: Duration) -> Result<Option<String>> {
+    let marker = format!("dictate-revision-{}", crate::storage::generation());
+    copy(&marker).await?;
+    if select_all {
+        send_shortcut("CTRL", "A", &window.address).await?;
+    }
+    send_shortcut("CTRL", "C", &window.address).await?;
+    let until = tokio::time::Instant::now() + wait;
+    loop {
+        let text = read_clipboard(false).await;
+        if !text.is_empty() && text != marker {
+            return Ok(Some(text));
+        }
+        if tokio::time::Instant::now() >= until {
+            return Ok(None);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// One short line describing the revision source for the overlay.
+pub fn source_preview(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    if line.is_empty() {
+        return "(empty field)".into();
+    }
+    let mut preview: String = line.chars().take(48).collect();
+    if preview.len() < line.len() || text.trim().lines().nth(1).is_some() {
+        preview.push('…');
+    }
+    preview
+}
+
 pub async fn notify(title: &str, text: &str) {
     if exists("notify-send") {
         let _ = capture("notify-send", &["-a", "Dictate", title, text], 1500).await;
@@ -173,4 +274,20 @@ pub fn overlay_path() -> PathBuf {
     std::env::current_exe()
         .unwrap_or_default()
         .with_file_name("dictate-overlay")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::source_preview;
+
+    #[test]
+    fn source_preview_shows_first_line_and_marks_more_text() {
+        assert_eq!(source_preview(""), "(empty field)");
+        assert_eq!(source_preview("  Short line \n"), "Short line");
+        assert_eq!(source_preview("\nFirst\nSecond"), "First…");
+        assert_eq!(
+            source_preview(&"a".repeat(60)),
+            format!("{}…", "a".repeat(48))
+        );
+    }
 }

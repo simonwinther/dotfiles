@@ -18,6 +18,15 @@ const DEFAULTS: &[(&str, &str)] = &[
         "OPENAI_API_URL",
         "https://api.openai.com/v1/audio/transcriptions",
     ),
+    (
+        "OPENAI_RESPONSES_URL",
+        "https://api.openai.com/v1/responses",
+    ),
+    ("REVISE_MODEL", "gpt-6-luna"),
+    ("REVISE_REASONING", "none"),
+    ("REVISE_SERVICE_TIER", "fast"),
+    ("REVISE_MAX_CHARS", "20000"),
+    ("REVISE_COPY_TIMEOUT_MS", "300"),
     ("LIVE_MODEL", "gpt-live-transcribe"),
     ("LIVE_DELAY", "low"),
     ("LIVE_FINAL_TIMEOUT_S", "30"),
@@ -269,6 +278,8 @@ impl Config {
             ("HTTP_MAX_TIME_S", 0.01, 86400.),
             ("LIVE_FINAL_TIMEOUT_S", 0.01, 86400.),
             ("OPENAI_COST_USD_TO_DKK", 0., f64::MAX),
+            ("REVISE_MAX_CHARS", 1., 1_000_000.),
+            ("REVISE_COPY_TIMEOUT_MS", 10., 5000.),
         ] {
             let v = self
                 .get(key)
@@ -286,6 +297,7 @@ impl Config {
                         | "RECORD_CHANNELS"
                         | "MIN_AUDIO_BYTES"
                         | "VOLUME_DUCK_FADE_STEPS"
+                        | "REVISE_MAX_CHARS"
                 )
             {
                 ensure!(v.fract() == 0., "{key} must be a whole number");
@@ -326,11 +338,30 @@ impl Config {
             "Unsupported RECORD_FORMAT"
         );
         ensure!(
+            matches!(
+                self.get("REVISE_REASONING"),
+                "" | "none" | "minimal" | "low" | "medium" | "high"
+            ),
+            "REVISE_REASONING must be empty, none, minimal, low, medium, or high"
+        );
+        ensure!(
+            matches!(
+                self.get("REVISE_SERVICE_TIER"),
+                "" | "auto" | "default" | "flex" | "priority" | "fast"
+            ),
+            "REVISE_SERVICE_TIER must be empty, auto, default, flex, priority, or fast"
+        );
+        ensure!(
+            !self.get("REVISE_MODEL").trim().is_empty(),
+            "REVISE_MODEL is empty"
+        );
+        ensure!(
             matches!(self.get("UPLOAD_CODEC"), "wav" | "mp3"),
             "UPLOAD_CODEC must be wav or mp3"
         );
         for (key, schemes) in [
             ("OPENAI_API_URL", &["http", "https"][..]),
+            ("OPENAI_RESPONSES_URL", &["http", "https"][..]),
             ("OPENAI_REALTIME_URL", &["ws", "wss"][..]),
             ("SONIOX_REALTIME_URL", &["ws", "wss"][..]),
         ] {

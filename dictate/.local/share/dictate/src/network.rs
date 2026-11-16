@@ -466,10 +466,146 @@ pub async fn batch(c: &Config, p: &Processor, language: &str, path: &Path) -> Re
     Ok(text.into())
 }
 
+const REVISE_INSTRUCTIONS: &str = "You edit text according to a spoken instruction. \
+The instruction was transcribed from speech, so interpret it charitably. \
+Return only the complete revised text: no commentary, explanations, quotes, or code fences. \
+Keep everything the instruction does not ask to change exactly as it is, including language, \
+formatting, line breaks, and Markdown. If the text is empty, write what the instruction asks for.";
+
+pub fn revise_request(c: &Config, instruction: &str, text: &str) -> Value {
+    let mut request = json!({
+        "model": c.get("REVISE_MODEL"),
+        "instructions": REVISE_INSTRUCTIONS,
+        "input": format!("<instruction>\n{instruction}\n</instruction>\n<text>\n{text}\n</text>"),
+        "store": false,
+    });
+    if !c.get("REVISE_REASONING").is_empty() {
+        request["reasoning"] = json!({"effort": c.get("REVISE_REASONING")});
+    }
+    if !c.get("REVISE_SERVICE_TIER").is_empty() {
+        request["service_tier"] = json!(c.get("REVISE_SERVICE_TIER"));
+    }
+    request
+}
+
+pub fn revise_output(v: &Value) -> Result<String> {
+    let text: String = v["output"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| item["type"] == "message")
+        .flat_map(|item| item["content"].as_array().into_iter().flatten())
+        .filter(|part| part["type"] == "output_text")
+        .filter_map(|part| part["text"].as_str())
+        .collect();
+    if let Some(refusal) = v["output"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|item| item["content"].as_array().into_iter().flatten())
+        .find(|part| part["type"] == "refusal")
+    {
+        bail!(
+            "Revision refused: {}",
+            refusal["refusal"].as_str().unwrap_or("no reason given")
+        );
+    }
+    ensure!(
+        !text.trim().is_empty(),
+        "Revision response contained no text"
+    );
+    Ok(text)
+}
+
+pub async fn revise(c: &Config, instruction: &str, text: &str) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(c.seconds("HTTP_CONNECT_TIMEOUT_S"))
+        .timeout(c.seconds("HTTP_MAX_TIME_S"))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let started = Instant::now();
+    storage::log(
+        c,
+        &format!(
+            "event=revise_started model={} source_chars={}",
+            c.get("REVISE_MODEL"),
+            text.chars().count()
+        ),
+    );
+    let mut response = client
+        .post(c.get("OPENAI_RESPONSES_URL"))
+        .bearer_auth(c.key()?)
+        .json(&revise_request(c, instruction, text))
+        .send()
+        .await?;
+    let status = response.status();
+    let limit = if status.is_success() {
+        4 * 1024 * 1024
+    } else {
+        64 * 1024
+    };
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        ensure!(
+            bytes.len() + chunk.len() <= limit,
+            "Revision response exceeded its size limit"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    let v: Value = serde_json::from_slice(&bytes).context("Invalid JSON revision response")?;
+    if !status.is_success() {
+        bail!(
+            "Revision HTTP {status}: {}",
+            v["error"]["message"].as_str().unwrap_or("Request rejected")
+        );
+    }
+    let revised = revise_output(&v)?;
+    storage::log(
+        c,
+        &format!(
+            "event=revise_finished request_ms={} service_tier={} input_tokens={} output_tokens={}",
+            started.elapsed().as_millis(),
+            v["service_tier"].as_str().unwrap_or("unknown"),
+            v["usage"]["input_tokens"].as_u64().unwrap_or(0),
+            v["usage"]["output_tokens"].as_u64().unwrap_or(0)
+        ),
+    );
+    Ok(revised)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn revision_request_carries_instruction_text_and_reasoning_effort() {
+        let mut c = Config::default();
+        let request = revise_request(&c, "fix the spelling", "Teh cat");
+        assert_eq!(request["model"], "gpt-6-luna");
+        assert_eq!(request["reasoning"]["effort"], "none");
+        assert_eq!(request["service_tier"], "fast");
+        assert_eq!(request["store"], false);
+        let input = request["input"].as_str().unwrap();
+        assert!(input.contains("fix the spelling") && input.contains("Teh cat"));
+        c.set("REVISE_REASONING", "");
+        c.set("REVISE_SERVICE_TIER", "");
+        let plain = revise_request(&c, "x", "y");
+        assert!(plain.get("reasoning").is_none() && plain.get("service_tier").is_none());
+    }
+
+    #[test]
+    fn revision_output_joins_message_text_and_rejects_refusals() {
+        let ok = json!({"output":[
+            {"type":"reasoning","summary":[]},
+            {"type":"message","content":[{"type":"output_text","text":"The "},{"type":"output_text","text":"cat"}]}
+        ]});
+        assert_eq!(revise_output(&ok).unwrap(), "The cat");
+        let refused =
+            json!({"output":[{"type":"message","content":[{"type":"refusal","refusal":"no"}]}]});
+        assert!(revise_output(&refused).is_err());
+        assert!(revise_output(&json!({"output":[]})).is_err());
+    }
 
     #[test]
     fn transcript_storage_limits_all_items_and_releases_replaced_partials() {
