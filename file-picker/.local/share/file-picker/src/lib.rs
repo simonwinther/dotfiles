@@ -992,6 +992,12 @@ fn terminal_dbus_request(request: &Command) -> Result<Command> {
 /// Open a disposable floating window through a shared, windowless Ghostty host.
 pub fn window(options: &Options) -> Result<()> {
     let _lock = launch_lock()?;
+    let executable = executable_path()?;
+    // Scan while the window opens. The picker's feed joins this refresh
+    // through the scope lock instead of starting its own after startup.
+    let mut refresh = Command::new(&executable);
+    scan_args(&mut refresh, options, "--index-update-if-idle");
+    let _ = detached(&mut refresh).spawn();
     let address = picker_window(options)?;
     let title = picker_name(options);
     hypr_eval(&format!(
@@ -1003,7 +1009,6 @@ pub fn window(options: &Options) -> Result<()> {
         ))?;
         return Ok(());
     }
-    let executable = executable_path()?;
     let mut request = terminal_request(options, &executable);
     let utf8 = request
         .get_args()
