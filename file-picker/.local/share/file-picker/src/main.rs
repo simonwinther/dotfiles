@@ -2,6 +2,7 @@ use file_picker::{
     Action, HELP, Options, Result, checked_files, copy_selection, drag_binary, notify,
 };
 use std::env;
+use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
 
@@ -9,8 +10,8 @@ fn run() -> Result<()> {
     let options = Options::parse(env::args_os().skip(1))?;
     match &options.action {
         Action::Pick => file_picker::pick(&options),
-        Action::List => file_picker::list_files(&options),
-        Action::CachedList => file_picker::index::list(&options),
+        Action::List => finished_when_reader_closes(file_picker::list_files(&options)),
+        Action::CachedList => finished_when_reader_closes(file_picker::index::list(&options)),
         Action::IndexUpdate => file_picker::index::update(&options, true),
         Action::IndexUpdateIfIdle => file_picker::index::update(&options, false),
         Action::IndexStatus => file_picker::index::status(),
@@ -34,6 +35,20 @@ fn run() -> Result<()> {
             println!("file-picker {} (Ratatui)", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+    }
+}
+
+/// A reader such as `head` may stop early; that ends a listing normally.
+fn finished_when_reader_closes(result: Result<()>) -> Result<()> {
+    match result {
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::BrokenPipe) =>
+        {
+            Ok(())
+        }
+        result => result,
     }
 }
 

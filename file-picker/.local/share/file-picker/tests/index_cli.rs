@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     os::unix::{ffi::OsStrExt, fs::PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
@@ -378,6 +378,32 @@ fn background_refresh_starts_even_while_cached_output_is_blocked() {
     assert!(started, "Cached output blocked the background refresh");
     fixture.run(&["--index-update"]);
     assert_eq!(fixture.paths().len(), 1);
+}
+
+#[test]
+fn listings_succeed_when_their_reader_stops_early() {
+    let fixture = Fixture::new();
+    // Exceed a pipe buffer so the listing is still writing when the reader leaves.
+    for number in 0..4_000 {
+        fixture.write(&format!("{number:04}-{}.txt", "x".repeat(60)));
+    }
+    fixture.run(&["--index-update"]);
+    for action in ["--cached-list", "--list"] {
+        let mut listing = fixture
+            .command()
+            .arg(action)
+            // Keep a regression from notifying the developer's desktop.
+            .env("DBUS_SESSION_BUS_ADDRESS", "disabled:")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdout = listing.stdout.take().unwrap();
+        stdout.read_exact(&mut [0; 64]).unwrap();
+        drop(stdout);
+        // A failed exit also raises an urgent desktop notification.
+        assert!(listing.wait().unwrap().success(), "{action} failed");
+    }
 }
 
 #[test]
