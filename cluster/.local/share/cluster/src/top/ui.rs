@@ -1,7 +1,9 @@
 use crate::top::{
     App,
     data::{Job, Node},
-    theme::{ACCENT, BG, BLUE, DIM, EDGE, FG, GREEN, PANEL, RED, focus_style, selection_style},
+    theme::{
+        ACCENT, BG, BLUE, DIM, EDGE, FG, GREEN, PANEL, RED, focus_style, muted, selection_style,
+    },
 };
 use ratatui::{
     Frame,
@@ -11,13 +13,17 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 fn style(c: Color) -> Style {
-    Style::default().fg(c)
+    if c == DIM {
+        muted()
+    } else {
+        Style::default().fg(c)
+    }
 }
 fn bold(c: Color) -> Style {
     style(c).add_modifier(Modifier::BOLD)
 }
 fn label(s: impl Into<String>) -> Line<'static> {
-    Line::from(Span::styled(s.into(), style(DIM)))
+    Line::from(Span::styled(s.into(), muted()))
 }
 fn inset(r: Rect, x: u16, y: u16) -> Rect {
     Rect::new(
@@ -34,17 +40,60 @@ fn gb(m: u64) -> String {
         format!("{:.0}G", m as f64 / 1024.0)
     }
 }
-fn meter(free: u32, total: u32, width: usize) -> Line<'static> {
+/// Screen regions from the last frame, used to route mouse clicks.
+#[derive(Default)]
+pub struct Hits {
+    pub tabs: Vec<(Rect, u8)>,
+    pub rows: Option<RowHits>,
+    pub detail: Option<Rect>,
+    pub picker: Option<(Rect, Rect, usize)>,
+    pub filter: Option<(Rect, Rect)>,
+}
+/// Visible table rows: `area` covers rendered rows only, starting at index `start`.
+#[derive(Clone, Copy)]
+pub struct RowHits {
+    pub area: Rect,
+    pub start: usize,
+}
+impl RowHits {
+    pub fn new(table: Rect, header: u16, start: usize, visible: usize) -> Self {
+        let y = table.y + header.min(table.height);
+        let height = (visible as u16).min(table.bottom().saturating_sub(y));
+        Self {
+            area: Rect::new(table.x, y, table.width, height),
+            start,
+        }
+    }
+}
+fn meter(free: u64, total: u64, width: usize) -> Line<'static> {
     let n = if total == 0 {
         0
     } else {
         ((free as f64 / total as f64) * width as f64).round() as usize
     }
     .min(width);
+    let color = match (free, total) {
+        (_, 0) => DIM,
+        (f, t) if f * 4 >= t => GREEN,
+        (0, _) => RED,
+        _ => ACCENT,
+    };
     Line::from(vec![
-        Span::styled("▰".repeat(n), style(GREEN)),
-        Span::styled("▱".repeat(width - n), style(EDGE)),
+        Span::styled("━".repeat(n), style(color)),
+        Span::styled("━".repeat(width - n), style(EDGE)),
     ])
+}
+fn plural(n: impl Into<u64>, word: &str) -> String {
+    let n = n.into();
+    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
+}
+/// Untyped GRES (`gpu:4`) only says "gpu"; showing that as a model adds nothing.
+fn model_label(n: &Node) -> String {
+    if n.models.is_empty() || n.models.keys().all(|m| m == "gpu") {
+        "—".into()
+    } else {
+        n.models_label()
+    }
 }
 fn state(n: &Node) -> (&str, Color) {
     let category = n.category();
@@ -60,6 +109,7 @@ fn state(n: &Node) -> (&str, Color) {
 }
 
 pub fn draw(f: &mut Frame, app: &mut App) {
+    app.hits = Hits::default();
     let area = f.area();
     f.render_widget(Block::default().style(style(FG).bg(BG)), area);
     if area.width < 48 || area.height < 14 {
@@ -78,7 +128,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             help(f, area, app);
         }
         if app.picker.open {
-            cluster_picker(f, area, app);
+            app.hits.picker = Some(cluster_picker(f, area, app));
         }
         return;
     }
@@ -93,7 +143,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     .split(a);
     header(f, parts[0], app);
     metrics(f, parts[1], app);
-    toolbar(f, parts[2], app);
+    app.hits.tabs = toolbar(f, parts[2], app);
     let wide = area.width >= 112;
     let panes = if wide {
         Layout::horizontal([
@@ -105,12 +155,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     } else {
         Layout::horizontal([Constraint::Percentage(100)]).split(parts[3])
     };
+    app.hits.detail = if app.detail {
+        Some(parts[3])
+    } else {
+        wide.then(|| panes[1])
+    };
     if app.tab == 4 {
         if app.detail {
             history_inspector(f, parts[3], app);
         } else {
-            crate::top::history::draw(f, panes[0], app);
-            if wide {
+            // Nothing can be selected without accounting, so the list takes the full width.
+            let full = app.history_unsupported && app.history.is_empty();
+            crate::top::history::draw(f, if full { parts[3] } else { panes[0] }, app);
+            if wide && !full {
                 history_inspector(f, panes[1], app);
             }
         }
@@ -128,16 +185,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     footer(f, parts[4], app);
     if app.filter_open {
-        filter_panel(f, area, app);
+        app.hits.filter = Some(filter_panel(f, area, app));
     }
     if app.help {
         help(f, area, app)
     }
     if app.picker.open {
-        cluster_picker(f, area, app);
+        app.hits.picker = Some(cluster_picker(f, area, app));
     }
 }
-fn cluster_picker(f: &mut Frame, area: Rect, app: &App) {
+fn cluster_picker(f: &mut Frame, area: Rect, app: &App) -> (Rect, Rect, usize) {
     let choices = app.picker.choices();
     let height = (choices.len() as u16 + 9)
         .max(11)
@@ -180,12 +237,10 @@ fn cluster_picker(f: &mut Frame, area: Rect, app: &App) {
             ));
         }
     }
-    f.render_widget(
-        Paragraph::new(lines),
-        Rect::new(inner.x, inner.y, inner.width, list_height as u16),
-    );
+    let list = Rect::new(inner.x, inner.y, inner.width, list_height as u16);
+    f.render_widget(Paragraph::new(lines), list);
     let mut footer = vec![label(
-        "↑/↓ choose · Enter connect · a add · d remove saved host",
+        "↑/↓ or click · Enter/double-click connect · a add · d remove",
     )];
     if let Some(input) = &app.picker.input {
         footer.push(Line::styled(format!("SSH alias: {input}▏"), style(ACCENT)));
@@ -205,40 +260,49 @@ fn cluster_picker(f: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(footer).wrap(Wrap { trim: false }),
         Rect::new(inner.x, inner.bottom().saturating_sub(5), inner.width, 5),
     );
+    (panel, list, start)
 }
 fn header(f: &mut Frame, a: Rect, app: &App) {
     let line = Line::from(vec![
-        Span::styled(" cluster top ", bold(ACCENT)),
-        Span::styled("  SLURM", bold(FG)),
+        Span::styled(
+            " cluster top ",
+            bold(ACCENT).add_modifier(Modifier::REVERSED),
+        ),
         Span::styled(
             format!(
-                "  [{}]",
+                "  {}",
                 app.args
                     .target
                     .as_ref()
                     .map_or("choose cluster", |target| target.label())
             ),
-            style(ACCENT),
+            bold(FG),
         ),
-        Span::styled("  /  ", style(EDGE)),
+        Span::styled("  ›  ", style(EDGE)),
         Span::styled(
             if app.args.partition.is_empty() {
-                "all partitions"
+                "all partitions".to_string()
             } else {
-                &app.args.partition
+                format!("partition {}", app.args.partition)
             },
-            style(DIM),
+            muted(),
         ),
     ]);
     f.render_widget(Paragraph::new(line), Rect::new(a.x, a.y + 1, a.width, 1));
     if a.width >= 75 {
         let (error, loading) = if app.tab == 4 {
-            (app.history_error.is_some(), app.history_loading)
+            (
+                app.history_error.is_some() && !app.history_unsupported,
+                app.history_loading,
+            )
         } else {
             (app.error.is_some(), app.loading)
         };
+        let unsupported = app.tab == 4 && app.history_unsupported;
         let badge = if app.args.target.is_none() {
             "○ SELECT CLUSTER"
+        } else if unsupported {
+            "○ NO ACCOUNTING"
         } else if error {
             "● STALE"
         } else if loading {
@@ -254,6 +318,8 @@ fn header(f: &mut Frame, a: Rect, app: &App) {
             Paragraph::new(badge)
                 .style(style(if error {
                     RED
+                } else if unsupported {
+                    DIM
                 } else if app.paused && app.tab != 4 {
                     ACCENT
                 } else {
@@ -299,30 +365,38 @@ fn metrics(f: &mut Frame, a: Rect, app: &App) {
     let specs = [
         (
             free.to_string(),
-            format!("/ {total} GPU"),
-            "UNALLOCATED",
+            format!(" / {}", plural(total, "GPU")),
+            "FREE GPUS",
             GREEN,
+            Some((u64::from(free), u64::from(total))),
         ),
         (
             ready.to_string(),
-            format!("/ {node_count} nodes"),
+            format!(" / {}", plural(node_count as u64, "node")),
             "USABLE NODES",
             BLUE,
+            Some((ready as u64, node_count as u64)),
         ),
         (
             running.to_string(),
-            format!("run · {pending} wait"),
-            "YOUR JOBS (ALL)",
+            format!(" running · {pending} waiting"),
+            "YOUR JOBS",
             ACCENT,
+            None,
         ),
     ];
-    for (r, (value, detail, title, color)) in cols.iter().zip(specs) {
+    for (r, (value, detail, title, color, ratio)) in cols.iter().zip(specs) {
+        let mut caption = vec![Span::styled(format!("{title}  "), muted())];
+        if let Some((part, whole)) = ratio {
+            let width = usize::from(r.width.saturating_sub(title.len() as u16 + 4)).min(16);
+            caption.extend(meter(part, whole, width).spans);
+        }
         let lines = vec![
             Line::from(vec![
                 Span::styled(value, bold(color)),
-                Span::styled(format!("  {detail}"), style(FG)),
+                Span::styled(detail, style(FG)),
             ]),
-            label(title),
+            Line::from(caption),
         ];
         f.render_widget(
             Paragraph::new(lines).block(
@@ -334,19 +408,29 @@ fn metrics(f: &mut Frame, a: Rect, app: &App) {
         );
     }
 }
-fn toolbar(f: &mut Frame, a: Rect, app: &App) {
+fn toolbar(f: &mut Frame, a: Rect, app: &App) -> Vec<(Rect, u8)> {
     let mut spans = vec![];
+    let mut tabs = vec![];
+    let mut x = a.x;
     for (n, title) in [(1, "Fleet"), (2, "My jobs"), (3, "Queue"), (4, "History")] {
+        let text = format!(" {n} {title} ");
+        let width = text.chars().count() as u16;
+        tabs.push((
+            Rect::new(x, a.y, width.min(a.right().saturating_sub(x)), 1),
+            n,
+        ));
+        x = x.saturating_add(width + 1);
         spans.push(Span::styled(
-            format!("{n} {title} "),
+            text,
             if n == app.tab {
-                bold(ACCENT)
+                bold(ACCENT).add_modifier(Modifier::REVERSED)
             } else {
-                style(DIM)
+                muted()
             },
         ));
-        spans.push(Span::styled(" ", style(DIM)));
+        spans.push(Span::raw(" "));
     }
+    spans.push(Span::raw(" "));
     if a.width >= 85 {
         spans.push(Span::styled(
             if app.tab == 1 {
@@ -359,10 +443,16 @@ fn toolbar(f: &mut Frame, a: Rect, app: &App) {
                         ""
                     }
                 )
+            } else if app.tab == 4 && app.history_error.is_some() && app.history.is_empty() {
+                format!("sort: {}", app.job_sort)
             } else {
-                format!("{} jobs · sort: {}", app.count(), app.job_sort)
+                format!(
+                    "{} · sort: {}",
+                    plural(app.count() as u64, "job"),
+                    app.job_sort
+                )
             },
-            style(DIM),
+            muted(),
         ));
     }
     f.render_widget(
@@ -396,16 +486,17 @@ fn toolbar(f: &mut Frame, a: Rect, app: &App) {
     } else {
         f.render_widget(
             Paragraph::new(if app.tab == 1 {
-                " GPU / CPU / RAM show unallocated capacity"
+                " Free = unallocated GPU / CPU / RAM · click a row to select, double-click to expand"
             } else if app.tab == 4 {
                 " Accounting history · select a job to inspect its allocation"
             } else {
                 " Priority order is not a guaranteed start order"
             })
-            .style(style(DIM)),
+            .style(muted()),
             Rect::new(a.x, a.y + 1, a.width, 1),
         );
     }
+    tabs
 }
 // Materialize only visible rows, retaining a global selection and scroll offset.
 pub(crate) fn viewport(
@@ -448,8 +539,8 @@ fn nodes(f: &mut Frame, a: Rect, app: &mut App) {
             Constraint::Length(8),
             Constraint::Length(12),
             Constraint::Length(14),
-            Constraint::Length(8),
-            Constraint::Length(10),
+            Constraint::Length(9),
+            Constraint::Length(11),
         ]
     } else {
         vec![
@@ -460,11 +551,12 @@ fn nodes(f: &mut Frame, a: Rect, app: &mut App) {
         ]
     };
     let headers = if wide {
-        vec!["NODE", "STATE", "MODEL", "GPU FREE", "CPU", "RAM"]
+        vec!["NODE", "STATE", "MODEL", "GPU FREE", "CPU FREE", "RAM FREE"]
     } else {
         vec!["NODE", "STATE", "MODEL", "GPU FREE"]
     };
     let (start, capacity, mut visible_selection) = viewport(&mut app.selected, ids.len(), a.height);
+    app.hits.rows = Some(RowHits::new(a, 2, start, capacity.min(ids.len() - start)));
     let rows = ids.iter().skip(start).take(capacity).map(|&i| {
         let n = &app.data.nodes[i];
         let (status, color) = state(n);
@@ -478,29 +570,35 @@ fn nodes(f: &mut Frame, a: Rect, app: &mut App) {
             style(if n.free() > 0 { GREEN } else { DIM }),
         ));
         if wide {
-            gpu_line.spans.extend(meter(n.free(), n.total(), 7).spans);
+            gpu_line
+                .spans
+                .extend(meter(n.free().into(), n.total().into(), 7).spans);
         }
         let mut cells = vec![
             Cell::from(n.name.clone()).style(style(FG)),
             Cell::from(status).style(style(color)),
-            Cell::from(n.models_label()).style(style(DIM)),
+            Cell::from(model_label(n)).style(muted()),
             Cell::from(gpu_line),
         ];
         if wide {
-            cells.push(Cell::from(format!("{}/{}", n.cpu_free(), n.cpu_total)).style(style(DIM)));
+            cells.push(Cell::from(format!("{}/{}", n.cpu_free(), n.cpu_total)).style(muted()));
             cells.push(
                 Cell::from(format!(
                     "{}/{}",
                     gb(n.ram_total.saturating_sub(n.ram_used)),
                     gb(n.ram_total)
                 ))
-                .style(style(DIM)),
+                .style(muted()),
             );
         }
         Row::new(cells)
     });
     let table = Table::new(rows, widths)
-        .header(Row::new(headers).style(style(DIM)).height(2))
+        .header(
+            Row::new(headers)
+                .style(muted().add_modifier(Modifier::BOLD))
+                .height(2),
+        )
         .column_spacing(1)
         .row_highlight_style(selection_style())
         .highlight_symbol("▌ ");
@@ -542,6 +640,7 @@ fn jobs(f: &mut Frame, a: Rect, app: &mut App) {
         vec!["JOB", "NAME", "STATE", "REASON"]
     };
     let (start, capacity, mut visible_selection) = viewport(&mut app.selected, ids.len(), a.height);
+    app.hits.rows = Some(RowHits::new(a, 2, start, capacity.min(ids.len() - start)));
     let rows = ids.iter().skip(start).take(capacity).map(|&i| {
         let j = &app.jobs()[i];
         let status = if j.running() {
@@ -560,12 +659,12 @@ fn jobs(f: &mut Frame, a: Rect, app: &mut App) {
         };
         let mut cells = vec![Cell::from(j.id.clone()).style(style(FG))];
         if wide {
-            cells.push(Cell::from(j.user.clone()).style(style(DIM)));
+            cells.push(Cell::from(j.user.clone()).style(muted()));
         }
         cells.push(Cell::from(j.name.clone()));
         cells.push(Cell::from(status).style(style(color)));
         if wide {
-            cells.push(Cell::from(j.elapsed.clone()).style(style(DIM)));
+            cells.push(Cell::from(j.elapsed.clone()).style(muted()));
         }
         cells.push(
             Cell::from(if j.running() {
@@ -573,13 +672,17 @@ fn jobs(f: &mut Frame, a: Rect, app: &mut App) {
             } else {
                 j.reason.clone()
             })
-            .style(style(DIM)),
+            .style(muted()),
         );
         Row::new(cells)
     });
     f.render_stateful_widget(
         Table::new(rows, widths)
-            .header(Row::new(headers).style(style(DIM)).height(2))
+            .header(
+                Row::new(headers)
+                    .style(muted().add_modifier(Modifier::BOLD))
+                    .height(2),
+            )
             .column_spacing(1)
             .row_highlight_style(selection_style())
             .highlight_symbol("▌ "),
@@ -611,41 +714,74 @@ fn empty(f: &mut Frame, a: Rect, app: &App, title: &str, detail: &str) {
     );
 }
 fn node_lines(n: &Node) -> Vec<Line<'static>> {
+    let (status, color) = state(n);
     let mut lines = vec![
         Line::from(Span::styled(n.name.clone(), bold(ACCENT))),
-        Line::from(Span::styled(n.state.clone(), style(state(n).1))),
-        label(n.partitions.join(" · ")),
+        Line::from(vec![
+            Span::styled(format!("● {status}"), style(color)),
+            Span::styled(
+                if n.state.eq_ignore_ascii_case(status) {
+                    String::new()
+                } else {
+                    format!("  {}", n.state.to_lowercase())
+                },
+                muted(),
+            ),
+        ]),
         Line::default(),
-        label("GPU MODELS"),
+        label("PARTITIONS"),
+        Line::from(n.partitions.join(" · ")),
+        Line::default(),
+        label("GPUS"),
     ];
-    for (model, count) in &n.models {
-        lines.push(Line::from(format!("{count} × {}", model.to_uppercase())));
+    if model_label(n) == "—" {
+        lines.push(Line::from(format!("{} × GPU", n.total())));
+        lines.push(label("Model not reported by Slurm (untyped GRES)"));
+    } else {
+        for (model, count) in &n.models {
+            lines.push(Line::from(format!("{count} × {}", model.to_uppercase())));
+        }
     }
+    let ram_free = n.ram_total.saturating_sub(n.ram_used);
+    let resource = |name: &str, value: String, free: u64, total: u64| {
+        let mut line = Line::from(vec![
+            Span::styled(format!("{name:<4}"), muted()),
+            Span::styled(format!("{value:<12}"), style(FG)),
+        ]);
+        line.spans.extend(meter(free, total, 12).spans);
+        line
+    };
     lines.extend([
         Line::default(),
-        label("UNALLOCATED GPU / CPU / MEMORY"),
-        Line::from(format!(
-            "{} / {} GPUs",
+        label("FREE (UNALLOCATED)"),
+        resource(
+            "GPU",
             if n.gpu_known {
-                n.free().to_string()
+                format!("{}/{}", n.free(), n.total())
             } else {
-                "?".into()
+                format!("?/{}", n.total())
             },
-            n.total()
-        )),
-        meter(n.free(), n.total(), 18),
-        Line::from(format!("{} / {} CPUs", n.cpu_free(), n.cpu_total)),
-        Line::from(format!(
-            "{} / {} RAM",
-            gb(n.ram_total.saturating_sub(n.ram_used)),
-            gb(n.ram_total)
-        )),
+            n.free().into(),
+            n.total().into(),
+        ),
+        resource(
+            "CPU",
+            format!("{}/{}", n.cpu_free(), n.cpu_total),
+            n.cpu_free().into(),
+            n.cpu_total.into(),
+        ),
+        resource(
+            "RAM",
+            format!("{}/{}", gb(ram_free), gb(n.ram_total)),
+            ram_free,
+            n.ram_total,
+        ),
         Line::default(),
-        label("ALLOCATED GPU / CPU / MEMORY"),
+        label("IN USE"),
         Line::from(format!(
-            "{} GPUs · {} CPUs · {} RAM",
-            n.gpu_used,
-            n.cpu_used,
+            "{} · {} · {} RAM",
+            plural(n.gpu_used, "GPU"),
+            plural(n.cpu_used, "CPU"),
             gb(n.ram_used)
         )),
         Line::default(),
@@ -658,7 +794,7 @@ fn node_lines(n: &Node) -> Vec<Line<'static>> {
         ]);
     }
     lines.push(label(
-        "Unallocated capacity depends on CPU, memory, reservations and scheduling policy.",
+        "Whether a job fits also depends on reservations and scheduling policy.",
     ));
     lines
 }
@@ -904,13 +1040,24 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
     } else {
         ""
     };
-    let status = if let Some(error) = error {
-        format!("STALE · {age} · {error}")
+    let unsupported = app.tab == 4 && app.history_unsupported;
+    let error = error.filter(|_| !unsupported);
+    let status = if unsupported {
+        format!(
+            "No job accounting on this cluster · live tabs 1–3 still update · user {}",
+            app.args.user
+        )
+    } else if let Some(error) = error {
+        if app.tab == 4 {
+            format!("History refresh failed · {error}")
+        } else {
+            format!("STALE · {age} · {error}")
+        }
     } else if let Some(notice) = &app.notice {
         format!("{notice}{state}")
     } else {
         format!(
-            "{selected}/{} · {age}{state} · {}",
+            "{selected}/{} · {age}{state} · user {}",
             app.count(),
             app.args.user
         )
@@ -937,9 +1084,9 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             }
         } else if inner.width >= 85 {
             if app.tab == 1 {
-                "j/k move · ↵ details · / search · f filters · c clusters · a free · q quit · ? keys"
+                "j/k/click move · ↵ details · / search · f filters · c clusters · a free · q quit · ? keys"
             } else {
-                "j/k move · ↵ logs · i details · / search · f filters · c clusters · q quit · ? keys"
+                "j/k/click move · ↵ logs · i details · / search · f filters · c clusters · q quit · ? keys"
             }
         } else if app.tab == 1 {
             "j/k move · ↵ details · c clusters · q quit · ? keys"
@@ -952,7 +1099,7 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
         );
     }
 }
-fn filter_panel(f: &mut Frame, area: Rect, app: &App) {
+fn filter_panel(f: &mut Frame, area: Rect, app: &App) -> (Rect, Rect) {
     let options = app.filter_options();
     let width = 46.min(area.width);
     let height = (options.len() as u16 + 7).min(area.height);
@@ -963,7 +1110,7 @@ fn filter_panel(f: &mut Frame, area: Rect, app: &App) {
         height,
     );
     let mut lines = vec![
-        label("j/k move · Space toggle"),
+        label("j/k move · Space or click toggles"),
         label("Tab / Shift-Tab move · ? help"),
     ];
     for (index, &option) in options.iter().enumerate() {
@@ -981,7 +1128,7 @@ fn filter_panel(f: &mut Frame, area: Rect, app: &App) {
             } else if chosen {
                 bold(GREEN)
             } else {
-                style(DIM)
+                muted()
             },
         )));
     }
@@ -994,6 +1141,13 @@ fn filter_panel(f: &mut Frame, area: Rect, app: &App) {
         4 => " History filters ",
         _ => " Queue filters ",
     };
+    // Options follow the border and the two hint lines.
+    let options_area = Rect::new(
+        rect.x + 1,
+        rect.y + 3,
+        rect.width.saturating_sub(2),
+        (options.len() as u16).min(rect.bottom().saturating_sub(rect.y + 4)),
+    );
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(lines).style(style(FG).bg(PANEL)).block(
@@ -1004,6 +1158,7 @@ fn filter_panel(f: &mut Frame, area: Rect, app: &App) {
         ),
         rect,
     );
+    (rect, options_area)
 }
 fn help(f: &mut Frame, area: Rect, app: &App) {
     let (context, keys): (&str, Vec<(&str, &str)>) = if app.log.is_some() {
@@ -1061,6 +1216,15 @@ fn help(f: &mut Frame, area: Rect, app: &App) {
             ),
             ("/ · f · x", "Search / filter / clear"),
             ("s · p · r", "Sort / pause / refresh"),
+            ("Click · wheel", "Select row or tab · scroll"),
+            (
+                "Double-click",
+                if app.tab == 1 {
+                    "Expand node details"
+                } else {
+                    "Open job log"
+                },
+            ),
         ];
         if app.tab == 1 {
             keys.push(("a", "Show nodes with free GPUs"));
@@ -1167,6 +1331,33 @@ mod tests {
         assert!(!contents.contains("live controller unavailable"));
         app.history_error = Some("accounting unavailable".into());
         assert!(screen(&mut app, 100, 24).contains("accounting unavailable"));
+    }
+    #[test]
+    fn disabled_accounting_is_explained_without_stale_status() {
+        let mut app = App::new(crate::top::Args::parse_from(["mytop", "--tab", "4"]));
+        app.args.target = Some(crate::top::hosts::Target::Local);
+        app.history_loaded = true;
+        app.history_unsupported = true;
+        app.history_error = Some("Slurm accounting storage is disabled".into());
+        let contents = screen(&mut app, 120, 30);
+        assert!(contents.contains("Job history isn't available on this cluster"));
+        assert!(contents.contains("NO ACCOUNTING"));
+        assert!(!contents.contains("STALE"));
+        assert!(!contents.contains("retry"));
+    }
+    #[test]
+    fn untyped_gpus_show_no_model_and_counts_are_pluralized() {
+        let mut app = App::new(crate::top::Args::parse_from(["mytop"]));
+        app.data.nodes = crate::top::data::parse_nodes(
+            "NodeName=solo State=IDLE Partitions=gpu Gres=gpu:4 CPUTot=104 RealMemory=385024 AllocTRES=",
+            "gpu",
+        );
+        app.rebuild_views();
+        let contents = screen(&mut app, 140, 36);
+        assert!(contents.contains("4 / 4 GPUs"));
+        assert!(contents.contains("1 / 1 node "));
+        assert!(contents.contains("Model not reported"));
+        assert!(!contents.contains("4 × GPU models"));
     }
     #[test]
     fn backgrounds_follow_the_terminal_in_views_and_overlays() {

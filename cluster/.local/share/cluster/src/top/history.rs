@@ -1,7 +1,7 @@
 use crate::top::{
     App, Args,
     data::{self, Job},
-    theme::{ACCENT, DIM, EDGE, FG, GREEN, RED, focus_style, selection_style},
+    theme::{ACCENT, EDGE, FG, GREEN, RED, focus_style, muted, selection_style},
 };
 use anyhow::{Context, Result, bail};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Constraint, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
 };
 use std::{
     fs::File,
@@ -396,6 +396,22 @@ impl LogView {
         }
         self.ensure_visible(page);
     }
+    /// Move the viewport, keeping the cursor on screen as a pager does.
+    pub fn scroll(&mut self, delta: isize, page: usize) {
+        let page = page.max(1);
+        self.offset = self
+            .offset
+            .saturating_add_signed(delta)
+            .min(self.lines.len().saturating_sub(page));
+        let last = (self.offset + page - 1).min(self.lines.len().saturating_sub(1));
+        self.cursor = self.cursor.clamp(self.offset, last.max(self.offset));
+    }
+    pub fn click(&mut self, row: usize) {
+        if !self.copying {
+            self.status.clear();
+        }
+        self.cursor = (self.offset + row).min(self.lines.len().saturating_sub(1));
+    }
     fn ensure_visible(&mut self, page: usize) {
         if self.cursor < self.offset {
             self.offset = self.cursor;
@@ -405,6 +421,10 @@ impl LogView {
         }
         self.offset = self.offset.min(self.lines.len().saturating_sub(page));
     }
+}
+/// Slurm reports this when the cluster runs without slurmdbd; retrying cannot help.
+pub fn accounting_disabled(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains("accounting storage is disabled")
 }
 // Read the original files again: the display is only a bounded, sanitized tail.
 // Fail the whole copy if a file cannot be read, rather than silently omit it.
@@ -746,11 +766,11 @@ pub fn draw_log(f: &mut Frame, area: Rect, log: &LogView) {
             "j/k move · Ctrl-d/u half-page · g/G top/end · h/l sideways · y entire file".into()
         };
         f.render_widget(
-            Paragraph::new(status).style(Style::default().fg(if log.editing_search {
-                ACCENT
+            Paragraph::new(status).style(if log.editing_search {
+                Style::default().fg(ACCENT)
             } else {
-                DIM
-            })),
+                muted()
+            }),
             Rect::new(inner.x, inner.y + height, inner.width, 1),
         );
     }
@@ -758,7 +778,7 @@ pub fn draw_log(f: &mut Frame, area: Rect, log: &LogView) {
 
 pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
     let title = format!(
-        " Last {} days · newest first{} · Enter logs · r refresh ",
+        " Last {} days · newest first{} ",
         app.args.history_days,
         if app.history_loading {
             " · refreshing…"
@@ -772,11 +792,40 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         .title(title);
     let mut inner = block.inner(area);
     f.render_widget(block, area);
+    if app.history_unsupported && app.history.is_empty() {
+        let lines = vec![
+            Line::from(Span::styled(
+                "Job history isn't available on this cluster",
+                Style::default().fg(FG).add_modifier(Modifier::BOLD),
+            )),
+            Line::default(),
+            Line::styled(
+                "Slurm job accounting (slurmdbd) is not enabled, so sacct has no records to show.",
+                muted(),
+            ),
+            Line::styled(
+                "A cluster admin can enable it with AccountingStorageType=accounting_storage/slurmdbd.",
+                muted(),
+            ),
+            Line::default(),
+            Line::styled("Fleet, My jobs and Queue are unaffected.", muted()),
+        ];
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: true }),
+            Rect {
+                x: inner.x + 2,
+                y: inner.y + 1,
+                width: inner.width.saturating_sub(4),
+                height: inner.height.saturating_sub(1),
+            },
+        );
+        return;
+    }
     if let Some(error) = &app.history_error {
         let message = if app.history.is_empty() {
-            format!("History unavailable: {error}. Press r to retry.")
+            format!("History unavailable: {error} · press r to retry")
         } else {
-            format!("Refresh failed; keeping previous jobs: {error}. Press r to retry.")
+            format!("Refresh failed; keeping previous jobs: {error} · press r to retry")
         };
         f.render_widget(
             Paragraph::new(message).style(Style::default().fg(RED)),
@@ -797,14 +846,17 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         } else {
             "No recent jobs match this user, partition and filters."
         };
-        f.render_widget(
-            Paragraph::new(message).style(Style::default().fg(DIM)),
-            inner,
-        );
+        f.render_widget(Paragraph::new(message).style(muted()), inner);
         return;
     }
     let (start, capacity, mut local_state) =
         crate::top::ui::viewport(&mut app.selected, app.job_view.len(), inner.height);
+    app.hits.rows = Some(crate::top::ui::RowHits::new(
+        inner,
+        1,
+        start,
+        capacity.min(app.job_view.len() - start),
+    ));
     let rows = app.job_view.iter().skip(start).take(capacity).map(|&i| {
         let j = &app.history[i];
         let color = if j.state.starts_with("COMPLETED") {
@@ -842,7 +894,7 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         )
         .header(
             Row::new(["JOB", "NAME", "STATE", "ELAPSED", "EXIT", "ENDED"])
-                .style(Style::default().fg(DIM)),
+                .style(muted().add_modifier(Modifier::BOLD)),
         )
         .row_highlight_style(selection_style())
         .highlight_symbol("› "),

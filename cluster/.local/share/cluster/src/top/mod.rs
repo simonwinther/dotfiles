@@ -8,7 +8,9 @@ mod theme;
 mod ui;
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+};
 use data::Snapshot;
 use ratatui::{Terminal, backend::TestBackend, widgets::TableState};
 use std::{
@@ -104,9 +106,12 @@ pub struct App {
     query_before_edit: String,
     history_loading: bool,
     history_error: Option<String>,
+    history_unsupported: bool,
     log: Option<history::LogView>,
     log_loading: bool,
     copy_loading: bool,
+    hits: ui::Hits,
+    last_click: Option<(Instant, u16, u16)>,
 }
 impl App {
     fn new(args: Args) -> Self {
@@ -150,9 +155,12 @@ impl App {
             notice: None,
             history_loading: false,
             history_error: None,
+            history_unsupported: false,
             log: None,
             log_loading: false,
             copy_loading: false,
+            hits: ui::Hits::default(),
+            last_click: None,
         }
     }
     fn connect(&mut self, target: Option<hosts::Target>) {
@@ -526,6 +534,19 @@ impl Drop for CommandCleanup {
         data::shutdown_commands();
     }
 }
+struct MouseCapture;
+impl MouseCapture {
+    fn enable() -> Self {
+        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
+        Self
+    }
+}
+// Also runs while unwinding, so a panic never leaves the shell reporting mouse events.
+impl Drop for MouseCapture {
+    fn drop(&mut self) {
+        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+    }
+}
 pub fn run_monitor(mut args: Args, host: Option<String>, local: bool) -> Result<()> {
     let _cleanup = CommandCleanup;
     anyhow::ensure!(
@@ -590,7 +611,9 @@ pub fn run_monitor(mut args: Args, host: Option<String>, local: bool) -> Result<
     };
     app.loading = app.args.target.is_some();
     let mut terminal = ratatui::init();
+    let mouse = MouseCapture::enable();
     let result = run(&mut terminal, &mut app, rx, refresh_tx);
+    drop(mouse);
     data::shutdown_commands();
     ratatui::restore();
     result
@@ -633,9 +656,13 @@ fn run(
                 Ok(jobs) => {
                     app.history = jobs;
                     app.history_error = None;
+                    app.history_unsupported = false;
                     app.history_fetched = Some(Instant::now());
                 }
-                Err(e) => app.history_error = Some(format!("{e:#}")),
+                Err(e) => {
+                    app.history_unsupported = history::accounting_disabled(&e);
+                    app.history_error = Some(e.root_cause().to_string());
+                }
             }
             app.rebuild_views();
             if app.tab == 4 {
@@ -774,27 +801,35 @@ fn run(
         if matches!(input, Event::Resize(_, _)) {
             dirty = true;
         }
-        if let Event::Key(key) = input {
-            if key.kind == KeyEventKind::Release {
-                continue;
+        let effect = match input {
+            Event::Mouse(mouse) if transfer.is_none() => {
+                let size = terminal.size()?;
+                let effect = app.handle_mouse(mouse, size.width, size.height);
+                dirty |= !matches!(effect, actions::Effect::Ignored);
+                effect
             }
-            dirty = true;
-            if let Some(active) = &mut transfer {
-                let quit = (key.code == KeyCode::Char('c')
-                    && key
-                        .modifiers
-                        .contains(crossterm::event::KeyModifiers::CONTROL))
-                    || key.code == KeyCode::Char('Q');
-                if quit || matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
-                    active.cancel();
-                    clipboard_cancelled = true;
-                    quit_after_clipboard |= quit;
+            Event::Key(key) if key.kind != KeyEventKind::Release => {
+                dirty = true;
+                if let Some(active) = &mut transfer {
+                    let quit = (key.code == KeyCode::Char('c')
+                        && key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL))
+                        || key.code == KeyCode::Char('Q');
+                    if quit || matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                        active.cancel();
+                        clipboard_cancelled = true;
+                        quit_after_clipboard |= quit;
+                    }
+                    continue;
                 }
-                continue;
+                let size = terminal.size()?;
+                app.notice = None;
+                app.handle_key(key, size.width, size.height)
             }
-            let size = terminal.size()?;
-            app.notice = None;
-            let effect = app.handle_key(key, size.width, size.height);
+            _ => continue,
+        };
+        {
             match effect {
                 actions::Effect::Connect(target) => {
                     app.connect(target);
@@ -862,7 +897,7 @@ fn run(
                         });
                     }
                 }
-                actions::Effect::None => {}
+                actions::Effect::None | actions::Effect::Ignored => {}
             }
         }
     }

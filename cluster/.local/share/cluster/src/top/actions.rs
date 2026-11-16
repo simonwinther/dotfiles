@@ -1,9 +1,16 @@
 //! Keyboard routing in one place: overlays consume input before the table.
 use crate::top::{App, data::Job};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::{Position, Rect};
+use std::time::{Duration, Instant};
+
+const WHEEL_STEP: isize = 3;
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 pub enum Effect {
     None,
+    /// Input that changed nothing, such as pointer motion; skips the redraw.
+    Ignored,
     Quit,
     Connect(Option<crate::top::hosts::Target>),
     RefreshLive,
@@ -154,6 +161,135 @@ impl App {
         });
         self.selected.select(position.or(Some(0)));
         self.move_by(0);
+    }
+    fn press(&mut self, code: KeyCode, width: u16, height: u16) -> Effect {
+        self.handle_key(KeyEvent::new(code, KeyModifiers::NONE), width, height)
+    }
+    /// A second click on the same cell within the double-click window.
+    fn double_click(&mut self, column: u16, row: u16) -> bool {
+        let now = Instant::now();
+        let double = self.last_click.is_some_and(|(at, x, y)| {
+            now.duration_since(at) < DOUBLE_CLICK && (x, y) == (column, row)
+        });
+        self.last_click = if double {
+            None
+        } else {
+            Some((now, column, row))
+        };
+        double
+    }
+    /// Mouse input follows the same layering as keys: overlays first, then the page.
+    pub fn handle_mouse(&mut self, mouse: MouseEvent, width: u16, height: u16) -> Effect {
+        let at = Position::new(mouse.column, mouse.row);
+        let inside = |area: Rect| area.contains(at);
+        let wheel = match mouse.kind {
+            MouseEventKind::ScrollDown => WHEEL_STEP,
+            MouseEventKind::ScrollUp => -WHEEL_STEP,
+            MouseEventKind::Down(MouseButton::Left) => 0,
+            _ => return Effect::Ignored,
+        };
+        let click = wheel == 0;
+        if self.help {
+            if click {
+                self.help = false;
+            }
+            return Effect::None;
+        }
+        if self.picker.open {
+            let Some((panel, list, start)) = self.hits.picker else {
+                return Effect::Ignored;
+            };
+            if !click {
+                let last = self.picker.choices().len().saturating_sub(1);
+                self.picker.selected = self
+                    .picker
+                    .selected
+                    .saturating_add_signed(wheel.signum())
+                    .min(last);
+            } else if inside(list) {
+                let index = start + usize::from(at.y - list.y);
+                if index < self.picker.choices().len() {
+                    let double = self.double_click(at.x, at.y);
+                    self.picker.selected = index;
+                    if double && self.picker.input.is_none() {
+                        return self.picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            } else if !inside(panel) && self.args.target.is_some() {
+                self.picker.open = false;
+                self.picker.input = None;
+            }
+            return Effect::None;
+        }
+        if let Some(log) = &mut self.log {
+            let page = usize::from(height.saturating_sub(3));
+            if log.editing_search {
+                return Effect::Ignored;
+            }
+            if click {
+                // The log fills the screen inside a border, above one status line.
+                if at.y >= 1 && usize::from(at.y - 1) < page {
+                    log.click(usize::from(at.y - 1));
+                }
+            } else {
+                log.scroll(wheel, page);
+            }
+            return Effect::None;
+        }
+        if self.editing && click {
+            self.editing = false;
+        }
+        if self.filter_open {
+            let Some((panel, options)) = self.hits.filter else {
+                return Effect::Ignored;
+            };
+            let tab = usize::from(self.tab - 1);
+            if !click {
+                self.filter_key(if wheel > 0 {
+                    KeyCode::Down
+                } else {
+                    KeyCode::Up
+                });
+            } else if inside(options) {
+                self.filter_cursors[tab] = usize::from(at.y - options.y);
+                self.toggle_category();
+            } else if !inside(panel) {
+                self.filter_open = false;
+            }
+            return Effect::None;
+        }
+        if !click {
+            if self.hits.detail.is_some_and(inside) {
+                let max = crate::top::ui::detail_max_scroll(self, width, height);
+                self.history_detail_scroll = self
+                    .history_detail_scroll
+                    .saturating_add_signed(wheel as i16)
+                    .min(max);
+            } else if !self.detail {
+                self.move_by(wheel);
+            }
+            return Effect::None;
+        }
+        if let Some(&(_, tab)) = self.hits.tabs.iter().find(|(area, _)| inside(*area)) {
+            self.switch_tab(tab);
+            return Effect::None;
+        }
+        if let Some(rows) = self.hits.rows
+            && !self.detail
+            && inside(rows.area)
+        {
+            let index = rows.start + usize::from(at.y - rows.area.y);
+            let double = self.double_click(at.x, at.y);
+            if self.selected.selected() != Some(index) {
+                self.history_detail_scroll = 0;
+                self.selected.select(Some(index));
+                self.move_by(0);
+            }
+            if double {
+                return self.press(KeyCode::Enter, width, height);
+            }
+        }
+        Effect::None
     }
     pub fn handle_key(&mut self, key: KeyEvent, width: u16, height: u16) -> Effect {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -452,5 +588,72 @@ mod tests {
         press(&mut app, KeyCode::Char('q'));
         assert!(app.log.is_some());
         assert!(!app.help);
+    }
+    fn draw(app: &mut App) {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|f| crate::top::ui::draw(f, app)).unwrap();
+    }
+    fn mouse(app: &mut App, kind: MouseEventKind, column: u16, row: u16) -> Effect {
+        let event = MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        let effect = app.handle_mouse(event, 120, 36);
+        draw(app);
+        effect
+    }
+    #[test]
+    fn mouse_selects_rows_and_tabs_and_double_click_activates() {
+        let mut app = app();
+        draw(&mut app);
+        let rows = app.hits.rows.unwrap().area;
+        let click = MouseEventKind::Down(MouseButton::Left);
+        mouse(&mut app, click, rows.x + 4, rows.y + 1);
+        assert_eq!(app.identity().as_deref(), Some("b"));
+        assert!(!app.detail);
+        mouse(&mut app, click, rows.x + 4, rows.y + 1);
+        assert!(app.detail, "double-click expands node details");
+        mouse(&mut app, MouseEventKind::ScrollUp, rows.x, rows.y);
+        app.detail = false;
+        draw(&mut app);
+        mouse(&mut app, MouseEventKind::ScrollUp, rows.x + 4, rows.y);
+        assert_eq!(app.identity().as_deref(), Some("a"));
+        assert!(matches!(
+            mouse(&mut app, MouseEventKind::Moved, 0, 0),
+            Effect::Ignored
+        ));
+        let (history_tab, _) = *app.hits.tabs.iter().find(|(_, n)| *n == 4).unwrap();
+        mouse(&mut app, click, history_tab.x + 1, history_tab.y);
+        assert_eq!(app.tab, 4);
+    }
+    #[test]
+    fn mouse_toggles_filters_and_closes_overlays_outside() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('f'));
+        draw(&mut app);
+        let (_, options) = app.hits.filter.unwrap();
+        let click = MouseEventKind::Down(MouseButton::Left);
+        mouse(&mut app, click, options.x + 2, options.y + 1);
+        assert_eq!(app.category(), "idle");
+        mouse(&mut app, click, 0, 0);
+        assert!(!app.filter_open);
+        app.help = true;
+        mouse(&mut app, click, 0, 0);
+        assert!(!app.help);
+    }
+    #[test]
+    fn mouse_wheel_scrolls_logs_and_click_moves_cursor() {
+        let mut app = app();
+        let mut log = crate::top::history::LogView::loading("1");
+        log.lines = (0..200).map(|i| format!("line {i}")).collect();
+        app.log = Some(log);
+        mouse(&mut app, MouseEventKind::ScrollDown, 10, 10);
+        let log = app.log.as_ref().unwrap();
+        assert_eq!((log.offset, log.cursor), (3, 3));
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), 10, 6);
+        assert_eq!(app.log.as_ref().unwrap().cursor, 8);
     }
 }
