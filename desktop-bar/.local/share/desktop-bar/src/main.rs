@@ -2825,8 +2825,10 @@ impl App {
         }
         self.hover_pending = pending;
         self.hover_generation = self.hover_generation.wrapping_add(1);
+        // Workspace labels stay put under the pointer so they can be clicked
+        // and scrolled; the dashboard opens from the other notch controls.
         if !inside
-            || matches!(module, Some(Module::Tray(_)))
+            || matches!(module, Some(Module::Tray(_) | Module::Workspace(_)))
             || Instant::now() < self.hover_suppressed_until
         {
             return;
