@@ -55,6 +55,7 @@ optional = true
 [dependencies.cairo]
 package = "cairo-rs"
 version = "=0.20.12"
+default-features = false
 optional = true
 
 [[bin]]

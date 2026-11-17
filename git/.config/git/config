@@ -13,11 +13,11 @@
     
     # logging & visualization
     lg = log --graph --oneline --decorate --all
-    hist = log --graph --pretty=format:'%c(yellow)%h%creset %ad | %s%c(bold blue)%d%creset [%an]' --date=short
+    hist = log --graph --pretty=format:'%C(yellow)%h%Creset %ad | %s%C(bold blue)%d%Creset [%an]' --date=short
     
     # quality of life
-    unstage = reset head --
-    last = log -1 head
+    unstage = reset HEAD --
+    last = log -1 HEAD
     amend = commit --amend --no-edit
 
 [init]

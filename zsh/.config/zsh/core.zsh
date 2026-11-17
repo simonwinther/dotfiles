@@ -8,13 +8,57 @@ export CHROME_EXECUTABLE=chromium
 # ──────────────────────────── GHCUP ────────────────────────────
 [ -f "$HOME/.ghcup/env" ] && . "$HOME/.ghcup/env"
 
+# ──────────────────────────── ZLE VI MODE ────────────────────────────
+bindkey -v
+KEYTIMEOUT=1   # 10ms: snappy Esc; multi-key vi seqs still work (burst input)
+
+# ──────────────────────────── COMPINIT ────────────────────────────
+# Runs after `bindkey -v` so completion key bindings land in the vi keymap,
+# and before the tool integrations below so their compdef calls register.
+# The slow security audit and fpath rescan only run when $fpath resolves to
+# other directories (installed completions changed) or once a day; every
+# other shell loads the existing dump directly.
+if (( ! $+functions[compdef] )); then
+  autoload -Uz compinit
+  () {
+    emulate -L zsh
+    local dump=${ZDOTDIR:-$HOME}/.zcompdump stored=''
+    local -a directories=( ${^fpath}(N-/:A) ) fresh=( $dump.fpath(N.mh-24) )
+    local key="$ZSH_VERSION $directories"
+    [[ -f $dump ]] && (( $#fresh )) && IFS= read -r stored < $dump.fpath
+    if [[ $stored == "$key" ]]; then
+      compinit -C -d $dump
+      return
+    fi
+    compinit -d $dump || return
+    # The compiled dump loads several times faster. Rename it into place so
+    # concurrently starting shells never read a partial file.
+    if zcompile -R -- $dump.$$.zwc $dump 2>/dev/null; then
+      command mv -f -- $dump.$$.zwc $dump.zwc
+    else
+      command rm -f -- $dump.$$.zwc
+    fi
+    print -r -- $key 2>/dev/null >| $dump.fpath
+  }
+fi
+
 # ──────────────────────────── Zoxide ────────────────────────────
 source ~/.config/zsh/tool-init.zsh
 __dotfiles_cached_init zoxide '' init zsh
 
 # ──────────────────────────── OH MY POSH ────────────────────────────
-eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom-respects-waybar.omp.json)"
-unfunction __dotfiles_cached_init
+# Not cached: each init must create a fresh prompt session.
+if (( $+commands[oh-my-posh] )); then
+  eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom-respects-waybar.omp.json)"
+  # Time commands with the shell's clock instead of starting oh-my-posh twice
+  # per command. Hooks whose text changed upstream are left untouched.
+  if zmodload zsh/datetime 2>/dev/null &&
+     [[ $functions[_omp_preexec] == *'$($_omp_executable get millis)'* &&
+        $functions[_omp_precmd] == *'$($_omp_executable get millis)'* ]]; then
+    functions[_omp_preexec]=${functions[_omp_preexec]//'$($_omp_executable get millis)'/'${$(( EPOCHREALTIME * 1000 ))%.*}'}
+    functions[_omp_precmd]=${functions[_omp_precmd]//'$($_omp_executable get millis)'/'${$(( EPOCHREALTIME * 1000 ))%.*}'}
+  fi
+fi
 #eval "$(oh-my-posh init zsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/refs/heads/main/themes/tokyo.omp.json)"
 
 # ──────────────────────────── HISTORY ────────────────────────────
@@ -28,19 +72,17 @@ setopt hist_verify
 setopt hist_ignore_space
 setopt hist_reduce_blanks
 
-if (( $+commands[atuin] )); then
-  eval "$(atuin init zsh --disable-up-arrow --disable-ctrl-r --disable-ai)"
-fi
+__dotfiles_cached_init atuin "${ATUIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/atuin}/config.toml" \
+  init zsh --disable-up-arrow --disable-ctrl-r --disable-ai
+# Atuin's init prepends its strategy again whenever this file is re-sourced.
+(( ${+ZSH_AUTOSUGGEST_STRATEGY} )) && typeset -gU ZSH_AUTOSUGGEST_STRATEGY
+unfunction __dotfiles_cached_init
 
 # ──────────────────────────── TEXINPUTS ────────────────────────────
 export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
 
 # Load optional version managers only when first used, and only if installed.
 source ~/.config/zsh/lazy-tools.zsh
-
-# ──────────────────────────── ZLE VI MODE ────────────────────────────
-bindkey -v
-KEYTIMEOUT=1   # 10ms: snappy Esc; multi-key vi seqs still work (burst input)
 
 # ───────── My overrides ─────────
 source ~/.config/zsh/functions/init.zsh
@@ -58,19 +100,6 @@ source ~/.config/zsh/aliases.zsh
 [[ -f ~/.config/zsh/secrets.zsh ]] && source ~/.config/zsh/secrets.zsh
 
 # ──────────────────────────── COMPLETION ────────────────────────────
-if (( ! $+functions[compdef] )); then
-  autoload -Uz compinit
-  () {
-    emulate -L zsh
-    local dump=${ZDOTDIR:-$HOME}/.zcompdump
-    local -a old=( $dump(N.mh+24) )    # non-empty if the dump exists and is >24h old
-    if [[ -f $dump ]] && (( ! $#old )); then
-      compinit -C -d $dump             # fresh (<24h): skip the security scan, fast
-    else
-      compinit -d $dump                # missing or stale: full init + regenerate
-    fi
-  }
-fi
 zstyle ':completion:*' menu select                          # arrow-key menu
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
 

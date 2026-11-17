@@ -7,7 +7,7 @@ A small Chrome extension that copies selected text and complete messages in your
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Choose Load unpacked.
-4. Select this `chrome/extensions/chatgpt-copy` directory from your dotfiles checkout.
+4. Select this `chrome/.local/share/browser-extensions/chatgpt-copy` directory from your dotfiles checkout.
 
 After updating the files, reload the extension on the extensions page and refresh any open conversation tabs once.
 

@@ -1,10 +1,11 @@
 (() => {
-  if (globalThis.projectPickerSync?.version === "0.1.4") return;
+  if (globalThis.projectPickerSync?.version === "0.1.7") return;
   globalThis.projectPickerSync?.stop();
   let pending;
   let running;
   let lastAttempt = 0;
   let again = false;
+  let pendingChange = false;
   let stopped = false;
   let interval;
 
@@ -35,13 +36,15 @@
 
   async function sync() {
     pending = undefined;
+    const changed = pendingChange;
+    pendingChange = false;
     if (stopped || !active()) return;
     if (running) { again = true; return; }
     lastAttempt = Date.now();
     running = new AbortController();
     const controller = running;
     try {
-      const ready = await send({ type: "project-picker-status", code: "syncing" });
+      const ready = await send({ type: "project-picker-status", code: "syncing", changed });
       if (!ready?.ok) return;
       const snapshot = await ProjectPickerAPI.collect({
         request: ProjectPickerAPI.requester(fetch.bind(globalThis), controller.signal),
@@ -65,7 +68,8 @@
     if (stopped || !active()) return;
     clearTimeout(pending);
     if (running) { again ||= changed || running.signal.aborted; return; }
-    const minimumDelay = changed ? 5000 : 15000;
+    pendingChange ||= changed;
+    const minimumDelay = pendingChange ? 5000 : 15000;
     pending = setTimeout(sync, Math.max(1000, minimumDelay - (Date.now() - lastAttempt)));
   }
 
@@ -79,7 +83,7 @@
   function onMessage(message) {
     if (message?.type === "project-picker-refresh") schedule(true);
   }
-  globalThis.projectPickerSync = { version: "0.1.4", stop };
+  globalThis.projectPickerSync = { version: "0.1.7", stop };
   chrome.runtime.onMessage.addListener(onMessage);
   window.addEventListener("focus", focusChanged);
   document.addEventListener("visibilitychange", focusChanged);

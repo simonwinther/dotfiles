@@ -58,6 +58,7 @@ pub fn load(provider: &str, cancelled: impl Fn() -> bool) -> Option<Result<Vec<E
         "audio" => {
             return Some(crate::modules::audio::entries(&cancelled).map_err(|e| e.to_string()));
         }
+        "controls" => return controls(&crate::theme::config()),
         "notifications" | "bluetooth" | "wifi" => {}
         _ => return None,
     }
@@ -192,6 +193,16 @@ pub fn refresh(page: Page) -> bool {
         page,
         Page::Notifications | Page::Bluetooth | Page::Audio | Page::Wifi | Page::Projects
     )
+}
+
+/// Custom dashboard actions. Only an existing `bar-actions.json` needs
+/// `desktopctl` to read and validate it; without one there are none.
+fn controls(config: &std::path::Path) -> Option<Result<Vec<Entry>, String>> {
+    if config.join("desktop/bar-actions.json").is_file() {
+        None
+    } else {
+        Some(Ok(Vec::new()))
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -736,5 +747,14 @@ mod tests {
     #[test]
     fn notification_markup_is_plain_and_preserves_labels() {
         assert_eq!(plain_text("<b>Title</b>\nA &amp; B"), "Title A & B");
+    }
+
+    #[test]
+    fn controls_ask_desktopctl_only_when_custom_actions_exist() {
+        let config = tempfile::tempdir().unwrap();
+        assert_eq!(controls(config.path()), Some(Ok(Vec::new())));
+        std::fs::create_dir(config.path().join("desktop")).unwrap();
+        std::fs::write(config.path().join("desktop/bar-actions.json"), "[]").unwrap();
+        assert_eq!(controls(config.path()), None);
     }
 }

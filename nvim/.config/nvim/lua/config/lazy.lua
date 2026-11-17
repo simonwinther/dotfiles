@@ -24,13 +24,17 @@ vim.opt.rtp:prepend(lazypath)
 
 local pinned = {}
 if nix_root then
+  local store_dirs = {}
   for name in vim.fs.dir(nix_root) do
     if name ~= "runtime" then
       -- Lazy identifies module owners by their directory name, so keep the
       -- named links instead of resolving them to anonymous Nix store sources.
-      pinned[#pinned + 1] = { name = name, dir = nix_root .. "/" .. name, build = false }
+      store_dirs[#store_dirs + 1] = { name = name, dir = nix_root .. "/" .. name, build = false }
     end
   end
+  -- Lazy loads a plugin at startup unless every fragment is a dependency, so
+  -- attach the store directories to a virtual plugin that never loads.
+  pinned[#pinned + 1] = { "nix-plugin-dirs", virtual = true, lazy = true, dependencies = store_dirs }
   pinned[#pinned + 1] = { "mason-org/mason.nvim", enabled = false }
   pinned[#pinned + 1] = { "mason-org/mason-lspconfig.nvim", enabled = false }
   pinned[#pinned + 1] = { "neovim/nvim-lspconfig", opts = function(_, opts)

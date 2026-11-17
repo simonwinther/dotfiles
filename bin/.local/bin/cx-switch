@@ -56,10 +56,11 @@ atomic_secret_copy() {
   [[ ! -L $destination ]] || die "refusing symlinked destination: ${destination}"
 
   temporary=$(mktemp "${destination_dir}/.auth.json.tmp.XXXXXX")
-  trap 'rm -f -- "$temporary"' RETURN
-  command install -m 600 -- "$source" "$temporary"
-  command mv -fT -- "$temporary" "$destination"
-  trap - RETURN
+  if ! command install -m 600 -- "$source" "$temporary" \
+      || ! command mv -fT -- "$temporary" "$destination"; then
+    rm -f -- "$temporary"
+    die "could not replace ${destination}"
+  fi
 }
 
 atomic_marker_write() {
@@ -67,11 +68,12 @@ atomic_marker_write() {
   local temporary
 
   temporary=$(mktemp "${accounts_root}/.active-auth-account.tmp.XXXXXX")
-  trap 'rm -f -- "$temporary"' RETURN
-  printf '%s\n' "$account" >"$temporary"
-  chmod 600 -- "$temporary"
-  command mv -fT -- "$temporary" "$active_file"
-  trap - RETURN
+  if ! printf '%s\n' "$account" >"$temporary" \
+      || ! chmod 600 -- "$temporary" \
+      || ! command mv -fT -- "$temporary" "$active_file"; then
+    rm -f -- "$temporary"
+    die "could not update ${active_file}"
+  fi
 }
 
 read_active_account() {

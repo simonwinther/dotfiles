@@ -225,7 +225,10 @@ fn run(
             "type='signal',interface='org.kde.StatusNotifierWatcher'",
             "type='signal',interface='com.canonical.dbusmenu'",
             "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.kde.StatusNotifierItem'",
-            "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged'",
+            // Lost names remove items. A new owner matters only for the
+            // watcher, so other bus clients connecting never wake the tray.
+            "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg2=''",
+            "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.kde.StatusNotifierWatcher'",
         ],
     )?;
     let events = tx.clone();

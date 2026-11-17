@@ -867,6 +867,24 @@ class JobTests(unittest.TestCase):
         self.assertEqual(before, {p.name: p.stat().st_mtime_ns for p in agents.iterdir()})
         self.assertFalse(list(agents.glob("incoming.*")))
 
+    def test_interrupted_helper_upload_is_not_installed(self):
+        agents = self.root / "cache/cluster/agents"
+        shutil.rmtree(agents)
+        complete = (self.bin / "ssh").read_text()
+        bash = shlex.quote(shutil.which('bash'))
+        # A dropped connection: the remote side reads only part of the helper.
+        self.tool("ssh", '#!/usr/bin/env bash\n[[ ${1:-} != -- ]] || shift\nshift\n'
+                  + '[[ "$*" != *incoming.* ]] || { head -c 4096 | ' + bash + ' -c "$*"; exit; }\n'
+                  + 'exec ' + bash + ' -c "$*"\n')
+        result = self.run_cli("logs", "456", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete helper upload", result.stdout)
+        self.assertIn("Could not install the Rust cluster helper", result.stdout)
+        self.assertEqual(list(agents.iterdir()), [])
+        self.tool("ssh", complete)
+        self.assertIn("training output", self.run_cli("logs", "456").stdout)
+        self.assertEqual(len(list(agents.iterdir())), 1)
+
     def test_remote_protocol_rejects_working_directory_escape(self):
         result = self.run_cli("agent", "submit", json.dumps({
             "path": str(self.checkout), "subdir": str(self.root),

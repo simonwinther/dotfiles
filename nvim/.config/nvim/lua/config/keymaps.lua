@@ -1,16 +1,6 @@
 -- Keymaps are automatically loaded on the VeryLazy event Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua Add any additional keymaps here local opts = { noremap = true, silent = true }
 local opts = { noremap = true, silent = true }
 
-----------------------------------------
---- Helper functions
-----------------------------------------
-local function is_mapped(mode, lhs)
-  if vim.keymap and vim.keymap.get then
-    local maps = vim.keymap.get(mode, lhs)
-    return maps and #maps > 0, maps
-  end
-end
-
 -- <leader>. is free , and a very fast bind for something i use often, <leader>S is also free
 vim.keymap.set("n", "<leader>.", function()
   Snacks.picker.resume()
@@ -300,13 +290,8 @@ vim.keymap.set("n", "<A-S-l>", "<cmd>BufferLineMoveNext<cr>", { desc = "Move buf
 -- I have <leader>: to open command history, so I don't need q: for that
 vim.keymap.set("n", "q:", "<cmd>q<cr>", { desc = "Quit window" })
 
--- Save and quit window with <leader>ww if not already mapped
-local exists = is_mapped("n", "<leader>ww")
-if not exists then
-  vim.keymap.set("n", "<leader>ww", "<cmd>wq<cr>", { desc = "Save and Quit Window" })
-else
-  print("Mapping <leader>ww already exists")
-end
+-- Save and quit window with <leader>ww
+vim.keymap.set("n", "<leader>ww", "<cmd>wq<cr>", { desc = "Save and Quit Window" })
 
 -----------------------------------------
 --- Visual Selection keymap

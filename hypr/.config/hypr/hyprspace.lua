@@ -1,6 +1,26 @@
-local plugin
-local paths = io.popen("desktopctl path hyprspace 2>/dev/null")
-if paths then plugin = paths:read("*l"); paths:close() end
+-- Configuration evaluation blocks the compositor: read a declared path
+-- directly and leave only undeclared, portable lookups to desktopctl.
+local function declared_plugin()
+    local selected = os.getenv("DESKTOP_HYPRSPACE_BIN")
+    if selected and selected ~= "" then return selected end
+    local config = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
+    local file = io.open(config .. "/desktop/paths.json", "r")
+    if not file then return nil end
+    local text = file:read("*a")
+    file:close()
+    selected = text:match('"hyprspace"%s*:%s*"([^"]*)"')
+    if selected and selected ~= "" and not selected:find("\\", 1, true) then return selected end
+end
+
+local plugin = declared_plugin()
+if plugin then
+    -- Like desktopctl, reject a declared path that no longer exists.
+    local file = io.open(plugin, "r")
+    if file then file:close() else plugin = nil end
+else
+    local paths = io.popen("desktopctl path hyprspace 2>/dev/null")
+    if paths then plugin = paths:read("*l"); paths:close() end
+end
 if not plugin or plugin == "" then plugin = os.getenv("HYPRSPACE_PLUGIN") end
 if not plugin or plugin == "" then return end
 hl.plugin.load(plugin)

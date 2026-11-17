@@ -1,7 +1,7 @@
 use crate::process::{git, output, quote, shell_join, with_input};
 use crate::snapshot;
 use anyhow::{Context, Result, bail, ensure};
-use regex::Regex;
+use regex::regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -19,19 +19,14 @@ pub fn home() -> Result<PathBuf> {
 }
 
 pub fn identity(url: &str) -> String {
-    let scp = Regex::new(r"^[^/@:]+@([^/:]+):").unwrap();
-    let scheme = Regex::new(r"^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^/@]+@)?").unwrap();
-    let url = scp.replace(url.trim().trim_end_matches('/'), "$1/");
-    let url = scheme.replace(&url, "");
+    let url = regex!(r"^[^/@:]+@([^/:]+):").replace(url.trim().trim_end_matches('/'), "$1/");
+    let url = regex!(r"^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^/@]+@)?").replace(&url, "");
     url.strip_suffix(".git").unwrap_or(&url).to_lowercase()
 }
 
 pub fn validate_host(host: &str) -> Result<&str> {
     ensure!(
-        !host.starts_with('-')
-            && Regex::new(r"^[A-Za-z0-9_@.\[\]:-]+$")
-                .unwrap()
-                .is_match(host),
+        !host.starts_with('-') && regex!(r"^[A-Za-z0-9_@.\[\]:-]+$").is_match(host),
         "Use an SSH alias or user@hostname; put ports and jump hosts in ~/.ssh/config."
     );
     Ok(host)
@@ -73,8 +68,9 @@ fn repository(path: &str) -> Result<Repository> {
 }
 
 pub fn parse_job_info(text: &str) -> JobInfo {
-    let regex = Regex::new(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=").unwrap();
-    let fields: Vec<_> = regex.captures_iter(text).collect();
+    let fields: Vec<_> = regex!(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=")
+        .captures_iter(text)
+        .collect();
     fields
         .iter()
         .enumerate()
@@ -256,9 +252,7 @@ fn submit(data: Submission) -> Result<Value> {
             .envs(&data.env),
     )?;
     ensure!(
-        Regex::new(r"^[0-9]+(?:;[^\s;]+)?$")
-            .unwrap()
-            .is_match(&result),
+        regex!(r"^[0-9]+(?:;[^\s;]+)?$").is_match(&result),
         "sbatch returned no recognizable job ID; check the queue before retrying: {result}"
     );
     let job = result.split(';').next().unwrap();
@@ -399,6 +393,40 @@ pub fn arch_guard(arch: &str) -> String {
     format!("case \"$(uname -s):$(uname -m)\" in Linux:{pattern}) ;; *) printf '%s\\n' 'cluster: CPU architecture differs; set CLUSTER_REMOTE_BINARY to a static Rust build for this host.' >&2; exit 1 ;; esac\n").replace("Linux:aarch64|arm64", "Linux:aarch64|Linux:arm64")
 }
 
+/// SHA-256 and byte count of the helper executable, reused while the file is
+/// unchanged: the monitor prepares a request on every refresh, and rehashing
+/// several MiB each time dominated its local CPU use. A replaced file is hashed
+/// again.
+fn executable_hash(path: &Path) -> Result<(String, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    use std::sync::Mutex;
+    type Identity = (PathBuf, u64, u64, u64, i64, i64);
+    static CACHE: Mutex<Option<(Identity, String)>> = Mutex::new(None);
+    // Metadata of the open file: the hash and the size describe the same file
+    // even while it is being replaced.
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    let identity = (
+        path.to_path_buf(),
+        metadata.dev(),
+        metadata.ino(),
+        metadata.size(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+    );
+    let mut cache = CACHE.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((cached, hash)) = cache.as_ref()
+        && *cached == identity
+    {
+        return Ok((hash.clone(), metadata.size()));
+    }
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let hash = format!("{:x}", hasher.finalize());
+    *cache = Some((identity, hash.clone()));
+    Ok((hash, metadata.size()))
+}
+
 pub struct AgentRequest {
     pub executable: PathBuf,
     pub command: String,
@@ -408,7 +436,7 @@ pub fn prepare_agent(host: &str, action: &str, data: &Value) -> Result<AgentRequ
     validate_host(host)?;
     let executable = binary()?;
     let arch = binary_arch(&executable)?;
-    let hash = format!("{:x}", Sha256::digest(fs::read(&executable)?));
+    let (hash, size) = executable_hash(&executable)?;
     let cache = format!(
         "cache=\"${{XDG_CACHE_HOME:-$HOME/.cache}}/cluster/agents\"\nbinary=\"$cache/{hash}\"\n"
     );
@@ -420,8 +448,10 @@ pub fn prepare_agent(host: &str, action: &str, data: &Value) -> Result<AgentRequ
         arch_guard(arch)
     );
     let command = format!("sh -c {}", quote(&script));
+    // cat cannot tell a dropped connection from the end of the upload, so the
+    // helper is installed only when every byte arrived.
     let upload = format!(
-        "set -eu\numask 077\n{}{cache}mkdir -p -- \"$cache\"\ntmp=$(mktemp \"$cache/incoming.XXXXXX\")\ntrap 'rm -f -- \"$tmp\"' EXIT HUP INT TERM\ncat > \"$tmp\"\nchmod 700 \"$tmp\"\nmv -f -- \"$tmp\" \"$binary\"\n",
+        "set -eu\numask 077\n{}{cache}mkdir -p -- \"$cache\"\ntmp=$(mktemp \"$cache/incoming.XXXXXX\")\ntrap 'rm -f -- \"$tmp\"' EXIT HUP INT TERM\ncat > \"$tmp\"\n[ \"$(wc -c < \"$tmp\")\" -eq {size} ] || {{ printf '%s\\n' 'cluster: incomplete helper upload; nothing was installed.' >&2; exit 1; }}\nchmod 700 \"$tmp\"\nmv -f -- \"$tmp\" \"$binary\"\n",
         arch_guard(arch)
     );
     Ok(AgentRequest {
@@ -510,7 +540,7 @@ pub fn save_job(host: &str, job: &str, info: &JobInfo) {
 
 pub fn validate_job(job: &str) -> Result<()> {
     ensure!(
-        Regex::new(r"^[0-9]+(?:_[0-9]+)?$").unwrap().is_match(job),
+        regex!(r"^[0-9]+(?:_[0-9]+)?$").is_match(job),
         "Use a numeric job ID, or an array task such as 12345_0."
     );
     Ok(())
@@ -529,7 +559,7 @@ pub fn log_path(info: &JobInfo, job: &str, stderr: bool) -> Result<PathBuf> {
     let (base, task) = job
         .split_once('_')
         .map_or((job, None), |(base, task)| (base, Some(task)));
-    let regex = Regex::new(r"%([0-9]*)([%jAaxu])").unwrap();
+    let regex = regex!(r"%([0-9]*)([%jAaxu])");
     let mut error = None;
     let replaced = regex.replace_all(path, |caps: &regex::Captures<'_>| {
         let value = match &caps[2] {
@@ -572,7 +602,7 @@ pub fn log_path(info: &JobInfo, job: &str, stderr: bool) -> Result<PathBuf> {
         bail!("{error}");
     }
     ensure!(
-        !Regex::new(r"%[0-9]*[A-Za-z]").unwrap().is_match(&replaced),
+        !regex!(r"%[0-9]*[A-Za-z]").is_match(&replaced),
         "Node-specific log patterns are not supported: {replaced}"
     );
     let mut path = PathBuf::from(replaced.as_ref());

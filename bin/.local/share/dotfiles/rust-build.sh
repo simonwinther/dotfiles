@@ -1,6 +1,13 @@
+# shellcheck shell=bash
 # Shared build workflow, sourced by the Rust tools' *-build launchers.
 # Resolve this through the checkout so each package can also build before Stow.
 # Set source_root before rust_build_init for a tree outside .local/share/TOOL.
+
+# Snapshots of read-only sources (the Nix store) keep their read-only modes.
+rust_build_remove_tree() {
+  [[ -e "$1" ]] || return 0
+  chmod -R -- u+w "$1" && rm -rf -- "$1"
+}
 
 rust_build_init() {
   local tool="$1" script="$2"
@@ -27,14 +34,24 @@ rust_build_init() {
   flock -x 9
 
   # A complete snapshot removes deleted modules/tests and preserves the old
-  # snapshot if copying fails. Compiler output stays in a separate target tree.
-  local snapshot
+  # snapshot if copying fails. Compiler output stays in a separate target tree,
+  # so an in-tree Cargo target directory is not copied. Under the lock, any
+  # other snapshot is left over from an interrupted build.
+  local snapshot entry
+  local -a entries=()
+  for snapshot in "$cache_root"/source.??????; do
+    rust_build_remove_tree "$snapshot"
+  done
+  for entry in "$source_root"/* "$source_root"/.[!.]* "$source_root"/..?*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    [[ "${entry##*/}" == target && -d "$entry" ]] || entries+=("$entry")
+  done
   snapshot="$(mktemp -d "$cache_root/source.XXXXXX")"
-  if ! cp -R "$source_root/." "$snapshot/"; then
-    rm -rf -- "$snapshot"
+  if ! cp -R -- "${entries[@]}" "$snapshot/" || ! chmod -R -- u+w "$snapshot"; then
+    rust_build_remove_tree "$snapshot"
     return 1
   fi
-  rm -rf -- "$cache_root/build"
+  rust_build_remove_tree "$cache_root/build"
   mv -- "$snapshot" "$cache_root/build"
   export CARGO_TARGET_DIR="$cache_root/target"
   export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"

@@ -410,25 +410,45 @@ fn calculator(
         deadline: Instant::now() + Duration::from_millis(150),
         cancelled,
     };
-    let mut context = fend_core::Context::new();
-    match fend_core::evaluate_with_interrupt(query, &mut context, &interrupt) {
-        Ok(value) => {
-            let text = value.get_main_result().to_owned();
-            if text.len() > 20_000 {
-                return Ok(vec![]);
-            }
-            Ok(vec![Item {
-                identifier: text.clone(),
-                text,
-                subtext: query.into(),
-                provider: "calc".into(),
-                score: 10000,
-                actions: vec!["copy".into(), "save".into()],
-                ..Default::default()
-            }])
-        }
-        Err(_) => Ok(vec![]),
+    let Some(text) = calculate(query, &interrupt)? else {
+        return Ok(vec![]);
+    };
+    if text.len() > 20_000 {
+        return Ok(vec![]);
     }
+    Ok(vec![Item {
+        identifier: text.clone(),
+        text,
+        subtext: query.into(),
+        provider: "calc".into(),
+        score: 10000,
+        actions: vec!["copy".into(), "save".into()],
+        ..Default::default()
+    }])
+}
+
+// fend recurses without a depth limit, and a stack overflow aborts the service.
+// Parsing at the 4096-byte query cap needs up to 15 MiB, while long-running lambdas
+// rely on the 150 ms interrupt and reached 72 MiB within it on a Ryzen 5 4650U.
+// Only touched pages are allocated, and the thread releases them when it exits.
+const CALCULATOR_STACK: usize = 256 * 1024 * 1024;
+
+fn calculate(
+    query: &str,
+    interrupt: &impl fend_core::Interrupt,
+) -> std::io::Result<Option<String>> {
+    std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("search-calculator".into())
+            .stack_size(CALCULATOR_STACK)
+            .spawn_scoped(scope, || {
+                let mut context = fend_core::Context::new();
+                fend_core::evaluate_with_interrupt(query, &mut context, interrupt)
+                    .ok()
+                    .map(|value| value.get_main_result().to_owned())
+            })?;
+        Ok(worker.join().ok().flatten())
+    })
 }
 
 fn websearch(backend: &Backend, query: &str) -> Vec<Item> {
@@ -946,6 +966,27 @@ mod tests {
         assert_eq!(file_pattern("nxcfg"), "n.*x.*c.*f.*g");
         assert_eq!(file_pattern("a.b"), "a.*\\..*b");
         assert_eq!(file_pattern("$HOME;"), "\\$.*H.*O.*M.*E.*;");
+    }
+    #[test]
+    fn calculator_nesting_deeper_than_the_query_worker_stack_evaluates() {
+        struct Unlimited;
+        impl fend_core::Interrupt for Unlimited {
+            fn should_interrupt(&self) -> bool {
+                false
+            }
+        }
+        // Unoptimized fend needs 7-11 MiB here; query workers have 1 MiB.
+        for query in [
+            format!("{}1{}", "(".repeat(143), ")".repeat(143)),
+            format!("{}1{}", "(".repeat(200), ")".repeat(200)),
+            format!("{}1{}", "sqrt(".repeat(87), ")".repeat(87)),
+        ] {
+            assert_eq!(calculate(&query, &Unlimited).unwrap().as_deref(), Some("1"));
+        }
+        assert_eq!(
+            calculate("(12 + 8) / 4", &Unlimited).unwrap().as_deref(),
+            Some("5")
+        );
     }
     #[test]
     fn fuzzy_search_retains_literal_names_and_query_order() {

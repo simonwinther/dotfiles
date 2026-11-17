@@ -1,4 +1,3 @@
-import shlex
 import shutil
 
 from gi import require_version

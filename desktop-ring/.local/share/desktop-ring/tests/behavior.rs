@@ -273,6 +273,57 @@ fn menu_pagination_preserves_all_entries() {
     assert_eq!(count, 30);
 }
 #[test]
+fn every_device_submenu_is_paginated_and_keeps_each_device_once() {
+    use desktop_ring::{audio, bluetooth};
+    let mut s = Snapshot::default();
+    let mut devices = vec!["/org/bluez/hci0".to_string()];
+    s.bluetooth.adapters.push(bluetooth::Adapter {
+        path: devices[0].clone(),
+        label: "Adapter".into(),
+        powered: true,
+    });
+    for i in 0..12 {
+        let path = format!("/org/bluez/hci0/dev_{i}");
+        s.bluetooth.devices.push(bluetooth::Device {
+            path: path.clone(),
+            address: format!("00:00:00:00:00:{i:02X}"),
+            label: format!("Headset {i}"),
+            connected: i == 0,
+            audio: true,
+        });
+        devices.push(path);
+    }
+    for i in 0..10 {
+        let identity = format!("sink-{i}");
+        let sink: audio::Device = serde_json::from_value(serde_json::json!({
+            "name": format!("alsa_output.{i}"),
+            "identity": identity,
+            "label": format!("Speaker {i}"),
+            "available": true,
+            "active": i == 0,
+            "muted": false,
+            "volume": 50,
+        }))
+        .unwrap();
+        s.audio.outputs.push(sink);
+        devices.push(identity);
+    }
+    fn visit(m: &menu::Menu, ids: &mut Vec<String>) {
+        assert!(m.entries.len() <= 8, "{}: {}", m.id, m.entries.len());
+        for e in &m.entries {
+            ids.push(e.id.clone());
+            if let Some(submenu) = &e.submenu {
+                visit(submenu, ids);
+            }
+        }
+    }
+    let mut ids = vec![];
+    visit(&menu::paged(&menu::build(&s)), &mut ids);
+    for device in &devices {
+        assert_eq!(ids.iter().filter(|id| *id == device).count(), 1, "{device}");
+    }
+}
+#[test]
 fn lua_ipc_never_generates_disable_or_untrusted_code() {
     let a = screen("DP-1", "A", "A", 1920, 1080, 1.0);
     let mut r = current_rule(&a);

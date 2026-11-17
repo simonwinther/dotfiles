@@ -24,7 +24,9 @@ Run `cluster-build` again after source changes.
 
 SSH operations cache the executable by its SHA-256 hash in
 `${XDG_CACHE_HOME:-~/.cache}/cluster/agents` on the remote host. The first
-lookup uploads it atomically; later commands reuse it. Git paths, job
+lookup uploads it atomically and installs it only if every byte arrived, so an
+interrupted upload installs nothing and the next command uploads again; later
+commands reuse it. Git paths, job
 arguments, and results use JSON. Existing Git pairings and saved job log
 paths from the Python version remain compatible.
 

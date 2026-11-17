@@ -44,9 +44,11 @@ pub async fn lua() -> bool {
     if let Some(v) = LUA.get() {
         return *v;
     }
-    let yes = capture("hyprctl", &["status"], 250)
-        .await
-        .is_ok_and(|s| s.lines().any(|s| s.trim() == "configProvider: lua"));
+    // Only a completed probe is cached; a failed or slow one is retried later.
+    let Ok(status) = capture("hyprctl", &["status"], 250).await else {
+        return false;
+    };
+    let yes = status.lines().any(|s| s.trim() == "configProvider: lua");
     let _ = LUA.set(yes);
     yes
 }
@@ -74,9 +76,9 @@ pub async fn paste(c: &Config) -> Result<()> {
         capture(cmd, &args, 2000).await?;
         return Ok(());
     }
-    let window = active_window()
-        .await
-        .map_err(|e| anyhow::anyhow!("Automatic paste skipped: {e}"))?;
+    // The config provider probe runs alongside the window query; send_shortcut reuses it.
+    let (window, _) = tokio::join!(active_window(), lua());
+    let window = window.map_err(|e| anyhow::anyhow!("Automatic paste skipped: {e}"))?;
     let (mods, key) = match method {
         "hyprctl-super-v" => (
             if window.terminal {
@@ -168,7 +170,9 @@ pub async fn send_shortcut(mods: &str, key: &str, address: &str) -> Result<()> {
     Ok(())
 }
 pub async fn copy(text: &str) -> Result<()> {
+    // An explicit type skips wl-copy's slow xdg-mime content sniffing.
     let mut child = Command::new("wl-copy")
+        .args(["--type", "text/plain"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

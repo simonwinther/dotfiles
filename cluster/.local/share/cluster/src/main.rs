@@ -618,6 +618,37 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_helper_upload_installs_nothing() {
+        use std::io::Read;
+        let cache = tempfile::tempdir().unwrap();
+        let request = remote::prepare_agent("test-host", "jobs", &json!({})).unwrap();
+        let upload = |input: &mut (dyn Read + Send)| {
+            process::with_input(
+                Command::new("sh")
+                    .args(["-c", &request.upload])
+                    .env("XDG_CACHE_HOME", cache.path())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped()),
+                input,
+            )
+            .unwrap()
+        };
+        let agents = cache.path().join("cluster/agents");
+        let executable = || fs::File::open(&request.executable).unwrap();
+        let interrupted = upload(&mut executable().take(4096));
+        assert!(!interrupted.status.success());
+        assert!(String::from_utf8_lossy(&interrupted.stderr).contains("incomplete helper upload"));
+        assert_eq!(fs::read_dir(&agents).unwrap().count(), 0);
+        assert!(upload(&mut executable()).status.success());
+        let installed: Vec<_> = fs::read_dir(&agents).unwrap().map(Result::unwrap).collect();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(
+            installed[0].metadata().unwrap().len(),
+            fs::metadata(&request.executable).unwrap().len()
+        );
+    }
+
+    #[test]
     fn host_and_job_validation_reject_shell_fragments() {
         for host in ["-oProxyCommand=evil", "user@host;echo bad", "host\n", ""] {
             assert!(remote::validate_host(host).is_err());

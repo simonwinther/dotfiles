@@ -1,2 +1,5 @@
 #!/usr/bin/env sh
-exec python3 "${XDG_DATA_HOME:-$HOME/.local/share}/desktop-tools/desktopctl.py" "$@"
+tools="${XDG_DATA_HOME:-$HOME/.local/share}/desktop-tools"
+# Trees stowed before the entry point existed run the script directly.
+[ -f "$tools/desktopctl-entry.py" ] || exec python3 "$tools/desktopctl.py" "$@"
+exec python3 "$tools/desktopctl-entry.py" "$@"

@@ -338,7 +338,7 @@ pub async fn start(
             "Missing pw-record or stdbuf"
         );
     }
-    storage::write_private(&c.path("LAST_LOG_FILE"), b"")?;
+    storage::replace_private(&c.path("LAST_LOG_FILE"), b"")?;
     let log = storage::private_file(&c.path("LAST_LOG_FILE"), true)?;
     let fd = lock.0.as_raw_fd();
     let mut command = Command::new(std::env::current_exe()?);
@@ -904,7 +904,7 @@ async fn pipeline(
             let revised=format!("{leading}{}{trailing}",revised.trim());
             if *controls.borrow()==Control::Cancel{return Ok(());}
             phase(&state,&view,"delivering")?;
-            storage::write_private(&c.path("LAST_TRANSCRIPT_FILE"),revised.as_bytes())?;
+            storage::replace_private(&c.path("LAST_TRANSCRIPT_FILE"),revised.as_bytes())?;
             desktop::copy(&revised).await.context("Clipboard failed")?;
             if source.window.terminal{
                 desktop::notify("Revision copied","Paste it with Ctrl+Shift+V").await;
@@ -914,7 +914,7 @@ async fn pipeline(
             storage::log(&c,&format!("event=done instruction_chars={} revised_chars={}",text.chars().count(),revised.chars().count()));
             return Ok(());
         }
-        transcript=Some(text.clone());storage::write_private(&c.path("LAST_TRANSCRIPT_FILE"),text.as_bytes())?;
+        transcript=Some(text.clone());storage::replace_private(&c.path("LAST_TRANSCRIPT_FILE"),text.as_bytes())?;
         {let mut s=state.lock().unwrap();s.transcript=Some(text.clone());s.save()?;}
         // No await between checking cancellation and entering delivery. Controls now reject cancellation.
         if *controls.borrow()==Control::Cancel{return Ok(());}

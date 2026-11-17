@@ -1,0 +1,15 @@
+[package]
+name = "hendrix-ssh"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# Standard library only: the launcher runs before every ssh, including Git's.
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -7,7 +7,9 @@ Walker is no longer needed for launcher modes or fallback dialogs.
 The backend provides applications, files, PATH commands, calculator results,
 symbols, Unicode, web search, repositories, notifications, Bluetooth and tasks.
 The calculator uses fend for arithmetic and unit conversions. Its expression
-syntax differs from Qalculate. Files are searched with fd on demand; application
+syntax differs from Qalculate. Each evaluation runs on its own short-lived
+thread with a 256 MiB virtual stack and a 150 ms deadline, so deeply nested or
+long-running expressions return nothing instead of aborting the service. Files are searched with fd on demand; application
 metadata is cached. Nucleo provides Unicode-aware fuzzy scoring with reused
 matcher scratch space and parsed patterns. Device catalogs and authentication reuse the Rust bar.
 Configured desktop menus use their existing argument lists.
@@ -18,7 +20,9 @@ the database stores bounded previews and a full-text search index. Collection
 ignores password-manager hints, supports pause/resume and retains pins across
 restarts. The history limit includes pins, but pins are never evicted even when
 they exceed the limit. Copy operations read the original payload rather than
-the preview. wl-clipboard remains the clipboard ownership helper.
+the preview. Search ignores words without letters or digits, so code and URL
+fragments still match; punctuation-only queries match previews literally.
+wl-clipboard remains the clipboard ownership helper.
 
 `desktop-search.service` owns the backend. Native clients use
 `$XDG_RUNTIME_DIR/desktop-search/search.sock`; a compatibility socket at the old
@@ -48,8 +52,10 @@ Nix builds the executable and supplies runtime dependencies. On other systems,
 the portable launcher uses `desktop-search-build` and the shared build helper;
 source snapshots and binaries stay in the XDG cache. The bar connects directly to the native search socket for additional providers.
 
-Rust tests cover storage, ordering, pins, limits, scheduling, wire formats and
-helper cancellation. `tests/test_desktop_search.py` exercises private sockets,
-both encodings, provider actions, import and restart persistence. The bar's
+Rust tests cover storage, ordering, pins, limits, scheduling, wire formats,
+helper cancellation and calculator nesting deeper than a query worker's stack.
+`tests/test_desktop_search.py` exercises private sockets, both encodings,
+provider actions, import, restart persistence and expressions that once aborted
+the service. The bar's
 private Wayland harness also accepts a search binary for clipboard capture,
 burst retention, native copy and provider-menu acceptance.

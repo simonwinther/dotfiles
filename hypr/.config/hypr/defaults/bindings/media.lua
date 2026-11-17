@@ -56,17 +56,17 @@ hl.bind(
 )
 hl.bind(
     "XF86TouchpadToggle",
-    hl.dsp.exec_cmd("desktopctl toggle touchpad && hyprctl reload"),
+    hl.dsp.exec_cmd("desktopctl toggle touchpad"),
     { description = "Toggle touchpad", locked = true }
 )
 hl.bind(
     "XF86TouchpadOn",
-    hl.dsp.exec_cmd("desktopctl toggle touchpad on && hyprctl reload"),
+    hl.dsp.exec_cmd("desktopctl toggle touchpad on"),
     { description = "Enable touchpad", locked = true }
 )
 hl.bind(
     "XF86TouchpadOff",
-    hl.dsp.exec_cmd("desktopctl toggle touchpad off && hyprctl reload"),
+    hl.dsp.exec_cmd("desktopctl toggle touchpad off"),
     { description = "Disable touchpad", locked = true }
 )
 

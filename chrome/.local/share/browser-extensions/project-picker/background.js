@@ -1,5 +1,10 @@
 const HOST = "com.desktop.project_picker";
 const PAGE = /^https:\/\/chatgpt\.com\//;
+// Compositors such as Hyprland report windows on hidden workspaces as visible,
+// so every open ChatGPT window polls. One periodic sync per interval is enough;
+// refreshes after a navigation or project change always run.
+const PERIODIC_SYNC_MS = 25000;
+let lastSyncStartedAt = -Infinity;
 
 async function status(tabId, error) {
   await Promise.allSettled([
@@ -15,6 +20,13 @@ async function refresh(tabId) {
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.frameId !== 0 || !PAGE.test(sender.url || "") || !Number.isInteger(sender.tab?.id)) return;
   if (!["project-picker-snapshot", "project-picker-status", "project-picker-error"].includes(message?.type)) return;
+  if (message.type === "project-picker-status") {
+    if (!message.changed && Date.now() - lastSyncStartedAt < PERIODIC_SYNC_MS) {
+      respond({ ok: false, skipped: true });
+      return;
+    }
+    lastSyncStartedAt = Date.now();
+  }
   const payload = message.type === "project-picker-snapshot" ? message.snapshot :
     { action: "status", code: message.code || "unexpected", stage: message.stage, kind: message.kind };
   chrome.runtime.sendNativeMessage(HOST, payload).then(async (reply) => {
@@ -70,6 +82,24 @@ chrome.runtime.onInstalled.addListener(async () => {
 // starting a new browser. The open port also keeps this worker running.
 const WINDOW_PAGE = /^https:\/\/chatgpt\.com(?:\/|$)/;
 let port;
+// Most recently focused first: the picker raises the most recently used
+// ChatGPT window, so the same window must receive the project.
+let focusOrder = [];
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    focusOrder = [windowId, ...focusOrder.filter((id) => id !== windowId)];
+  }
+});
+
+function mostRecentlyFocused(windows) {
+  const rank = (window) => {
+    const index = focusOrder.indexOf(window.id);
+    return index < 0 ? Infinity : index;
+  };
+  // Without focus history, keep the newest window, as before.
+  return windows.reduce((best, window) => (rank(window) <= rank(best) ? window : best), windows.at(-1));
+}
 
 async function open(message) {
   if (message?.action !== "open" || typeof message.url !== "string" || !WINDOW_PAGE.test(message.url)) return;
@@ -78,7 +108,8 @@ async function open(message) {
     const windows = await chrome.windows.getAll({ populate: true });
     const candidates = windows.filter((window) => ["app", "popup"].includes(window.type) &&
       window.tabs?.length === 1 && WINDOW_PAGE.test(window.tabs[0].url || ""));
-    const target = candidates.find((window) => window.focused) || candidates.at(-1);
+    const target = candidates.find((window) => window.focused) ||
+      (candidates.length ? mostRecentlyFocused(candidates) : undefined);
     if (target) {
       await chrome.tabs.update(target.tabs[0].id, { url: message.url });
       await chrome.windows.update(target.id, { focused: true });

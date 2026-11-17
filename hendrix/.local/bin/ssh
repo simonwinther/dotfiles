@@ -1,2 +1,5 @@
 #!/usr/bin/env sh
+# hendrix-build installs the native launcher; NixOS links it here directly.
+native="${XDG_CACHE_HOME:-$HOME/.cache}/hendrix/bin/hendrix-ssh"
+if [ -x "$native" ]; then exec "$native" "$@"; fi
 exec python3 "${XDG_DATA_HOME:-$HOME/.local/share}/hendrix/hendrix.py" ssh "$@"

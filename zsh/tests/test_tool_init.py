@@ -9,6 +9,29 @@ import unittest
 SOURCE = Path(__file__).resolve().parents[1] / '.config/zsh/tool-init.zsh'
 
 
+def make_startup_home(test):
+    temp = tempfile.TemporaryDirectory(prefix='zsh-startup-')
+    test.addCleanup(temp.cleanup)
+    root = Path(temp.name)
+    package = SOURCE.parents[2]
+    shutil.copytree(package / '.config/zsh', root / '.config/zsh')
+    shutil.copytree(package.parent / 'oh-my-posh/.config/oh-my-posh',
+                    root / '.config/oh-my-posh')
+    shutil.copyfile(package / '.zshrc', root / '.zshrc')
+    env = dict(os.environ, HOME=str(root), XDG_CACHE_HOME=str(root / '.cache'),
+               XDG_CONFIG_HOME=str(root / '.config'),
+               XDG_DATA_HOME=str(root / '.local/share'),
+               XDG_STATE_HOME=str(root / '.local/state'))
+    env.pop('ZDOTDIR', None)
+    env.pop('POSH_SESSION_ID', None)
+    return root, env
+
+
+def run_interactive(root, env, code):
+    return subprocess.run(['zsh', '-dic', code], cwd=root, env=env,
+                          capture_output=True, text=True, timeout=15)
+
+
 class ToolInitTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='zsh-tool-init-')
@@ -71,29 +94,14 @@ class ToolInitTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which('oh-my-posh'), 'oh-my-posh is required')
 class PromptStartupTests(unittest.TestCase):
     def test_fresh_and_warm_shells_render_the_personal_prompt(self):
-        temp = tempfile.TemporaryDirectory(prefix='zsh-prompt-')
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
-        package = SOURCE.parents[2]
-        shutil.copytree(package / '.config/zsh', root / '.config/zsh')
-        shutil.copytree(package.parent / 'oh-my-posh/.config/oh-my-posh',
-                        root / '.config/oh-my-posh')
-        shutil.copyfile(package / '.zshrc', root / '.zshrc')
-        env = dict(os.environ, HOME=str(root), XDG_CACHE_HOME=str(root / '.cache'),
-                   XDG_CONFIG_HOME=str(root / '.config'),
-                   XDG_DATA_HOME=str(root / '.local/share'),
-                   XDG_STATE_HOME=str(root / '.local/state'))
-        env.pop('ZDOTDIR', None)
-        env.pop('POSH_SESSION_ID', None)
+        root, env = make_startup_home(self)
         ids = []
         for _ in range(2):
-            result = subprocess.run(['zsh', '-dic',
+            result = run_interactive(root, env,
                                      'print -r -- "$POSH_SESSION_ID"; '
                                      'print -r -- "$__dotfiles_zle_vi_mode_label"; '
                                      'oh-my-posh print primary --shell zsh --plain; print; '
-                                     'oh-my-posh print right --shell zsh --plain'],
-                                    cwd=root, env=env, capture_output=True, text=True,
-                                    timeout=15)
+                                     'oh-my-posh print right --shell zsh --plain')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stderr, '')
             lines = result.stdout.splitlines()
@@ -101,6 +109,53 @@ class PromptStartupTests(unittest.TestCase):
             self.assertRegex(lines[0], r'^[0-9a-f-]{36}$')
             ids.append(lines[0])
         self.assertNotEqual(ids[0], ids[1])
+
+    def test_prompt_hooks_time_commands_without_starting_oh_my_posh(self):
+        root, env = make_startup_home(self)
+        result = run_interactive(root, env, '''
+            for hook in _omp_preexec _omp_precmd; do
+                [[ $functions[$hook] == *'get millis'* ]] && print -r -- "$hook"
+            done
+            _omp_preexec 'sleep 0.2'; sleep 0.2; _omp_precmd
+            print -r -- "$_omp_execution_time"
+        ''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        *hooks_starting_oh_my_posh, elapsed = result.stdout.splitlines()
+        self.assertEqual(hooks_starting_oh_my_posh, [])
+        self.assertRegex(elapsed, r'^[0-9]+$')
+        self.assertGreaterEqual(int(elapsed), 199)
+        self.assertLess(int(elapsed), 5000)
+
+
+class CoreStartupTests(unittest.TestCase):
+    def test_completion_keys_bind_in_the_vi_keymap(self):
+        root, env = make_startup_home(self)
+        # Without 'vi' in either variable, zsh starts in the emacs keymap.
+        env.pop('EDITOR', None)
+        env.pop('VISUAL', None)
+        for _ in range(2):  # full compinit, then the cached dump
+            result = run_interactive(root, env, "bindkey -M viins '^Xh'; bindkey -M emacs '^Xh'")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            vi_binding, emacs_binding = result.stdout.splitlines()
+            self.assertEqual(vi_binding, '"^Xh" _complete_help')
+            self.assertNotIn('_complete_help', emacs_binding)
+
+    def test_reloads_keep_a_single_atuin_suggestion_strategy(self):
+        root, env = make_startup_home(self)
+        atuin = root / 'bin/atuin'
+        atuin.parent.mkdir()
+        # Like Atuin's init, prepend its strategy to any existing ones.
+        atuin.write_text('#!/bin/sh\n'
+                         "echo 'ZSH_AUTOSUGGEST_STRATEGY=(atuin $ZSH_AUTOSUGGEST_STRATEGY)'\n")
+        atuin.chmod(0o755)
+        env['PATH'] = f'{atuin.parent}:{env.get("PATH", os.defpath)}'
+        # The reload widget sources the configuration inside a function.
+        result = run_interactive(root, env, 'reload() { source ~/.zshrc; }; repeat 3 reload; '
+                                            'print -r -- "${ZSH_AUTOSUGGEST_STRATEGY[@]}"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(result.stdout.splitlines(), ['atuin'])
 
 
 if __name__ == '__main__':

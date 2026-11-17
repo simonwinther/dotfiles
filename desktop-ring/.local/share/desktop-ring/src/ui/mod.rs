@@ -41,14 +41,15 @@ impl View {
         self.hover_start = Instant::now();
         true
     }
-    fn current(&self) -> Menu {
-        let mut menu = self.root.clone();
+    // Borrow the visible level: drawing and pointer motion call this per frame.
+    fn current(&self) -> &Menu {
+        let mut menu = &self.root;
         for id in &self.path {
             if let Some(sub) = menu
                 .entries
                 .iter()
                 .find(|e| &e.id == id)
-                .and_then(|e| e.submenu.clone())
+                .and_then(|e| e.submenu.as_ref())
             {
                 menu = sub;
             } else {
@@ -809,7 +810,8 @@ fn open(app: &gtk::Application, theme: Theme) -> Result<()> {
                     } else {
                         current.map_or(0, |i| (i + 1) % n)
                     };
-                    let changed = state.select(Some(menu.entries[next].id.clone()));
+                    let next_id = menu.entries[next].id.clone();
+                    let changed = state.select(Some(next_id));
                     drop(state);
                     if changed {
                         ticks(&a, &v);

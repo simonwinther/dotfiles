@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 for tool in rokit rojo stylua selene wally lune luau-lsp; do
-  if command -v "$tool" >/dev/null; then
-    "$tool" --version
+  if path=$(command -v "$tool"); then
+    # The resolved path shows whether Nix or a Rokit shim provides the tool.
+    printf '%s (%s)\n' "$("$tool" --version)" "$(realpath -- "$path")"
   else
     printf 'MISSING: %s\n' "$tool"
   fi

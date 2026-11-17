@@ -281,19 +281,22 @@ pub fn build(s: &Snapshot) -> Menu {
     }
     menu("root", "Desktop", roots)
 }
-// Menu pages keep every device reachable while preserving large usable sectors.
+// Menu pages keep every device reachable at every level while preserving large usable sectors.
 pub fn paged(m: &Menu) -> Menu {
-    if m.entries.len() <= 8 {
-        return m.clone();
+    let mut entries: Vec<Entry> = m
+        .entries
+        .iter()
+        .map(|e| Entry {
+            submenu: e.submenu.as_ref().map(paged),
+            ..e.clone()
+        })
+        .collect();
+    if entries.len() > 8 {
+        let more = entries.split_off(7);
+        entries.push(Entry::branch(
+            paged(&menu(&format!("{}-more", m.id), "More", more)),
+            "…",
+        ));
     }
-    let mut entries = m.entries[..7].to_vec();
-    entries.push(Entry::branch(
-        paged(&menu(
-            &format!("{}-more", m.id),
-            "More",
-            m.entries[7..].to_vec(),
-        )),
-        "…",
-    ));
     menu(&m.id, &m.label, entries)
 }

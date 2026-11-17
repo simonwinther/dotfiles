@@ -7,8 +7,12 @@ pub fn draw(cr: &Context, symbol: &str, bounds: Rect) -> bool {
     if !matches!(symbol, "󰍹" | "󰕾" | "󰍬" | "󰂯" | "󰒲") {
         return false;
     }
-    let _ = cr.save();
     let size = bounds.width.min(bounds.height);
+    // A zero scale would leave the context in an error state for the rest of the frame.
+    if size <= 0.0 {
+        return true;
+    }
+    let _ = cr.save();
     cr.translate(
         bounds.x + (bounds.width - size) / 2.0,
         bounds.y + (bounds.height - size) / 2.0,
@@ -100,5 +104,20 @@ fn line(cr: &Context, points: &[(f64, f64)]) {
     cr.move_to(points[0].0, points[0].1);
     for &(x, y) in &points[1..] {
         cr.line_to(x, y);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gtk::cairo::{Format, ImageSurface};
+    #[test]
+    fn empty_icon_bounds_leave_the_frame_drawable() {
+        let surface = ImageSurface::create(Format::ARgb32, 32, 32).unwrap();
+        let cr = Context::new(&surface).unwrap();
+        assert!(draw(&cr, "󰂯", Rect::centered(16.0, 16.0, 0.0, 0.0)));
+        assert!(cr.status().is_ok());
+        cr.rectangle(0.0, 0.0, 8.0, 8.0);
+        assert!(cr.fill().is_ok());
     }
 }

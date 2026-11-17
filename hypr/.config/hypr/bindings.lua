@@ -278,7 +278,6 @@ hl.bind(
 -- =============================================================================
 
 hl.bind("SUPER + N", hl.dsp.exec_cmd("desktop-bar --menu notifications"), { description = "Notification menu" })
-hl.bind("SUPER + ALT + Comma", hl.dsp.exec_cmd("makoctl invoke"), { description = "Invoke last notification" })
 
 -- =============================================================================
 -- TERMINAL PICKERS AND GLOBAL UTILITIES

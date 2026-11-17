@@ -248,7 +248,7 @@ print("\x1f".join(["122", host + "-user", "finished", "gpu", "COMPLETED", "2026-
         terminal = self.terminal()
         terminal.wait_for("Clusters")
         terminal.send("\r")
-        terminal.wait_for("[old]")
+        terminal.wait_for("old  ›")
         terminal.send("c")
         terminal.wait_for("current")
         terminal.output = b""

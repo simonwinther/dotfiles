@@ -1,10 +1,8 @@
 return {
-  "akinsho/flutter-tools.nvim",
+  "nvim-flutter/flutter-tools.nvim",
   ft = { "dart" },
-  dependencies = {
-    "nvim-lua/plenary.nvim",
-    "stevearc/dressing.nvim",
-  },
+  -- Selection prompts use the vim.ui.select provider from snacks.nvim.
+  dependencies = { "nvim-lua/plenary.nvim" },
   config = function()
     require("flutter-tools").setup({})
   end,

@@ -2,7 +2,6 @@
 """Portable desktop coordination. Configuration is read-only; choices are XDG state."""
 from __future__ import annotations
 
-import argparse
 import contextlib
 import fcntl
 import hashlib
@@ -21,9 +20,7 @@ import sys
 import tempfile
 import threading
 import time
-import tomllib
 import uuid
-from xml.sax.saxutils import escape as xml_escape
 
 import desktop_process as processes
 import bar_config
@@ -34,6 +31,7 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
 DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
 STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "desktop"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", Path(tempfile.gettempdir()) / f"desktop-{os.getuid()}")) / "desktop"
+SYS_CLASS = Path("/sys/class")
 THEME_RENDERER = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 THEME_FILES = ("clipboard.css", "swayosd.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
                "btop.theme", "eza.yml")
@@ -296,6 +294,38 @@ def managed(argv, **kwargs):
     return processes.ManagedProcess(argv, log_directory=STATE / "processes", **kwargs)
 
 
+def hyprland(request):
+    """Answer a read-only JSON query from Hyprland's request socket without spawning hyprctl."""
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not signature:
+        raise ValueError("Hyprland queries require a Hyprland session")
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(processes.TIMEOUTS["control"])
+        connection.connect(str(runtime / "hypr" / signature / ".socket.sock"))
+        connection.sendall(b"j/" + request.encode())
+        reply = b"".join(iter(lambda: connection.recv(65536), b""))
+    return json.loads(reply)
+
+
+def child_processes(pid):
+    """Return the direct children of pid in ascending order, like `pgrep -P pid`."""
+    try:
+        return sorted({int(child) for task in Path(f"/proc/{pid}/task").iterdir()
+                       for child in (task / "children").read_text().split()})
+    except FileNotFoundError:
+        if not Path(f"/proc/{pid}").exists():
+            return []
+    # Kernels without CONFIG_PROC_CHILDREN: compare every process's parent.
+    children = []
+    for entry in os.scandir("/proc"):
+        if entry.name.isdigit():
+            with contextlib.suppress(OSError, IndexError, ValueError):
+                if int(Path(entry.path, "stat").read_text().rsplit(") ", 1)[1].split()[1]) == pid:
+                    children.append(int(entry.name))
+    return sorted(children)
+
+
 def executable(name):
     variable = "DESKTOP_" + re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_BIN"
     selected = os.environ.get(variable) or read_json(CONFIG / "desktop/paths.json").get(name)
@@ -434,6 +464,7 @@ def font(args):
 
 
 def prepare_terminal_theme(target, c, follow_theme, family):
+    from xml.sax.saxutils import escape as xml_escape
     quoted = json.dumps(family)
     ghostty = f"font-family = \"\"\nfont-family = {quoted}\n"
     if follow_theme:
@@ -458,6 +489,7 @@ def colors(path):
 
 
 def _theme_colors(content, name):
+    import tomllib
     palette = tomllib.loads(content)
     for key in ("accent", "foreground", "background", *[f"color{i}" for i in range(16)]):
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", palette.get(key, "")):
@@ -790,14 +822,12 @@ def wallpaper(args):
 
 def cwd():
     try:
-        window = json.loads(run(["hyprctl", "-j", "activewindow"], capture=True).stdout)
-        pid = str(window.get("pid", ""))
-        children = run(["pgrep", "-P", pid], check=False, capture=True).stdout.split()
-        for child in reversed(children):
+        pid = hyprland("activewindow").get("pid")
+        for child in reversed(child_processes(pid) if type(pid) is int and pid > 0 else []):
             path = Path(f"/proc/{child}/cwd").resolve()
             if path.is_dir():
                 return str(path)
-    except (subprocess.CalledProcessError, OSError, ValueError):
+    except (OSError, ValueError):
         pass
     return str(HOME)
 
@@ -1042,26 +1072,30 @@ def brightness(args):
     kind, value = args[:2]
     if kind == "display" and value in ("on", "off"):
         run(["hyprctl", "dispatch", "dpms", value]); return
-    directory = Path("/sys/class/leds" if kind == "keyboard" else "/sys/class/backlight")
+    directory = SYS_CLASS / ("leds" if kind == "keyboard" else "backlight")
     devices = sorted(p.name for p in directory.glob("*") if kind != "keyboard" or "kbd_backlight" in p.name)
     if not devices:
         raise ValueError(f"No {kind} brightness device is available")
     device = devices[0]
+    # brightnessctl get/max read these files too, but first probe every device;
+    # ThinkPad keyboard backlights answer that probe through the EC in ~16 ms.
+    def level(name):
+        return int((directory / device / name).read_text())
     if kind == "keyboard":
         if value in ("off", "restore"):
             run(["brightnessctl", "-d", device, "-s" if value == "off" else "-r", *(["set", "0"] if value == "off" else [])]); return
-        current = int(run(["brightnessctl", "-d", device, "get"], capture=True).stdout)
-        maximum = int(run(["brightnessctl", "-d", device, "max"], capture=True).stdout)
+        current = level("brightness")
+        maximum = level("max_brightness")
         step = max(1, maximum // 10)
         target = (current + step) % (maximum + 1) if value == "cycle" else min(maximum, max(0, current + (step if value == "up" else -step)))
         value = str(target)
     run(["brightnessctl", "-d", device, "set", value])
-    percent = round(100 * int(run(["brightnessctl", "-d", device, "get"], capture=True).stdout) / int(run(["brightnessctl", "-d", device, "max"], capture=True).stdout))
+    percent = round(100 * level("brightness") / level("max_brightness"))
     run(["swayosd-client", "--custom-icon", "keyboard-brightness-symbolic" if kind == "keyboard" else "display-brightness-symbolic", "--custom-progress", str(percent / 100)], check=False)
 
 
 def osd(args):
-    monitor = json.loads(run(["hyprctl", "-j", "activeworkspace"], capture=True).stdout).get("monitor")
+    monitor = hyprland("activeworkspace").get("monitor")
     command = ["swayosd-client", *(["--monitor", monitor] if monitor else []), *args]
     return run(command, check=False).returncode
 
@@ -1706,8 +1740,7 @@ def screensaver_worker(args):
                 if select.select([sys.stdin], [], [], .2)[0]:
                     return
                 try:
-                    active = json.loads(run(["hyprctl", "-j", "activewindow"], capture=True, check=False).stdout)
-                    if active.get("class") != "org.desktop.screensaver":
+                    if hyprland("activewindow").get("class") != "org.desktop.screensaver":
                         return
                 except (OSError, ValueError):
                     return
@@ -1851,6 +1884,7 @@ def prepare_break_reminders():
     if not preferences.is_file() or preferences.is_symlink():
         return
     source = preferences.read_text()
+    import tomllib
     coop = tomllib.loads(source).get("coop", {})
     if coop.get("mode") not in ("host", "guest") or coop.get("room_token"):
         return
@@ -2026,18 +2060,27 @@ def dispatch(command, args):
 
 
 def main(argv=None):
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    # Equals the (command, REMAINDER) parse below without importing argparse; change both together.
+    if arguments and not arguments[0].startswith("-") and "--" not in arguments:
+        return run_command(arguments[0], arguments[1:])
+    import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", help="theme, font, bar, appearance, wallpaper, clipboard, launcher, menu, launch, terminal, capture, reminder, toggle, lock, screensaver, config, session, prepare, or path")
     parser.add_argument("args", nargs=argparse.REMAINDER)
     parsed = parser.parse_args(argv)
+    return run_command(parsed.command, parsed.args)
+
+
+def run_command(command, args):
     try:
         with processes.cancellation_signals():
-            return dispatch(parsed.command, parsed.args) or 0
+            return dispatch(command, args) or 0
     except processes.Cancelled as error:
         return 128 + error.signum
     except KeyboardInterrupt:
         return 130
-    except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, tomllib.TOMLDecodeError) as error:
+    except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         print(f"desktopctl: {error}", file=sys.stderr)
         return 1
 

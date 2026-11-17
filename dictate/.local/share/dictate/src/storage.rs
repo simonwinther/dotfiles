@@ -75,7 +75,16 @@ pub fn private_file(path: &Path, append: bool) -> Result<File> {
     }
     Ok(f)
 }
+/// Atomically replaces a private file and waits until its contents are on disk.
 pub fn write_private(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
+    replace(path, bytes.as_ref(), true)
+}
+/// Atomically replaces a disposable private file, such as the last log or
+/// transcript, without waiting for the disk. Recovery never reads these files.
+pub fn replace_private(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
+    replace(path, bytes.as_ref(), false)
+}
+fn replace(path: &Path, bytes: &[u8], durable: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -94,8 +103,10 @@ pub fn write_private(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)?;
-        f.write_all(bytes.as_ref())?;
-        f.sync_all()?;
+        f.write_all(bytes)?;
+        if durable {
+            f.sync_all()?;
+        }
         if let Ok(m) = fs::symlink_metadata(path) {
             safe_file(&m, path)?;
         }
@@ -382,4 +393,35 @@ pub fn recover_stale(c: &Config) -> Result<bool> {
         return Ok(true);
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replace_private_swaps_whole_files_and_keeps_safety_checks() {
+        let dir = std::env::temp_dir().join(format!("dictate-storage-test-{}", generation()));
+        private_dir(&dir).unwrap();
+        let file = dir.join("last.txt");
+        replace_private(&file, "first transcript").unwrap();
+        let mut reader = File::open(&file).unwrap();
+        replace_private(&file, "second").unwrap();
+        // The old file is replaced by rename, so no reader sees partial content.
+        let mut old = String::new();
+        reader.read_to_string(&mut old).unwrap();
+        assert_eq!(old, "first transcript");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "second");
+        assert_eq!(fs::metadata(&file).unwrap().mode() & 0o777, 0o600);
+        let link = dir.join("link.txt");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert!(replace_private(&link, "through a symlink").is_err());
+        let alias = dir.join("alias.txt");
+        fs::hard_link(&file, &alias).unwrap();
+        assert!(replace_private(&file, "through a hard link").is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "second");
+        // Only the file and its two links remain; no temporary file is left.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

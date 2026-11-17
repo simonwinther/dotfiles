@@ -63,8 +63,8 @@ backend (standard Arch GTK4/Cairo packages). The runtime needs GTK4/Cairo;
 NumPy, Matplotlib, and Python are no longer required by `plot`.
 
 Source is in `bin/.local/share/plot`. The launchers are in `bin/.local/bin`.
-Cargo's lockfile, build files, and native executable stay in
-`${XDG_CACHE_HOME:-~/.cache}/plot`, outside the repository. Rebuild after source
+Builds require the committed `Cargo.lock`; only build files and the native
+executable stay in `${XDG_CACHE_HOME:-~/.cache}/plot`. Rebuild after source
 changes with `plot-build`; `plot-build --check` also runs formatting, Clippy,
 unit tests, and headless command-line/export tests.
 

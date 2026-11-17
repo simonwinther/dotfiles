@@ -7,7 +7,7 @@ The reader uses a Chrome-style dark PDF toolbar, gray canvas, white A4 pages, se
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.
-2. Click **Load unpacked** and select `chrome/extensions/chatgpt-pdf-reader` inside this dotfiles checkout.
+2. Click **Load unpacked** and select `chrome/.local/share/browser-extensions/chatgpt-pdf-reader` inside this dotfiles checkout.
 3. Open a ChatGPT conversation and press **Alt+Shift+Y**.
 
 You can change the browser command at `chrome://extensions/shortcuts` under **Toggle PDF reader**. The page also listens directly for **Alt+Shift+Y**, including while typing or reading, so it can work in an installed ChatGPT app window where the browser command is not delivered. This page shortcut stays available even if you change the browser command. If your window manager intercepts it, choose an unused browser command. After editing these files, reload the extension on the extensions page.

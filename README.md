@@ -19,6 +19,9 @@ checkout, so they also work before Stow. For example, from this directory:
 Each tool holds an exclusive `flock` on its cache's `build.lock` from source
 copying through publication. A fresh, complete source snapshot replaces
 `build/` after copying succeeds, removing deleted modules, tests, and assets.
+Snapshots skip an in-tree Cargo `target/` directory and are made user-writable,
+so launchers deployed from read-only sources such as the Nix store rebuild
+normally; leftover snapshots from interrupted builds are removed under the lock.
 The committed `Cargo.lock` is required; Cargo builds, Clippy, and tests use
 `--locked`. `--check` runs formatting, Clippy, and tests before the release
 build. Builds run at reduced priority with two jobs by default; set

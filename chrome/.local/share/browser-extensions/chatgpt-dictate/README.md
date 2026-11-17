@@ -18,7 +18,7 @@ The content script also listens for these shortcuts directly on ChatGPT pages. T
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select this folder: `/home/simon/dotfiles/chrome/extensions/chatgpt-dictate`.
+4. Select `chrome/.local/share/browser-extensions/chatgpt-dictate` in your dotfiles checkout.
 
 After updating, reload the extension on `chrome://extensions` and refresh any open conversation tabs. If `Alt+M` is unassigned, set it under `chrome://extensions/shortcuts`.
 
@@ -30,6 +30,6 @@ stow -R chrome
 dictation-volume-duck-build --check
 ```
 
-The [audio helper instructions](../../README.md) describe rebuilds, volume settings, shared state with native dictation, and recovery. The helper and browser bridge no longer need Python.
+The [audio helper instructions](../../../../README.md) describe rebuilds, volume settings, shared state with native dictation, and recovery. The helper and browser bridge no longer need Python.
 
 If Chrome still does not trigger `Alt+D`, open `chrome://extensions/shortcuts` and assign the shortcut manually. Some Chrome or operating-system shortcuts can take priority over extension shortcuts before the page can see them.

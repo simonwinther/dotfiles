@@ -48,7 +48,7 @@ class SetupTests(unittest.TestCase):
             path = self.source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-        shutil.copytree(SCRIPT.parents[2], self.source / "cluster")
+        shutil.copytree(SCRIPT.parents[2], self.source / "cluster", ignore=shutil.ignore_patterns("target"))
         helper = self.source / "bin/.local/share/dotfiles/rust-build.sh"
         helper.parent.mkdir(parents=True)
         shutil.copy2(SCRIPT.parents[3] / "bin/.local/share/dotfiles/rust-build.sh", helper)

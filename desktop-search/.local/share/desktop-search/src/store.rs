@@ -221,12 +221,15 @@ impl Store {
     }
 
     pub fn list(&self, query: &str, limit: usize, mode: &str) -> Result<Vec<Item>> {
+        let has_terms = query.chars().any(char::is_alphanumeric);
+        // Words without letters or digits have no full-text tokens and would make
+        // the whole AND match nothing; punctuation-only queries use instr() instead.
         let terms = query
             .split_whitespace()
+            .filter(|word| !has_terms || word.chars().any(char::is_alphanumeric))
             .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" AND ");
-        let has_terms = query.chars().any(char::is_alphanumeric);
         let mut statement = self.db.prepare(
             "SELECT id,mime,path,preview,label,pinned FROM clips
              WHERE (?1='' OR (?3 AND sequence IN (SELECT rowid FROM clip_search WHERE clip_search MATCH ?2))
@@ -482,6 +485,34 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn punctuation_words_do_not_hide_matching_code_and_urls() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path(), 100, 1024).unwrap();
+        let code = put(&mut store, b"let total = value + 1", false);
+        let url = put(&mut store, b"https://example.org/docs", false);
+        put(&mut store, b"unrelated entry", false);
+        for (query, expected) in [
+            ("total = value", &code),
+            ("value + 1", &code),
+            ("# total", &code),
+            ("+", &code),
+            ("https ://", &url),
+            ("://", &url),
+        ] {
+            let items = store.list(query, 100, "").unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| &item.identifier)
+                    .collect::<Vec<_>>(),
+                [expected],
+                "{query}"
+            );
+        }
+        assert!(store.list("missing = value", 100, "").unwrap().is_empty());
     }
 
     #[test]

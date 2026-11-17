@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::{
     collections::{HashMap, VecDeque},
-    io::{self, Read},
+    io::{self, Read, Write},
     os::{
         fd::AsRawFd,
         unix::{
@@ -117,15 +117,19 @@ fn send_results(
             vec![]
         }
     };
-    let mut writer = job.client.writer.lock().unwrap();
+    let mut stream = job.client.writer.lock().unwrap();
     if cancelled() {
         return Ok(());
     }
+    // Whole result lists leave in a few writes instead of two per item.
+    let mut writer = io::BufWriter::with_capacity(64 * 1024, &mut *stream);
     if items.is_empty() {
-        protocol::write_frame(&mut *writer, protocol::EMPTY, &[])?;
+        protocol::write_frame(&mut writer, protocol::EMPTY, &[])?;
     }
     for mut item in items {
         if cancelled() {
+            // Frames already accepted are completed so the stream stays aligned.
+            writer.flush()?;
             return Ok(());
         }
         if job.client.legacy && item.provider == "clipboard" && item.preview_type == "text" {
@@ -141,14 +145,15 @@ fn send_results(
             qid: job.qid,
         };
         protocol::write_frame(
-            &mut *writer,
+            &mut writer,
             protocol::ITEM,
             &protocol::encode(job.format, &response)?,
         )?;
     }
     if !cancelled() {
-        protocol::write_frame(&mut *writer, protocol::DONE, &[])?;
+        protocol::write_frame(&mut writer, protocol::DONE, &[])?;
     }
+    writer.flush()?;
     Ok(())
 }
 

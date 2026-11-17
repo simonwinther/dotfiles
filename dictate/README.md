@@ -222,6 +222,8 @@ focus, and lets pointer clicks through. It needs no additional Hyprland rules.
 The current live model and `LIVE_DELAY=low` are preserved. Lowering model delay
 changes the accuracy/latency tradeoff; the port does not change that setting.
 Final delivery has no artificial overlay dwell or paste delay by default.
+Clipboard copies skip wl-copy's xdg-mime content sniffing (about 160 ms), and
+the clipboard always offers plain text.
 `PASTE_DELAY` still allows an explicit delay if an application needs one.
 Terminals receive Ctrl+Shift+V; other applications receive Ctrl+V. Both Lua and
 legacy Hyprland configuration providers are supported.

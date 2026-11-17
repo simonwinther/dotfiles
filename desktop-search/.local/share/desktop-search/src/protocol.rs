@@ -180,8 +180,9 @@ pub fn read_request(stream: &mut impl Read) -> Result<Option<(u8, u8, Vec<u8>)>>
 
 pub fn write_frame(stream: &mut impl Write, kind: u8, body: &[u8]) -> Result<()> {
     ensure!(body.len() <= 16 * 1024 * 1024, "Response is too large");
-    stream.write_all(&[kind])?;
-    stream.write_all(&(body.len() as u32).to_be_bytes())?;
+    let mut header = [kind, 0, 0, 0, 0];
+    header[1..].copy_from_slice(&(body.len() as u32).to_be_bytes());
+    stream.write_all(&header)?;
     stream.write_all(body)?;
     Ok(())
 }
@@ -204,8 +205,9 @@ pub fn write_request<T: Message + Serialize>(
 ) -> Result<()> {
     let body = encode(format, message)?;
     ensure!(body.len() <= MAX_REQUEST, "Request is too large");
-    stream.write_all(&[kind, format])?;
-    stream.write_all(&(body.len() as u32).to_be_bytes())?;
+    let mut header = [kind, format, 0, 0, 0, 0];
+    header[2..].copy_from_slice(&(body.len() as u32).to_be_bytes());
+    stream.write_all(&header)?;
     stream.write_all(&body)?;
     Ok(())
 }

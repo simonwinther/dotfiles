@@ -1,0 +1,11 @@
+#!/bin/sh
+# Starts Roblox Studio's MCP bridge with Vinegar's Wine directly on the host;
+# inside a Flatpak sandbox the bridge's WebSocket host never reads.
+vinegar="$HOME/.var/app/org.vinegarhq.Vinegar/data/vinegar"
+proxy=$(ls -t "$vinegar"/versions/*/StudioMCP.exe 2>/dev/null | head -n 1)
+[ -f "$proxy" ] || {
+  echo "roblox-studio-mcp: StudioMCP.exe not found; start Studio once through Vinegar first." >&2
+  exit 1
+}
+cd "$vinegar/appdata/Roblox" || exit 1
+WINEPREFIX="$vinegar/prefixes/studio" WINEDEBUG=-all exec "$vinegar/kombucha/bin/wine" "$proxy" --stdio

@@ -98,12 +98,12 @@
     ].filter(Boolean).join(" "));
   };
 
-  const visibleButtons = () => Array.from(document.querySelectorAll("button")).filter(isVisible);
-
+  // Match labels before checking visibility: layout reads for every button on a
+  // long conversation cost milliseconds, and this runs after page mutations.
   const findButton = (predicates) => {
-    return visibleButtons().find((button) => {
+    return Array.from(document.querySelectorAll("button")).find((button) => {
       const text = buttonText(button);
-      return predicates.some((predicate) => predicate(button, text));
+      return predicates.some((predicate) => predicate(button, text)) && isVisible(button);
     });
   };
 

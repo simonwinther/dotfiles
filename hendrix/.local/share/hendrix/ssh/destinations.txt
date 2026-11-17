@@ -1,0 +1,34 @@
+# Expected Hendrix destination ("-" runs plain ssh), then the ssh arguments.
+# Shared by the native launcher's tests and tests/test_hendrix.py, so both
+# implementations of destination() keep starting the VPN for the same calls.
+- -G hendrix
+- -vG hendrix
+- -O check hendrix
+- -Ocheck hendrix
+- -V
+- -Q cipher
+- example.com
+- hendrix.example.com
+- other@hendrix
+- zlp616@example.com
+- -l other hendrix
+- -lother hendrix
+- -p hendrix
+- -i hendrix
+- -- example.com hendrix
+hendrix hendrix
+hendrix hendrix true
+hendrix -p 22 hendrix true
+hendrix -p22 hendrix true
+hendrix -v -p 22 hendrix true
+hendrix -fNT hendrix
+hendrix -L 8080:localhost:80 hendrix
+hendrix -J jump hendrix
+hendrix -o User=other hendrix
+hendrix -l zlp616 hendrix
+hendrix -T -o BatchMode=yes -- hendrix uptime
+hendrix -- hendrix -G
+hendrixgate hendrixgate
+hendrixgate.unicph.domain hendrixgate.unicph.domain
+zlp616@hendrix zlp616@hendrix
+zlp616@hendrixgate.unicph.domain -l zlp616 zlp616@hendrixgate.unicph.domain

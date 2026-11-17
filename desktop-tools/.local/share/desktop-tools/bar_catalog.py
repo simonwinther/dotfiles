@@ -1,17 +1,12 @@
 """Small on-demand catalogs for the native desktop shell."""
 
-import configparser
 import hashlib
 import json
-import locale
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-import tomllib
-import urllib.parse
-import urllib.request
 
 
 def menus_path(config, environment=None):
@@ -40,6 +35,8 @@ def application_command(command):
 
 
 def application_entries(data):
+    import configparser
+    import locale
     seen = set()
     result = []
     icons = IconLookup(data)
@@ -140,6 +137,8 @@ def thumbnail(source, cache, fit=False):
 
 def cover(url, cache):
     """Fetch bounded artwork only when a player changes its cover URL."""
+    import urllib.parse
+    import urllib.request
     parsed = urllib.parse.urlsplit(url)
     directory = cache / "desktop/bar-covers"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -223,6 +222,7 @@ def handle(args, *, preferences, config, data, cache, theme_directories, theme_p
         elif kind == "apps":
             entries = application_entries(data)
         elif kind == "themes":
+            import tomllib
             names = sorted({path.name for root in theme_directories() if root.is_dir()
                             for path in root.iterdir() if path.is_dir()})
             entries = []

@@ -58,10 +58,15 @@ fn recoverable(error: &(dyn std::error::Error + 'static)) -> bool {
 // Only a SQL error in our fixed schema statements indicates a bad layout.
 // Busy, read-only, full-disk and IO errors must leave the cache in place.
 fn schema_error(error: rusqlite::Error) -> Box<dyn std::error::Error> {
-    if error
-        .sqlite_error()
-        .is_some_and(|error| error.extended_code == rusqlite::ffi::SQLITE_ERROR)
-    {
+    // Errors that point at a token in our SQL, such as a missing column, are
+    // reported as SqlInputError rather than SqliteFailure.
+    let generic_sql_error = match &error {
+        rusqlite::Error::SqliteFailure(error, _) | rusqlite::Error::SqlInputError { error, .. } => {
+            error.extended_code == rusqlite::ffi::SQLITE_ERROR
+        }
+        _ => false,
+    };
+    if generic_sql_error {
         Box::new(InvalidCache(format!("Invalid file index schema: {error}")))
     } else {
         Box::new(error)
@@ -544,16 +549,28 @@ impl Index {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Rows are keyed by (scope, path): seek each scope instead of scanning
+        // every cached row for a bare path.
+        let scopes: Vec<i64> = transaction
+            .prepare("SELECT id FROM scopes")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut removed = 0;
-        for path in paths {
-            let path = absolute(path)?;
-            let bytes = path.as_os_str().as_bytes();
-            transaction.execute(
-                "UPDATE scopes SET revision=revision+1
-                WHERE id IN (SELECT scope FROM files WHERE path=?1)",
-                [bytes],
-            )?;
-            removed += transaction.execute("DELETE FROM files WHERE path=?1", [bytes])?;
+        {
+            let mut delete = transaction.prepare("DELETE FROM files WHERE scope=?1 AND path=?2")?;
+            let mut bump =
+                transaction.prepare("UPDATE scopes SET revision=revision+1 WHERE id=?1")?;
+            for path in paths {
+                let path = absolute(path)?;
+                let bytes = path.as_os_str().as_bytes();
+                for scope in &scopes {
+                    let deleted = delete.execute(params![scope, bytes])?;
+                    if deleted != 0 {
+                        bump.execute([scope])?;
+                        removed += deleted;
+                    }
+                }
+            }
         }
         transaction.commit()?;
         Ok(removed)

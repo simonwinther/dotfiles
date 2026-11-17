@@ -2,7 +2,7 @@
 Version=1.0
 Name=Disk Usage
 Comment=Disk Usage
-Exec=xdg-terminal-exec --app-id=TUI.float -e bash -c 'dust -r; read -n 1 -s'
+Exec=xdg-terminal-exec --app-id=TUI.float -e bash -c "dust -r; read -n 1 -s"
 Terminal=false
 Type=Application
 Icon=Disk Usage

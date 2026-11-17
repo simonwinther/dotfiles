@@ -147,7 +147,10 @@ class ManagedProcess:
         self._stop_reader = threading.Event()
         self._closed = False
         read_fd, write_fd = os.pipe()
+        wake = ()
         try:
+            # The stderr reader sleeps without a timeout until close() writes here.
+            wake = os.pipe2(os.O_CLOEXEC)
             if capture:
                 kwargs["stdout"] = subprocess.PIPE
             if diagnostic_stdout:
@@ -155,11 +158,13 @@ class ManagedProcess:
             self.process = subprocess.Popen(self.args, start_new_session=True, text=text,
                                             stderr=write_fd, **kwargs)
         except BaseException:
-            os.close(read_fd)
+            for descriptor in (read_fd, *wake):
+                os.close(descriptor)
             self.log.record("launch-failed")
             raise
         finally:
             os.close(write_fd)
+        self._wake_read, self._wake_write = wake
         self.pid = self.process.pid
         self._reader = threading.Thread(target=self._drain, args=(read_fd, echo_stderr and not capture),
                                         name="desktop-stderr", daemon=True)
@@ -168,8 +173,8 @@ class ManagedProcess:
     def _drain(self, fd, echo):
         try:
             while not self._stop_reader.is_set():
-                if not select.select([fd], [], [], POLL_INTERVAL)[0]:
-                    continue
+                if self._wake_read in select.select([fd, self._wake_read], [], [])[0]:
+                    return
                 data = os.read(fd, 4096)
                 if not data:
                     return
@@ -231,7 +236,12 @@ class ManagedProcess:
             self.process.wait(timeout=STOP_GRACE)
             self._reader.join(timeout=STOP_GRACE)
             self._stop_reader.set()
+            os.write(self._wake_write, b"\0")
             self._reader.join(timeout=STOP_GRACE)
+            # A reader stuck past the grace period keeps its descriptor valid.
+            if not self._reader.is_alive():
+                os.close(self._wake_read)
+            os.close(self._wake_write)
             for stream in (self.process.stdin, self.process.stdout):
                 if stream is not None:
                     stream.close()
@@ -280,7 +290,8 @@ def run(argv, *, log_directory, check=True, capture=False, input=None, text=True
                 if cancel is not None and cancel.is_set():
                     raise Cancelled()
                 remaining = child.remaining()
-                interval = POLL_INTERVAL if remaining is None else min(POLL_INTERVAL, remaining)
+                # Only a cancellation token needs periodic checks; signals interrupt the wait.
+                interval = remaining if cancel is None else POLL_INTERVAL if remaining is None else min(POLL_INTERVAL, remaining)
                 try:
                     output, _ = child.process.communicate(input=input if first else None, timeout=interval)
                     break
@@ -397,6 +408,27 @@ def background(argv, *, log_directory, operation="daemon", timeout=DEFAULT,
             os.close(write_fd)
 
 
+def wait_for_exit(child):
+    """Sleep until the child exits; a passed deadline raises ProcessTimeout."""
+    try:
+        pidfd = os.pidfd_open(child.pid)
+    except (AttributeError, OSError):
+        # Kernels before Linux 5.3 lack pidfds; poll the child instead.
+        while child.poll() is None:
+            child.remaining()
+            time.sleep(POLL_INTERVAL)
+        return
+    try:
+        poller = select.poll()
+        poller.register(pidfd, select.POLLIN)
+        while True:
+            remaining = child.remaining()
+            if poller.poll(None if remaining is None else math.ceil(remaining * 1000)):
+                return
+    finally:
+        os.close(pidfd)
+
+
 def _worker(arguments):
     descriptor, directory, operation, seconds, diagnostic_stdout, *argv = arguments
     descriptor = int(descriptor)
@@ -409,12 +441,9 @@ def _worker(arguments):
                 os.write(descriptor, json.dumps({"pid": child.pid}).encode())
                 os.close(descriptor)
                 descriptor = None
-                while True:
-                    try:
-                        status = child.wait(timeout=POLL_INTERVAL)
-                        return status if status >= 0 else 128 - status
-                    except subprocess.TimeoutExpired:
-                        child.remaining()
+                wait_for_exit(child)
+                status = child.process.wait()
+                return status if status >= 0 else 128 - status
     except Cancelled as error:
         return 128 + error.signum
     except (OSError, ValueError, subprocess.SubprocessError):

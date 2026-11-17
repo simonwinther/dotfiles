@@ -105,6 +105,19 @@ pub async fn apply(rules: &[Rule], ms: &[Monitor]) -> Result<usize> {
     eprintln!("displays: applied {} changed outputs", changes.len());
     Ok(changes.len())
 }
+fn event_name(line: &str) -> &str {
+    line.split_once(">>").map_or(line, |(name, _)| name)
+}
+// Hyprland posts each hotplug as a v1 event directly followed by its v2 twin.
+// Skip only that twin, so a lone event of either generation still reconciles.
+fn display_event(line: &str, previous: &str) -> bool {
+    match event_name(line) {
+        "configreloaded" | "monitoradded" | "monitorremoved" => true,
+        "monitoraddedv2" => previous != "monitoradded",
+        "monitorremovedv2" => previous != "monitorremoved",
+        _ => false,
+    }
+}
 pub async fn watch(tx: mpsc::Sender<Event>) {
     let mut backoff = 1;
     loop {
@@ -113,13 +126,13 @@ pub async fn watch(tx: mpsc::Sender<Event>) {
             let stream = UnixStream::connect(dir.join(".socket2.sock")).await?;
             tx.send(Event::Displays).await?;
             let mut lines = BufReader::new(stream).lines();
+            let mut previous = String::new();
             while let Some(line) = lines.next_line().await? {
-                if line.starts_with("monitoradded")
-                    || line.starts_with("monitorremoved")
-                    || line.starts_with("configreloaded")
-                {
+                if display_event(&line, &previous) {
                     tx.send(Event::Displays).await?;
                 }
+                previous.clear();
+                previous.push_str(event_name(&line));
             }
             anyhow::bail!("Hyprland event socket closed")
         }
@@ -166,5 +179,42 @@ mod tests {
         drop(active);
         drop(other);
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn each_hotplug_reconciles_once_although_both_event_generations_arrive() {
+        let triggers = |lines: &[&str]| -> Vec<bool> {
+            let mut previous = String::new();
+            lines
+                .iter()
+                .map(|line| {
+                    let display = display_event(line, &previous);
+                    previous = event_name(line).into();
+                    display
+                })
+                .collect()
+        };
+        assert_eq!(
+            triggers(&["monitoradded>>DP-1", "monitoraddedv2>>1,DP-1,Model"]),
+            [true, false]
+        );
+        assert_eq!(triggers(&["monitoraddedv2>>1,DP-1,Model"]), [true]);
+        assert_eq!(
+            triggers(&["activewindow>>x", "monitorremovedv2>>1,DP-1,Model"]),
+            [false, true]
+        );
+        assert_eq!(triggers(&["configreloaded>>"]), [true]);
+        assert_eq!(
+            triggers(&["activewindow>>x", "activewindowv2>>x"]),
+            [false, false]
+        );
+        assert_eq!(
+            triggers(&[
+                "monitorremoved>>DP-1",
+                "monitorremovedv2>>1,DP-1,Model",
+                "monitorremoved>>DP-2",
+                "monitorremovedv2>>2,DP-2,Model",
+            ]),
+            [true, false, true, false]
+        );
     }
 }

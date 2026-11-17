@@ -34,7 +34,7 @@ impl Desktop {
         );
         script(
             "wl-copy",
-            "#!/bin/sh\nif test -f \"$DICTATE_TEST_COPY_FAIL\"; then exit 1; fi\ncat > \"$DICTATE_TEST_CLIPBOARD\"\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$DICTATE_TEST_COPY_ARGS\"\nif test -f \"$DICTATE_TEST_COPY_FAIL\"; then exit 1; fi\ncat > \"$DICTATE_TEST_CLIPBOARD\"\n",
         );
         script("notify-send", "#!/bin/sh\nexit 0\n");
         script("hyprctl", "#!/bin/sh\nexit 1\n");
@@ -61,6 +61,7 @@ impl Desktop {
             )
             .env("DICTATE_TEST_PCM", self.root.join("microphone.pcm"))
             .env("DICTATE_TEST_COPY_FAIL", self.root.join("fail-copy"))
+            .env("DICTATE_TEST_COPY_ARGS", self.root.join("copy-args.txt"))
             .env("DICTATE_TEST_CLIPBOARD", self.root.join("clipboard.txt"))
             .env("DICTATE_TEST_VOLUME", self.root.join("volume.txt"))
             .env("DICTATE_TEST_STOPPED", self.root.join("recorder-stopped"))
@@ -82,6 +83,14 @@ impl Desktop {
             fs::read_to_string(self.root.join("last.log")).unwrap_or_default()
         );
         String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+    /// The arguments of every wl-copy call, in order.
+    fn copy_arguments(&self) -> Vec<String> {
+        fs::read_to_string(self.root.join("copy-args.txt"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
     async fn idle(&self) {
         let until = Instant::now() + Duration::from_secs(5);
@@ -237,6 +246,8 @@ async fn live_session_preserves_shortcut_flow_and_delivers_final_text() {
         fs::read_to_string(desktop.root.join("clipboard.txt")).unwrap(),
         "I'm testing PyTorch, next\n1e-4."
     );
+    // An explicit type keeps wl-copy from sniffing the content with xdg-mime.
+    assert_eq!(desktop.copy_arguments(), ["--type text/plain"]);
     assert!(desktop.recovery().is_none());
     assert_eq!(server.await.unwrap(), 1);
 }
@@ -663,6 +674,25 @@ async fn terminal_paste_targets_focused_window_and_uses_lua_provider() {
 }
 
 #[tokio::test]
+async fn failed_config_provider_probe_is_retried_instead_of_cached() {
+    let (url, first, server) = realtime(Some("Paste after a failed probe.")).await;
+    let desktop = Desktop::new(&url, "AUTO_PASTE=1\nPASTE_DELAY=0");
+    // Only the first `hyprctl status` fails, like a probe that hits its timeout.
+    fs::write(desktop.root.join("tools/hyprctl"),"#!/bin/sh\ncase \"$1\" in\nactivewindow) echo '{\"class\":\"firefox\",\"address\":\"0x42\"}' ;;\nstatus) if test -f \"$DICTATE_TEST_PASTE.probed\"; then echo 'configProvider: lua'; else touch \"$DICTATE_TEST_PASTE.probed\"; exit 1; fi ;;\ndispatch) printf '%s' \"$2\" > \"$DICTATE_TEST_PASTE\"; echo ok ;;\n*) exit 1 ;;\nesac\n").unwrap();
+    desktop.ok(&["live", "start"]).await;
+    timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    desktop.wait_audio_ms(100).await;
+    desktop.ok(&["live", "stop"]).await;
+    desktop.idle().await;
+    let dispatched = fs::read_to_string(desktop.root.join("paste.txt")).unwrap();
+    assert!(dispatched.contains("hl.dsp.send_shortcut"), "{dispatched}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn native_volume_ducks_and_restores_the_original_sink() {
     let (url, first, server) = realtime(None).await;
     let desktop = Desktop::new(
@@ -867,6 +897,8 @@ async fn revision_selects_field_without_selection_and_pastes_over_it() {
         .filter_map(|l| l.split("key = \"").nth(1)?.split('"').next())
         .collect();
     assert_eq!(keys, ["C", "A", "C", "V"]);
+    // Both revision markers and the revised text are copied as plain text.
+    assert_eq!(desktop.copy_arguments(), ["--type text/plain"; 3]);
     assert!(dispatched.contains("address:0x42"));
     assert!(desktop.recovery().is_none());
     server.await.unwrap();
