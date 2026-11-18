@@ -35,6 +35,20 @@ Run `iphone-transfer-build` after source changes.
 
 ## Use
 
+- Open **iPhone Camera** for a camera preview and zoom controls. Connect both
+  devices to Tailscale and keep the camera app open on the iPhone.
+  In [Moblin](https://apps.apple.com/app/id6466745933), open **Settings →
+  Remote control → Web**, set **Server port** to **8080**, and enable it.
+  Use the zoom controls on either device. Moblin’s web remote also accepts
+  connections without a password over Wi-Fi, so use a trusted Wi-Fi network
+  or cellular data. For a password-protected browser preview, start the camera
+  server in [NetCam](https://apps.apple.com/app/id6804472296) on its default
+  HTTP port **8080**. The launcher reads your configured iPhone address and
+  requires `jq` and `xdg-open`.
+- With Moblin open, run `iphone-camera-fullscreen` or use the launcher’s
+  **View Moblin Camera Full Screen** action for the camera feed alone. Press
+  **f** to toggle full screen or **q** to close it. This uses mpv and Node.js
+  22 or newer. The browser remote can still adjust zoom.
 - Open **Files from iPhone** to browse received files.
 - Open **Send to iPhone**, or select files in Nautilus and use
   **Scripts → Send to iPhone**.

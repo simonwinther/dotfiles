@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=iPhone Camera
+Comment=Open the iPhone camera preview and zoom controls over Tailscale
+Exec=view-iphone-camera
+Icon=camera-photo
+Terminal=false
+Categories=Network;
+Keywords=iPhone;camera;zoom;Moblin;NetCam;Tailscale;
+Actions=Fullscreen;
+
+[Desktop Action Fullscreen]
+Name=View Moblin Camera Full Screen
+Exec=iphone-camera-fullscreen

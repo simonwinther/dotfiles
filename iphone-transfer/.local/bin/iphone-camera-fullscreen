@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+// Display Moblin's JPEG preview without changing its recording or streaming state.
+const { spawn } = require('node:child_process');
+const { readFileSync } = require('node:fs');
+const { homedir } = require('node:os');
+const { join } = require('node:path');
+
+const settingsDir = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+const { target } = JSON.parse(readFileSync(join(settingsDir, 'taildrop/iphone.json'), 'utf8'));
+const host = target.includes(':') ? `[${target}]` : target;
+const socket = new WebSocket(`ws://${host}:8081/`);
+let player;
+let readyForFrame = true;
+
+socket.addEventListener('open', () => {
+    socket.send(JSON.stringify({ request: { id: 1, data: { startPreview: {} } } }));
+});
+
+socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(data);
+    if (message.ping) socket.send(JSON.stringify({ pong: {} }));
+    if (!message.preview || !readyForFrame) return;
+
+    if (!player) {
+        player = spawn('mpv', [
+            '--fullscreen', '--title=iPhone Camera', '--no-audio', '--untimed', '--no-term-osd',
+            '--no-cache', '--no-cache-pause', '--no-osc', '--no-demuxer-thread',
+            '--demuxer=lavf', '--demuxer-lavf-format=mjpeg', '--demuxer-lavf-buffersize=1024',
+            '--vd-lavc-threads=1',
+            '--demuxer-lavf-probesize=32', '--demuxer-lavf-analyzeduration=0',
+            '-',
+        ], { stdio: ['pipe', 'inherit', 'inherit'] });
+        player.on('error', (error) => { console.error(error.message); socket.close(); });
+        player.on('exit', () => socket.close());
+        player.stdin.on('error', () => socket.close());
+        player.stdin.on('drain', () => { readyForFrame = true; });
+    }
+    readyForFrame = player.stdin.write(Buffer.from(message.preview.preview, 'base64'));
+});
+
+socket.addEventListener('error', () => {
+    console.error('Could not connect to Moblin. Keep Moblin open with Web remote enabled on port 8080.');
+    process.exitCode = 1;
+});
+socket.addEventListener('close', () => player?.stdin.end());

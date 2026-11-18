@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+settings="${XDG_CONFIG_HOME:-$HOME/.config}/taildrop/iphone.json"
+if ! phone=$(jq -er '.target | strings | select(length > 0)' "$settings"); then
+    zenity --error --title="iPhone Camera" --text="Set your iPhone’s Tailscale address in $settings."
+    exit 1
+fi
+
+case "$phone" in
+    *:*) phone="[$phone]" ;;
+esac
+exec xdg-open "http://$phone:8080/"
