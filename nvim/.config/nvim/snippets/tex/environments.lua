@@ -98,3 +98,29 @@ table.insert(
 )
 
 table.insert(snippets, s({ trig = "nn" }, { t("\\nonumber") }, { condition = cond.in_mathzone }))
+
+table.insert(
+  snippets,
+  s(
+    { trig = "bmat", snippetType = "autosnippet" },
+    { t({ [[\begin{bmatrix}]], "  " }), i(1), t({ "", [[\end{bmatrix}]] }) },
+    { condition = cond.in_mathzone }
+  )
+)
+
+table.insert(
+  snippets,
+  s(
+    {
+      trig = "array",
+      snippetType = "autosnippet",
+      resolveExpandParams = function(_, line)
+        if not (line:match([[\begin{array$]]) or line:match([[\end{array$]])) then
+          return {}
+        end
+      end,
+    },
+    { t([[\begin{array}{]]), i(1, "c"), t({ "}", "  " }), i(2), t({ "", [[\end{array}]] }) },
+    { condition = cond.in_mathzone }
+  )
+)

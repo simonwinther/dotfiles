@@ -381,6 +381,9 @@ local function schedule_cmdline_accept_reflow()
   end
 end
 
+local config_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
+local math_conditions = assert(loadfile(config_dir .. "/snippets/tex/conditions.lua"))("_load")
+
 return {
   {
     "saghen/blink.cmp",
@@ -578,14 +581,25 @@ return {
             local row, col = unpack(vim.api.nvim_win_get_cursor(0))
             local after = vim.api.nvim_get_current_line():sub(col + 1, col + 1)
             local in_insert = vim.api.nvim_get_mode().mode == "i"
+            if in_insert and after == "&" then
+              local ft = vim.bo.filetype
+              if ft == "tex" or (ft == "markdown" and math_conditions.in_mathzone()) then
+                local escapes = vim.api.nvim_get_current_line():sub(1, col):match("(\\*)$")
+                if #escapes % 2 == 0 then
+                  return vim.keycode("<Right>")
+                end
+              end
+            end
             local jumpable = lok and ls.locally_jumpable(1)
 
+            local row_operation = false
             local only_exit_ahead = false
             if lok then
               pcall(function()
                 local cur = ls.session.current_nodes[vim.api.nvim_get_current_buf()]
                 local snip = cur and cur.parent and cur.parent.snippet
                 if cur and snip and snip.insert_nodes then
+                  row_operation = snip.trigger == ",rr" or snip.trigger == ",rs" or snip.trigger == ",rk" or snip.trigger == ",rm"
                   if cur.pos == 0 then
                     only_exit_ahead = true
                   else
@@ -602,8 +616,41 @@ return {
             end
 
             -- 1) Jump to the next real placeholder.
-            if jumpable and not only_exit_ahead then
-              return ls.jump(1)
+            if jumpable and (not only_exit_ahead or row_operation) then
+              vim.schedule(function() ls.jump(1) end)
+              return true
+            end
+
+            if in_insert and vim.bo.filetype == "markdown" then
+              local line = vim.api.nvim_get_current_line()
+              local target
+              if after == "$" then
+                local width = line:sub(col + 1, col + 2) == "$$" and 2 or 1
+                target = { row, col + width }
+              elseif closers[after] then
+                target = { row, col + 1 }
+              elseif jumpable and col == #line then
+                local fence = vim.fn.getline(row + 1):match("^%s*%$%$%s*$")
+                if fence then
+                  target = { row + 1, fence:find("$$", 1, true) + 1 }
+                end
+              end
+              if target then
+                vim.schedule(function()
+                  cmp.hide()
+                  local node = lok and ls.session.current_nodes[vim.api.nvim_get_current_buf()]
+                  local snippet = node and node.parent and node.parent.snippet
+                  local exit = snippet and snippet.insert_nodes[0]
+                  if jumpable and exit then
+                    local pos = exit.mark:pos_begin_raw()
+                    if pos[1] + 1 == target[1] and pos[2] == target[2] then
+                      ls.jump(1)
+                    end
+                  end
+                  vim.api.nvim_win_set_cursor(0, target)
+                end)
+                return ""
+              end
             end
 
             -- 2) Nothing real to jump to: if the cursor sits before a closing
@@ -632,13 +679,23 @@ return {
 
             -- 3) Only the exit stop is left and there is nothing to hop: jump.
             if jumpable then
-              return ls.jump(1)
+              vim.schedule(function() ls.jump(1) end)
+              return true
             end
           end,
           "fallback",
         },
         ["<S-Tab>"] = {
           function()
+            if vim.bo.filetype == "markdown" and vim.api.nvim_get_mode().mode == "i" then
+              local col = vim.api.nvim_win_get_cursor(0)[2]
+              local before = vim.api.nvim_get_current_line():sub(1, col)
+              local escapes = before:match("(\\*)%$$")
+              if escapes and #escapes % 2 == 0 then
+                return vim.keycode("<Left>")
+              end
+            end
+
             local lok, ls = pcall(require, "luasnip")
             if lok and ls.locally_jumpable(-1) then
               return ls.jump(-1)

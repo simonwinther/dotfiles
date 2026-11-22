@@ -27,6 +27,16 @@ table.insert(
   )
 )
 
+-- A digit after a variable starts a subscript, including after a coefficient.
+table.insert(
+  snippets,
+  s(
+    { trig = "%f[%a]([%a])(%d)", regTrig = true, wordTrig = false, name = "Numeric subscript", snippetType = "autosnippet" },
+    { f(function(_, snip) return snip.captures[1] .. "_{" .. snip.captures[2] end), i(1), t("}") },
+    { condition = cond.in_plain_mathzone }
+  )
+)
+
 -- FRACTION
 table.insert(
   snippets,

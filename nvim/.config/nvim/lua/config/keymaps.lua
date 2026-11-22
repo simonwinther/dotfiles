@@ -66,6 +66,10 @@ vim.keymap.set("n", "/", function()
   require("snacks").picker.lines({
     title = "󰱼 Search Buffer",
     prompt = "   ",
+    -- Show Markdown source so rendered block backgrounds cannot mask the selected row.
+    transform = vim.bo.filetype == "markdown" and function(item)
+      item.highlights = nil
+    end or nil,
     layout = {
       preset = "dropdown", -- deelte this
       layout = { -- and this

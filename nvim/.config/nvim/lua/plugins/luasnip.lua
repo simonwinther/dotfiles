@@ -2,7 +2,7 @@ return {
   {
     "L3MON4D3/LuaSnip",
     -- event = "InsertEnter",
-    ft = { "tex", "typst" },
+    ft = { "tex", "typst", "markdown" },
     dependencies = {
       "rafamadriz/friendly-snippets",
       config = function()
