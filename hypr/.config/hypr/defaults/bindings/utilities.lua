@@ -66,7 +66,7 @@ hl.bind(
 )
 hl.bind(
     "switch:on:Lid Switch",
-    hl.dsp.exec_cmd("desktopctl display external && desktopctl display internal off"),
+    hl.dsp.exec_cmd("if desktopctl display external; then desktopctl display internal off; elif systemctl --user is-active --quiet desktop-keep-awake-lid.service; then desktopctl lock; fi"),
     { locked = true }
 )
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("desktopctl display internal on"), { locked = true })

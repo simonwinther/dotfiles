@@ -1,6 +1,7 @@
 """Controls component with injected dependencies."""
 from __future__ import annotations
 import bar_config
+import desktop_process as processes
 import contextlib
 import json
 from pathlib import Path
@@ -28,6 +29,11 @@ class Controls:
         marker = self.ctx.paths.state / "toggles" / feature
         if feature == "enabled":
             return 0 if len(args) > 1 and (self.ctx.paths.state / "toggles" / args[1]).exists() else 1
+        if feature == "keep-awake-lid":
+            with self.store.state_lock(feature):
+                enabled = processes.toggle_lid_inhibitor(self.ctx.processes.run, self.ctx.executable)
+            self.ctx.notify("Lid close", "Keep-awake is on. Connect to your phone’s hotspot before closing the lid to stay online." if enabled else "Normal lid behavior restored")
+            return
         if feature == "idle":
             # Automatic locking is opt-in for this login. Sleep protection always runs.
             with self.store.state_lock("idle"):

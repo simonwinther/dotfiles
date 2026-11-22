@@ -126,6 +126,7 @@
       "󱄄  Automatic screensaver": ["toggle", "screensaver"],
       "󰔎  Night light": ["toggle", "nightlight"],
       "󱫖  Idle lock": ["toggle", "idle"],
+      "󰌢  Keep awake with lid closed": ["toggle", "keep-awake-lid"],
       "󰂛  Notifications": ["toggle", "notifications"],
       "󰍜  Top bar": ["toggle", "bar"],
       "󱂬  Workspace layout": ["toggle", "layout"],

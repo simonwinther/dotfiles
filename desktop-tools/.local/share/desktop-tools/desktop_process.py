@@ -61,6 +61,24 @@ def cancellation_signals():
             signal.signal(sig, handler)
 
 
+def toggle_lid_inhibitor(run_command, executable):
+    unit = "desktop-keep-awake-lid.service"
+    if run_command(["systemctl", "--user", "is-active", "--quiet", unit], check=False).returncode == 0:
+        run_command(["systemctl", "--user", "stop", unit])
+        return False
+    # Report success only after logind has granted the lid-switch inhibitor.
+    run_command([
+        "systemd-run", "--user", "--collect", "--expand-environment=yes", "--unit=" + unit,
+        "--property=PartOf=graphical-session.target", "--service-type=notify",
+        "--property=NotifyAccess=all", "--property=TimeoutStartSec=5s",
+        executable("systemd-inhibit"), "--what=handle-lid-switch", "--mode=block",
+        "--who=Desktop", "--why=Keep awake with lid closed",
+        executable("env"), "NOTIFY_SOCKET=${NOTIFY_SOCKET}", executable("systemd-notify"), "--ready", "--exec", ";", "--",
+        executable("sleep"), "infinity",
+    ])
+    return True
+
+
 def policy(argv, operation=None, timeout=DEFAULT):
     if not argv:
         raise ValueError("A process command is required")

@@ -970,6 +970,11 @@ def toggle(args):
     marker = STATE / "toggles" / feature
     if feature == "enabled":
         return 0 if len(args) > 1 and (STATE / "toggles" / args[1]).exists() else 1
+    if feature == "keep-awake-lid":
+        with state_lock(feature):
+            enabled = processes.toggle_lid_inhibitor(run, executable)
+        notify("Lid close", "Keep-awake is on. Connect to your phone’s hotspot before closing the lid to stay online." if enabled else "Normal lid behavior restored")
+        return
     if feature == "idle":
         # Automatic locking is opt-in for this login. Sleep protection always runs.
         with state_lock("idle"):
