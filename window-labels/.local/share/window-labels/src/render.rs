@@ -29,6 +29,8 @@ const INACTIVE: Palette = Palette {
 pub struct Painter {
     /// Primary font first; later fonts supply glyphs the primary lacks.
     fonts: Vec<FontVec>,
+    /// Outline colours for active and inactive labels.
+    borders: ([u8; 4], [u8; 4]),
 }
 
 fn font_file(pattern: &str, env: &str) -> Option<PathBuf> {
@@ -57,7 +59,18 @@ impl Painter {
         if fonts.is_empty() {
             return Err("No usable font found".into());
         }
-        Ok(Self { fonts })
+        Ok(Self {
+            fonts,
+            borders: (ACTIVE.border, INACTIVE.border),
+        })
+    }
+
+    /// Outlines labels in the compositor's window border colours.
+    pub fn with_borders(mut self, borders: Option<([u8; 4], [u8; 4])>) -> Self {
+        if let Some(borders) = borders {
+            self.borders = borders;
+        }
+        self
     }
 
     fn glyph(&self, c: char) -> (&FontVec, GlyphId) {
@@ -83,8 +96,15 @@ impl Painter {
         text.chars().map(|c| self.advance(c, px)).sum()
     }
 
+    fn covered(&self, c: char) -> bool {
+        c.is_whitespace() || self.fonts.iter().any(|font| font.glyph_id(c).0 != 0)
+    }
+
     /// Shortens `title` with an ellipsis so the pill fits `max_width`.
+    /// Characters no font can draw are dropped rather than shown as boxes.
     pub fn fit(&self, title: &str, max_width: i32) -> String {
+        let title: String = title.chars().filter(|&c| self.covered(c)).collect();
+        let title = title.trim();
         let available = max_width as f32 - 2.0 * PADDING;
         if self.text_width(title, FONT_PX) <= available {
             return title.to_owned();
@@ -132,8 +152,19 @@ impl Painter {
             palette.background[2],
             palette.background[3],
         );
-        pixmap.fill_path(&pill, &paint, FillRule::Winding, Transform::identity(), None);
-        paint.set_color_rgba8(palette.border[0], palette.border[1], palette.border[2], palette.border[3]);
+        pixmap.fill_path(
+            &pill,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+        let border = if active {
+            self.borders.0
+        } else {
+            self.borders.1
+        };
+        paint.set_color_rgba8(border[0], border[1], border[2], border[3]);
         let stroke = Stroke {
             width: scale,
             ..Stroke::default()
@@ -147,8 +178,9 @@ impl Painter {
     fn draw_text(&self, pixmap: &mut Pixmap, text: &str, color: [u8; 4], scale: f32) {
         let px = FONT_PX * scale;
         let primary = self.fonts[0].as_scaled(Self::scale(&self.fonts[0], px));
-        let baseline =
-            ((pixmap.height() as f32 - (primary.ascent() - primary.descent())) / 2.0 + primary.ascent()).round();
+        let baseline = ((pixmap.height() as f32 - (primary.ascent() - primary.descent())) / 2.0
+            + primary.ascent())
+        .round();
         let (width, height) = (pixmap.width() as i32, pixmap.height() as i32);
         let pixels = pixmap.data_mut();
         let mut x = PADDING * scale;

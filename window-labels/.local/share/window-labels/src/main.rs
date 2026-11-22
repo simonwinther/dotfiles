@@ -88,9 +88,13 @@ struct App {
 
 impl App {
     fn output(&self, name: &str) -> Option<wl_output::WlOutput> {
-        self.outputs
-            .outputs()
-            .find(|output| self.outputs.info(output).and_then(|info| info.name).as_deref() == Some(name))
+        self.outputs.outputs().find(|output| {
+            self.outputs
+                .info(output)
+                .and_then(|info| info.name)
+                .as_deref()
+                == Some(name)
+        })
     }
 
     fn refresh(&mut self) {
@@ -121,26 +125,39 @@ impl App {
         };
         let position = (placement.x, placement.y);
         if !self.labels.contains_key(&placement.address) {
-            let Some(label) = self.create_label(&placement.output, position, content.clone()) else {
+            let Some(label) = self.create_label(&placement.output, position, content.clone())
+            else {
                 return;
             };
             self.labels.insert(placement.address.clone(), label);
         }
-        let label = self.labels.get_mut(&placement.address).expect("label was just ensured");
+        let label = self
+            .labels
+            .get_mut(&placement.address)
+            .expect("label was just ensured");
         label.wanted_position = position;
         label.wanted_content = content;
         Self::present(label, &mut self.pool, &self.painter);
     }
 
-    fn create_label(&self, output_name: &str, position: (i32, i32), content: Content) -> Option<Label> {
+    fn create_label(
+        &self,
+        output_name: &str,
+        position: (i32, i32),
+        content: Content,
+    ) -> Option<Label> {
         let output = self.output(output_name)?;
         let surface = self.compositor.create_surface(&self.qh);
         let region = Region::new(&self.compositor).ok()?;
         surface.set_input_region(Some(region.wl_region()));
         let viewport = self.viewporter.get_viewport(&surface, &self.qh, ());
-        let layer =
-            self.layers
-                .create_layer_surface(&self.qh, surface, Layer::Top, Some(NAMESPACE), Some(&output));
+        let layer = self.layers.create_layer_surface(
+            &self.qh,
+            surface,
+            Layer::Top,
+            Some(NAMESPACE),
+            Some(&output),
+        );
         layer.set_anchor(Anchor::TOP | Anchor::LEFT);
         layer.set_exclusive_zone(-1);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
@@ -174,18 +191,27 @@ impl App {
         }
         if label.content.as_ref() != Some(&label.wanted_content) {
             let content = label.wanted_content.clone();
-            let Some(pixmap) = painter.paint(&content.text, content.active, content.width, content.scale) else {
+            let Some(pixmap) =
+                painter.paint(&content.text, content.active, content.width, content.scale)
+            else {
                 return;
             };
             let (width, height) = (pixmap.width() as i32, pixmap.height() as i32);
-            let Ok((buffer, canvas)) = pool.create_buffer(width, height, width * 4, wl_shm::Format::Argb8888) else {
+            let Ok((buffer, canvas)) =
+                pool.create_buffer(width, height, width * 4, wl_shm::Format::Argb8888)
+            else {
                 return;
             };
             // tiny-skia stores premultiplied RGBA; wl_shm ARGB8888 is BGRA in memory.
-            for (target, source) in canvas.chunks_exact_mut(4).zip(pixmap.data().chunks_exact(4)) {
+            for (target, source) in canvas
+                .chunks_exact_mut(4)
+                .zip(pixmap.data().chunks_exact(4))
+            {
                 target.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
             }
-            label.layer.set_size(content.width as u32, LABEL_HEIGHT as u32);
+            label
+                .layer
+                .set_size(content.width as u32, LABEL_HEIGHT as u32);
             label.viewport.set_destination(content.width, LABEL_HEIGHT);
             surface.set_buffer_scale(1);
             if buffer.attach_to(&surface).is_err() {
@@ -203,7 +229,14 @@ impl App {
 }
 
 impl CompositorHandler for App {
-    fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: i32) {}
+    fn scale_factor_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: i32,
+    ) {
+    }
     fn transform_changed(
         &mut self,
         _: &Connection,
@@ -213,8 +246,22 @@ impl CompositorHandler for App {
     ) {
     }
     fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
-    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
-    fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
+    fn surface_enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: &wl_output::WlOutput,
+    ) {
+    }
+    fn surface_leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: &wl_output::WlOutput,
+    ) {
+    }
 }
 
 impl OutputHandler for App {
@@ -278,7 +325,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         viewporter: globals.bind(&qh, 1..=1, ())?,
         pool: SlotPool::new(64 * 1024, &shm)?,
         shm,
-        painter: Painter::new()?,
+        painter: Painter::new()?.with_borders(hyprland::border_colors()),
         labels: HashMap::new(),
         qh,
     };

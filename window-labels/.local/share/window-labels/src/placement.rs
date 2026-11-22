@@ -4,9 +4,9 @@ use std::collections::HashSet;
 
 /// Logical height of a label.
 pub const LABEL_HEIGHT: i32 = 16;
-/// How far a label reaches below the window's top edge. The rest sits in the
-/// gap above the window, so it hides as little content as possible.
-const OVERLAP: i32 = 3;
+/// How far a label reaches below the window's top edge. Zero keeps the label
+/// in the gap above the window, so it never covers the window border.
+const OVERLAP: i32 = 0;
 /// Distance from the window's left edge to the label.
 const INSET: i32 = 14;
 /// Narrower windows are not labelled.
@@ -61,11 +61,43 @@ pub fn placements(clients: &[Client], monitors: &[Monitor]) -> Vec<Placement> {
                 x: (c.at[0] - monitor.x + INSET).max(0),
                 y: (c.at[1] - monitor.y + OVERLAP - LABEL_HEIGHT).max(0),
                 max_width,
-                title: c.title.trim().to_owned(),
+                title: display_title(&c.title),
                 active: c.focus_history_id == 0,
             })
         })
         .collect()
+}
+
+/// Agent CLIs prefix their title with an animated status glyph (`✳ `, braille
+/// spinners). It carries no name and most fonts cannot draw it.
+fn without_status_marker(title: &str) -> &str {
+    let mut chars = title.chars();
+    match (chars.next(), chars.next()) {
+        (Some(marker), Some(' '))
+            if !marker.is_alphanumeric() && !"/~…([{<\"'#@$".contains(marker) =>
+        {
+            chars.as_str().trim_start()
+        }
+        _ => title,
+    }
+}
+
+/// Shells title their window with the working directory, and the end of that
+/// path names the place. Keep its last two components so shortening the label
+/// to fit never cuts off the part that tells windows apart.
+pub fn display_title(title: &str) -> String {
+    let title = without_status_marker(title.trim());
+    if !["/", "~", "…/"]
+        .iter()
+        .any(|prefix| title.starts_with(prefix))
+    {
+        return title.to_owned();
+    }
+    let parts: Vec<&str> = title.split('/').filter(|part| !part.is_empty()).collect();
+    match parts.as_slice() {
+        [.., parent, last] if parts.len() > 2 => format!("…/{parent}/{last}"),
+        _ => title.to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -109,10 +141,37 @@ mod tests {
         let labels = placements(&[lower], &[monitor()]);
         assert_eq!(labels.len(), 1);
         let label = &labels[0];
-        assert_eq!((label.x, label.y), (12 + INSET, 500 + OVERLAP - LABEL_HEIGHT));
+        assert_eq!(
+            (label.x, label.y),
+            (12 + INSET, 500 + OVERLAP - LABEL_HEIGHT)
+        );
         assert_eq!(label.title, "Claude Code");
         assert_eq!(label.output, "eDP-1");
         assert!(!label.active);
+    }
+
+    #[test]
+    fn directory_titles_keep_their_last_components() {
+        let cases = [
+            (
+                "…/University of Copenhagen/VIP/Assignments",
+                "…/VIP/Assignments",
+            ),
+            (
+                "/home/simon/nixos-config/dotfiles",
+                "…/nixos-config/dotfiles",
+            ),
+            ("~/dev/projects/site", "…/projects/site"),
+            ("~/dev", "~/dev"),
+            ("/", "/"),
+            ("nvim notes/today.md", "nvim notes/today.md"),
+            ("✳ Super+G group name toggle", "Super+G group name toggle"),
+            ("⠐ Mytop visual improvements", "Mytop visual improvements"),
+            ("~ ", "~"),
+        ];
+        for (title, shown) in cases {
+            assert_eq!(display_title(title), shown);
+        }
     }
 
     #[test]

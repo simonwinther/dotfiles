@@ -65,6 +65,28 @@ pub fn request<T: DeserializeOwned>(command: &str) -> io::Result<T> {
     serde_json::from_slice(&reply).map_err(io::Error::other)
 }
 
+#[derive(Deserialize)]
+struct GradientOption {
+    gradient: String,
+}
+
+/// First colour stop of a Hyprland gradient (`ff6bbf7a ffcddc39 45deg`), as RGBA.
+fn first_stop(gradient: &str) -> Option<[u8; 4]> {
+    let argb = u32::from_str_radix(gradient.split_whitespace().next()?, 16).ok()?;
+    let [a, r, g, b] = argb.to_be_bytes();
+    Some([r, g, b, a])
+}
+
+/// The active and inactive window border colours, so labels match the borders they sit on.
+pub fn border_colors() -> Option<([u8; 4], [u8; 4])> {
+    let color = |name: &str| {
+        let option: GradientOption =
+            request(&format!("j/getoption general:col.{name}_border")).ok()?;
+        first_stop(&option.gradient)
+    };
+    Some((color("active")?, color("inactive")?))
+}
+
 /// Calls `notify` for every compositor event until the stream closes.
 pub fn watch_events(mut notify: impl FnMut() -> bool) -> io::Result<()> {
     let stream = UnixStream::connect(socket_dir()?.join(".socket2.sock"))?;
@@ -75,4 +97,20 @@ pub fn watch_events(mut notify: impl FnMut() -> bool) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reads_the_first_gradient_stop_as_rgba() {
+        assert_eq!(
+            super::first_stop("ff6bbf7a ffcddc39 45deg"),
+            Some([0x6b, 0xbf, 0x7a, 0xff])
+        );
+        assert_eq!(
+            super::first_stop("ee2a2a2e 0deg"),
+            Some([0x2a, 0x2a, 0x2e, 0xee])
+        );
+        assert_eq!(super::first_stop(""), None);
+    }
 }
