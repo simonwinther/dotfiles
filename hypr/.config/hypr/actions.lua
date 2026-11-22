@@ -26,6 +26,26 @@ function M.pop_window()
     end
 end
 
+-- Window names: labels on the desktop (window-labels) and badges in the
+-- hyprspace overview. The running window-labels instance is the state.
+function M.window_names_shown()
+    local status = io.popen("window-labels status 2>/dev/null")
+    if not status then
+        return false
+    end
+    local shown = status:read("*l") == "on"
+    status:close()
+    return shown
+end
+
+function M.toggle_window_names()
+    local show = not M.window_names_shown()
+    if hl.get_config("plugin.hyprspace.overview.window_titles") ~= nil then
+        hl.config({ plugin = { hyprspace = { overview = { window_titles = show } } } })
+    end
+    hl.exec_cmd(show and "uwsm-app -- window-labels start" or "window-labels stop")
+end
+
 function M.toggle_blur()
     local enabled = not hl.get_config("decoration.blur.enabled")
     hl.config({ decoration = { blur = { enabled = enabled } } })

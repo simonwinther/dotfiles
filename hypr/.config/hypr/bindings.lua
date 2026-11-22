@@ -266,6 +266,11 @@ hl.bind(
 
 hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("hyprctl reload"), { description = "Reload Hyprland configuration" })
 hl.bind("SUPER + ALT + B", require("actions").toggle_blur, { description = "Toggle blur" })
+hl.bind(
+	"SUPER + CTRL + G",
+	require("actions").toggle_window_names,
+	{ description = "Toggle window name labels" }
+)
 hl.unbind("SUPER + ALT + T")
 hl.bind(
 	"SUPER + ALT + T",

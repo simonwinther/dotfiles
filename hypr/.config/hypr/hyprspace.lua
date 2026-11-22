@@ -69,6 +69,7 @@ if hl.get_config("plugin.hyprspace.follow_mouse") ~= nil then
                     active_border = "rgba(89b4faff)",
                     hover_border = "rgba(89b4fa80)",
                     workspace_labels = true,
+                    window_titles = require("actions").window_names_shown(),
                     label_color = "rgba(cdd6f4ff)",
                     title_bg_color = "rgba(1e1e2ee6)",
                     -- Include scratchpad and other special workspaces.
