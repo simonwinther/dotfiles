@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Pack and restore the workstation's portable application credentials."""
+import argparse
+import base64
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+HOME = Path.home()
+BUNDLE = HOME / ".workstation-keys.age"
+IDENTITY = HOME / ".ssh/hendrix_pc"
+FILES = (
+    ".config/canvas-mcp/environment",
+    ".config/desktop/secrets/weather-key",
+    ".config/dictate/secrets.env",
+    ".config/gh/hosts.yml",
+    ".config/zsh/secrets.zsh",
+    ".netrc",
+    "dev/my-life/.env",
+    "dev/projects/canvas-mcp/.env",
+    "dev/roblox/.env",
+)
+
+
+def private_write(path, writer):
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temp:
+        try:
+            writer(temp)
+            temp.flush()
+            os.fsync(temp.fileno())
+            temp.close()
+            os.replace(temp.name, path)
+        finally:
+            Path(temp.name).unlink(missing_ok=True)
+
+
+def pack(args):
+    files = {}
+    for name in FILES:
+        path = HOME / name
+        if path.resolve() != path or not path.is_file():
+            raise ValueError(f"Expected a regular credential file at {name}")
+        files[name] = base64.b64encode(path.read_bytes()).decode("ascii")
+    if args.passphrase:
+        options = ["-p"]
+    else:
+        options = ["-R", str(IDENTITY) + ".pub"]
+        for recipient in args.recipient:
+            options.extend(["-R", recipient])
+    payload = json.dumps(files).encode()
+    private_write(BUNDLE, lambda out: subprocess.run(
+        ["age", *options], input=payload, stdout=out, check=True))
+    print(f"Packed {len(files)} files in {BUNDLE}")
+
+
+def restore(args):
+    identity = [] if args.passphrase else ["-i", str(args.identity)]
+    data = subprocess.check_output(["age", "-d", *identity, str(BUNDLE)])
+    files = json.loads(data)
+    if not isinstance(files, dict) or not files or files.keys() - set(FILES):
+        raise ValueError("Unrecognized credential bundle")
+    pending = {}
+    conflicts = []
+    for name, encoded in files.items():
+        path = HOME / name
+        content = base64.b64decode(encoded, validate=True)
+        if path.resolve() != path or (path.exists() and not path.is_file()):
+            raise ValueError(f"Unsafe restore target: {name}")
+        if path.exists():
+            if path.read_bytes() == content and path.stat().st_mode & 0o777 == 0o600:
+                continue
+            conflicts.append(name)
+        pending[path] = content
+    if conflicts and not args.replace:
+        raise ValueError("Existing files differ in content or permissions: "
+                         + ", ".join(conflicts) + ". Review before using --replace.")
+    for path, content in pending.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        private_write(path, lambda out: out.write(content))
+    print(f"Restored {len(pending)} files. {len(files) - len(pending)} already match.")
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    create = commands.add_parser("pack", help="refresh the encrypted bundle on the source PC")
+    encryption = create.add_mutually_exclusive_group()
+    encryption.add_argument("--passphrase", action="store_true", help="prompt for a portable passphrase")
+    encryption.add_argument("--recipient", action="append", default=[], metavar="PUBLIC_KEY_FILE",
+                            help="also encrypt for this PC's public age or SSH key")
+    unpack = commands.add_parser("restore", help="restore from the encrypted bundle on this PC")
+    decryption = unpack.add_mutually_exclusive_group()
+    decryption.add_argument("--passphrase", action="store_true")
+    decryption.add_argument("--identity", type=Path, default=IDENTITY)
+    unpack.add_argument("--replace", action="store_true", help="replace differing destination files")
+    args = parser.parse_args()
+    if args.command == "pack":
+        pack(args)
+    else:
+        restore(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        sys.exit(str(exc))
