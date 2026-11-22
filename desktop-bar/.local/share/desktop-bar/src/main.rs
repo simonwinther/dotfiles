@@ -683,6 +683,7 @@ impl App {
             shell::Model::new(shell::Page::Picker, self.shell.provider(""), &self.theme);
         model.title = request.options.title.clone();
         model.query = request.options.query.clone();
+        model.search_focused = request.options.input_only || !model.query.is_empty();
         let entries = std::sync::Arc::get_mut(&mut request)
             .map(|request| std::mem::take(&mut request.options.entries))
             .unwrap_or_else(|| request.options.entries.clone());
@@ -1193,10 +1194,12 @@ impl App {
         if let Some(f) = &mut self.floating
             && !f.panel.closing
             && let Kind::Shell(model) = &mut f.panel.kind
-            && model.page == shell::Page::Controls
+            && model.page.has_list_search()
         {
             let focused = match event.keysym {
-                Keysym::Escape if model.search_focused => Some(false),
+                Keysym::Escape if model.page == shell::Page::Controls && model.search_focused => {
+                    Some(false)
+                }
                 Keysym::l if self.modifiers.ctrl && !self.modifiers.alt && !self.modifiers.logo => {
                     Some(true)
                 }
@@ -2786,8 +2789,13 @@ impl App {
             return;
         }
         let generation = self.hover_generation;
+        let delay_ms = if matches!(f.panel.kind, Kind::Volume) {
+            500
+        } else {
+            130
+        };
         let _ = self.handle.insert_source(
-            Timer::from_duration(Duration::from_millis(130)),
+            Timer::from_duration(Duration::from_millis(delay_ms)),
             move |_, _, app| {
                 if app.hover_generation == generation
                     && app.floating.as_ref().is_some_and(|f| {
@@ -3105,7 +3113,7 @@ impl App {
                 self.show_page(page, false);
                 return;
             }
-            if model.page == shell::Page::Controls {
+            if model.page.has_list_search() {
                 model.search_focused = y < 48.0;
                 if model.search_focused {
                     f.canvas.request(f.window.wl_surface(), &self.qh);
@@ -3151,7 +3159,7 @@ impl App {
         }
         let row = f.panel.row(y);
         match &mut f.panel.kind {
-            Kind::Volume if (149.0..172.0).contains(&y) => {
+            Kind::Volume if (149.0..181.0).contains(&y) => {
                 self.remember_parent();
                 self.show_page(shell::Page::Audio, false);
                 return;

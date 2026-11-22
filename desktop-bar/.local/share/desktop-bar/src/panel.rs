@@ -107,7 +107,7 @@ impl Panel {
                 Kind::Shell(_) | Kind::Overview(_) | Kind::Prompt(_) | Kind::Help(_) => {
                     unreachable!()
                 }
-                Kind::Volume => 174,
+                Kind::Volume => 206,
                 Kind::Calendar => 310,
                 Kind::Battery => 144,
                 Kind::Network => 184,
@@ -361,11 +361,11 @@ impl Panel {
                 }
                 draw::rounded(
                     p,
-                    Rect::new(24.0, 149.0, 272.0, 22.0).scale(s),
+                    Rect::new(24.0, 149.0, 272.0, 32.0).scale(s),
                     6.0 * s,
                     t.text().alpha(0.07),
                 );
-                line(p, "Audio devices  ›", 34.0, 164.0, t.dim());
+                line(p, "Audio devices  ›", 34.0, 169.0, t.dim());
             }
             Kind::Calendar => {
                 let (title, cells) = clock::calendar(self.month);

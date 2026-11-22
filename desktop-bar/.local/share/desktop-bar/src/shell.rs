@@ -101,6 +101,23 @@ impl Page {
             _ => "",
         }
     }
+    pub fn has_list_search(self) -> bool {
+        matches!(
+            self,
+            Self::Menu
+                | Self::Controls
+                | Self::Themes
+                | Self::Wallpapers
+                | Self::Styles
+                | Self::Keybindings
+                | Self::Notifications
+                | Self::Audio
+                | Self::Bluetooth
+                | Self::Wifi
+                | Self::Projects
+                | Self::Picker
+        )
+    }
     pub fn gallery(self) -> bool {
         matches!(self, Self::Themes | Self::Wallpapers | Self::Styles)
     }
@@ -283,7 +300,7 @@ impl Model {
             generation,
             entries,
             query: String::new(),
-            search_focused: page != Page::Controls,
+            search_focused: !page.has_list_search(),
             title: page.name().into(),
             filtered: vec![],
             selected: 0,
