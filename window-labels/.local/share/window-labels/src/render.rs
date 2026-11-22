@@ -134,7 +134,10 @@ impl Painter {
         let mut pixmap = Pixmap::new(pixel_width, pixel_height)?;
         let palette = if active { &ACTIVE } else { &INACTIVE };
 
-        let inset = 0.5 * scale;
+        // The outline is a whole number of physical pixels (about 1.5 logical) centred on
+        // pixel boundaries; a 1-logical-pixel stroke at fractional scales blurs unevenly.
+        let edge = (1.5 * scale).round().max(1.0);
+        let inset = 0.5 * edge;
         let pill = rounded_rect(
             inset,
             inset,
@@ -166,7 +169,7 @@ impl Painter {
         };
         paint.set_color_rgba8(border[0], border[1], border[2], border[3]);
         let stroke = Stroke {
-            width: scale,
+            width: edge,
             ..Stroke::default()
         };
         pixmap.stroke_path(&pill, &paint, &stroke, Transform::identity(), None);
