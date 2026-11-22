@@ -84,7 +84,7 @@ pub struct App {
     editing: bool,
     filter_open: bool,
     filter_cursors: [usize; 4],
-    category_masks: [u8; 4],
+    category_masks: [u16; 4],
     available: bool,
     detail: bool,
     history_detail_scroll: u16,
@@ -211,6 +211,8 @@ impl App {
                 "cancelled",
                 "timeout",
                 "out_of_memory",
+                "running",
+                "pending",
                 "other",
             ]
         } else {
@@ -324,6 +326,15 @@ impl App {
         });
         v
     }
+    /// Whether a job belongs to one of the selected partitions (all when none are selected).
+    fn partition_matches(&self, j: &data::Job) -> bool {
+        self.args.partition.is_empty()
+            || self
+                .args
+                .partition
+                .split(',')
+                .any(|p| j.partition.split(',').any(|jp| jp == p))
+    }
     fn compute_job_indices(&self) -> Vec<usize> {
         let q = self.query.to_lowercase();
         let mut v: Vec<_> = self
@@ -332,12 +343,7 @@ impl App {
             .enumerate()
             .filter(|(_, j)| {
                 (self.tab == 3 || j.user == self.args.user)
-                    && (self.args.partition.is_empty()
-                        || self
-                            .args
-                            .partition
-                            .split(',')
-                            .any(|p| j.partition.split(',').any(|jp| jp == p)))
+                    && self.partition_matches(j)
                     && (self.tab == 1
                         || self.category_masks[usize::from(self.tab - 1)] == 0
                         || self.category_masks[usize::from(self.tab - 1)]
@@ -350,7 +356,9 @@ impl App {
                                 (4, "CANCELLED") => 3,
                                 (4, "TIMEOUT") => 4,
                                 (4, "OUT_OF_MEMORY") => 5,
-                                (4, _) => 6,
+                                (4, "RUNNING") => 6,
+                                (4, "PENDING") => 7,
+                                (4, _) => 8,
                                 (_, "RUNNING") => 1,
                                 (_, "PENDING") => 2,
                                 (_, "COMPLETING") => 3,
@@ -377,7 +385,10 @@ impl App {
                 "submitted" => Some(b.submitted.cmp(&a.submitted)),
                 "name" => Some(a.name.cmp(&b.name)),
                 "state" => Some(a.state.cmp(&b.state)),
-                "ended" => Some(b.end.cmp(&a.end)),
+                "ended" => {
+                    let missing = |j: &data::Job| crate::top::ui::present(&j.end) == "—";
+                    Some(missing(a).cmp(&missing(b)).then(b.end.cmp(&a.end)))
+                }
                 _ if self.tab == 4 => Some(b.submitted.cmp(&a.submitted)),
                 _ => None,
             };

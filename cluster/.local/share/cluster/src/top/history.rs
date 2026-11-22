@@ -1,7 +1,8 @@
 use crate::top::{
     App, Args,
     data::{self, Job},
-    theme::{ACCENT, EDGE, FG, GREEN, RED, focus_style, muted, selection_style},
+    theme::{ACCENT, EDGE, FG, RED, focus_style, muted, selection_style},
+    ui,
 };
 use anyhow::{Context, Result, bail};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -10,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
 };
 use std::{
     fs::File,
@@ -777,21 +778,7 @@ pub fn draw_log(f: &mut Frame, area: Rect, log: &LogView) {
 }
 
 pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
-    let title = format!(
-        " Last {} days · newest first{} ",
-        app.args.history_days,
-        if app.history_loading {
-            " · refreshing…"
-        } else {
-            ""
-        },
-    );
-    let block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(EDGE))
-        .title(title);
-    let mut inner = block.inner(area);
-    f.render_widget(block, area);
+    let mut inner = area;
     if app.history_unsupported && app.history.is_empty() {
         let lines = vec![
             Line::from(Span::styled(
@@ -853,51 +840,61 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
         crate::top::ui::viewport(&mut app.selected, app.job_view.len(), inner.height);
     app.hits.rows = Some(crate::top::ui::RowHits::new(
         inner,
-        1,
+        2,
         start,
         capacity.min(app.job_view.len() - start),
     ));
-    let rows = app.job_view.iter().skip(start).take(capacity).map(|&i| {
-        let j = &app.history[i];
-        let color = if j.state.starts_with("COMPLETED") {
-            GREEN
-        } else if j.state.starts_with("FAILED")
-            || j.state.starts_with("TIMEOUT")
-            || j.state.starts_with("OUT_OF_MEMORY")
-            || j.state.starts_with("NODE_FAIL")
+    let visible = || {
+        app.job_view
+            .iter()
+            .skip(start)
+            .take(capacity)
+            .map(|&i| &app.history[i])
+    };
+    // Size short columns to their content so the job name keeps the remaining width.
+    let fit = |header: usize, max: usize, len: fn(&Job) -> usize| {
+        visible().map(len).max().unwrap_or(0).clamp(header, max) as u16
+    };
+    let id_width = fit(3, 12, |j| j.id.chars().count());
+    let elapsed_width = fit(7, 10, |j| ui::elapsed_label(&j.elapsed).chars().count());
+    let rows = visible().map(|j| {
+        let (status, color) = ui::job_state(&j.state);
+        let mut state = vec![Span::styled(status, ui::style(color))];
+        // Cancelled jobs always end on a signal, so their exit code adds nothing.
+        if let Some(code) = ui::notable_exit(&j.exit_code)
+            && !j.state.starts_with("CANCELLED")
         {
-            RED
-        } else {
-            FG
-        };
+            state.push(Span::styled(format!(" {code}"), Style::default().fg(RED)));
+        }
         Row::new(vec![
-            j.id.as_str(),
-            j.name.as_str(),
-            j.state.as_str(),
-            j.elapsed.as_str(),
-            j.exit_code.as_str(),
-            j.end.as_str(),
+            Cell::from(j.id.clone()).style(Style::default().fg(FG)),
+            Cell::from(j.name.clone()).style(Style::default().fg(FG)),
+            Cell::from(Line::from(state)),
+            Cell::from(ui::elapsed_label(&j.elapsed)).style(muted()),
+            Cell::from(ui::short_time(&j.end)).style(muted()),
         ])
-        .style(Style::default().fg(color))
     });
+    // `11-22 15:28` fits beside the inspector; the name column absorbs the rest.
+    let show_ended = inner.width >= 60;
     f.render_stateful_widget(
         Table::new(
             rows,
             [
-                Constraint::Length(12),
+                Constraint::Length(id_width),
                 Constraint::Min(12),
-                Constraint::Length(14),
-                Constraint::Length(10),
-                Constraint::Length(5),
-                Constraint::Length(if inner.width >= 95 { 19 } else { 0 }),
+                Constraint::Length(13),
+                Constraint::Length(elapsed_width),
+                Constraint::Length(if show_ended { 11 } else { 0 }),
             ],
         )
         .header(
-            Row::new(["JOB", "NAME", "STATE", "ELAPSED", "EXIT", "ENDED"])
-                .style(muted().add_modifier(Modifier::BOLD)),
+            Row::new(["JOB", "NAME", "STATE", "ELAPSED", "ENDED"])
+                .style(muted().add_modifier(Modifier::BOLD))
+                .height(2),
         )
+        .column_spacing(1)
         .row_highlight_style(selection_style())
-        .highlight_symbol("› "),
+        .highlight_symbol("▌ "),
         inner,
         &mut local_state,
     );
