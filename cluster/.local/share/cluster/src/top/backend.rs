@@ -8,11 +8,25 @@ use crate::top::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
 const PROTOCOL: u8 = 1;
+/// Until a host has accepted one login, its queries connect one at a time. The
+/// first opens the shared SSH connection (ControlMaster) that later queries
+/// reuse, instead of several password logins racing; Hendrix rejects some
+/// concurrent ones, and repeated failures can count towards a lockout.
+static LOGIN_GATE: Mutex<()> = Mutex::new(());
+static LOGGED_IN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+fn logged_in(host: &str) -> bool {
+    LOGGED_IN
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(host)
+}
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum Request {
@@ -143,7 +157,17 @@ fn call(args: &Args, request: Request) -> Result<Reply> {
         command.stdin(std::process::Stdio::null());
         data::capture(&mut command, duration, limit, 1024 * 1024)
     };
+    let gate =
+        (!logged_in(host)).then(|| LOGIN_GATE.lock().unwrap_or_else(|error| error.into_inner()));
     let mut result = query().with_context(|| format!("Connect to {host}"))?;
+    // 78 means the remote helper needs installing, which still proves the login.
+    if result.status.success() || result.status.code() == Some(78) {
+        LOGGED_IN
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(host.clone());
+    }
+    drop(gate);
     if result.status.code() == Some(78) {
         let mut upload = crate::remote::ssh_with_options(host, None, &prepared.upload, &options)?;
         upload.stdin(std::fs::File::open(&prepared.executable)?);
