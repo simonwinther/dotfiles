@@ -4,7 +4,19 @@ import fs from "node:fs";
 import { after, test } from "node:test";
 import { copy, destroyAll, loadPage, pageCount, select } from "./helpers.mjs";
 
+import { itemSelection } from "../lib/selection.js";
+
 after(destroyAll);
+
+test("copy maps around omitted PDF text and rejects ambiguous selected spans", () => {
+  const items = ["before", "", "hidden", "same", "same", "after"].map((str) => ({ str }));
+  const spans = ["before", "same", "after"].map((textContent) => ({ textContent }));
+  const ranges = [[0, 3]];
+  for (const [leaf, index] of [[0, 0], [2, 5]]) {
+    assert.deepEqual(itemSelection({ spans, leaves: new Map([[leaf, ranges]]) }, items), new Map([[index, ranges]]));
+  }
+  assert.equal(itemSelection({ spans, leaves: new Map([[1, ranges]]) }, items), null);
+});
 
 const EXPECTED = new URL("expected/", import.meta.url);
 

@@ -44,18 +44,29 @@ export function selectedLeaves(selection, root) {
   return [...pages.values()].filter((page) => page.leaves.size).sort((a, b) => a.pageNumber - b.pageNumber);
 }
 
-// The text layer renders one span per non-empty text item, in order.
+// PDF.js can omit text items from the DOM. Map visible spans in reading order.
 export function itemSelection(page, items) {
-  const nonEmpty = [];
-  items.forEach((item, index) => {
-    if (item.str) nonEmpty.push(index);
-  });
-  if (nonEmpty.length !== page.spans.length) return null;
+  const visible = page.spans.map((span) => span.textContent);
+  const earliest = [];
+  let next = 0;
+  for (let leaf = 0; leaf < visible.length; leaf++) {
+    while (next < items.length && items[next].str !== visible[leaf]) next++;
+    if (next === items.length) return null;
+    earliest.push(next);
+    next++;
+  }
+
+  // A repeated string surrounding an omission could refer to different formulas.
+  // Only copy selected spans whose earliest and latest possible positions agree.
   const selection = new Map();
-  for (const [leaf, ranges] of page.leaves) {
-    const itemIndex = nonEmpty[leaf];
-    if (items[itemIndex].str !== page.spans[leaf].textContent) return null;
-    selection.set(itemIndex, ranges);
+  let last = items.length - 1;
+  for (let leaf = visible.length - 1; leaf >= 0; leaf--) {
+    while (items[last].str !== visible[leaf]) last--;
+    if (page.leaves.has(leaf)) {
+      if (earliest[leaf] !== last) return null;
+      selection.set(last, page.leaves.get(leaf));
+    }
+    last--;
   }
   return selection;
 }
