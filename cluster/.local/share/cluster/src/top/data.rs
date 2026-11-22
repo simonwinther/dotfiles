@@ -258,10 +258,17 @@ impl Capture {
     pub fn text(self, program: &str) -> Result<String> {
         if !self.status.success() {
             let error = String::from_utf8_lossy(&self.stderr);
-            if error.trim().is_empty() {
+            // OpenSSH prefixes advisory banners (such as the post-quantum notice) with "** ";
+            // they precede the real failure and would otherwise fill the one-line status.
+            let meaningful = error
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with("**"))
+                .collect::<Vec<_>>();
+            if meaningful.is_empty() {
                 bail!("{program}: {}", self.status);
             }
-            bail!("{program}: {}", error.trim());
+            bail!("{program}: {}", meaningful.join(" · "));
         }
         Ok(String::from_utf8_lossy(&self.stdout).into_owned())
     }
@@ -503,6 +510,22 @@ pub fn fetch(partition: &str, timeout: Duration) -> Result<Snapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ssh_errors_skip_advisory_banners() {
+        use std::os::unix::process::ExitStatusExt;
+        let capture = Capture {
+            status: std::process::ExitStatus::from_raw(255 << 8),
+            stdout: Vec::new(),
+            stderr: b"** WARNING: connection is not using a post-quantum key exchange algorithm.\n\
+                ** This session may be vulnerable.\n\
+                me@host: Permission denied (publickey,password).\n"
+                .to_vec(),
+        };
+        assert_eq!(
+            capture.text("ssh").unwrap_err().to_string(),
+            "ssh: me@host: Permission denied (publickey,password)."
+        );
+    }
     #[test]
     fn gres_and_tres_do_not_double_count() {
         assert_eq!(
