@@ -198,6 +198,25 @@ ssh -t hendrix mytop
 ssh hendrix 'mytop --once'
 ```
 
+### Hendrix login
+
+`cluster top` runs ssh non-interactively with `-o BatchMode=yes`. On NixOS,
+`ssh` on `PATH` is the `hendrix-ssh` wrapper from the `hendrix` package
+(`hendrix/.local/share/hendrix/ssh`). For the Hendrix aliases it logs in with
+the saved KU password (`~/.config/hendrix/ku-password`) through its `askpass`
+helper and prepends `-o BatchMode=no`. OpenSSH keeps the first value of an
+option, so the wrapper's setting wins. The login stays non-interactive because
+askpass never reads the terminal, `NumberOfPasswordPrompts=1` fails fast, and
+`StrictHostKeyChecking yes` rules out host key prompts. `hendrix.py ssh`, the
+path that starts the VPN first, passes the same options; keep both in sync.
+
+Hendrix ignores `~/.ssh/authorized_keys`. Its sshd reads only
+`/etc/ssh/authorized_keys/%u` and keys registered in the UCPH directory
+(`sss_ssh_authorizedkeys`), so password login through askpass is the working
+method. A status line such as `Permission denied (publickey,...,password)`
+means the wrapper was bypassed, the saved password is missing or wrong, or the
+running wrapper predates the `BatchMode=no` option.
+
 ## Install terminal configurations
 
 From the PC with this dotfiles checkout:

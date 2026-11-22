@@ -28,7 +28,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Bounds name resolution too, since the short name requires KU DNS.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const SYSTEM_SSH: &str = "/run/current-system/sw/bin/ssh";
-const LOGIN_OPTIONS: [&str; 4] = [
+/// The saved-password askpass login never reads the terminal, so it also serves
+/// callers that pass `BatchMode=yes` (such as `cluster top`). OpenSSH keeps the
+/// first value given for an option, and these precede the caller's arguments.
+const LOGIN_OPTIONS: [&str; 6] = [
+    "-o",
+    "BatchMode=no",
     "-o",
     "PreferredAuthentications=publickey,password,keyboard-interactive",
     "-o",

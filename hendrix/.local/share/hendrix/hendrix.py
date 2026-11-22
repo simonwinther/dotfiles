@@ -192,7 +192,10 @@ def ssh(args):
     if not PASSWORD.is_file():
         os.execv(SSH, [SSH, *args])
     ensure_vpn()
-    os.execve(SSH, [SSH, '-o', 'PreferredAuthentications=publickey,password,keyboard-interactive',
+    # Matches LOGIN_OPTIONS in ssh/src/main.rs: askpass never reads the terminal, so the
+    # first-wins BatchMode=no lets batch callers such as `cluster top` log in too.
+    os.execve(SSH, [SSH, '-o', 'BatchMode=no',
+                   '-o', 'PreferredAuthentications=publickey,password,keyboard-interactive',
                    '-o', 'NumberOfPasswordPrompts=1', *args], askpass_env())
 
 
