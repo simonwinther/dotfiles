@@ -58,7 +58,7 @@ if hl.get_config("plugin.hyprspace.follow_mouse") ~= nil then
                 follow_mouse = true,
                 warp_cursor = true,
                 -- Neutral greys with the desktop's own accent (the green of the active
-                -- window border); fullscreen uses the border gradient's yellow.
+                -- window border).
                 overview = {
                     bg_dim = 0.80,
                     bg_color = "rgba(0a0a0bff)",
@@ -79,7 +79,7 @@ if hl.get_config("plugin.hyprspace.follow_mouse") ~= nil then
                     exclude_workspaces = "",
                     all_monitors = true,
                     font = "Sans 12",
-                    fullscreen_border = "rgba(cddc39ff)",
+                    fullscreen_border = "rgba(6bbf7aff)",
                 },
                 switcher = {
                     icon_size = 96,
