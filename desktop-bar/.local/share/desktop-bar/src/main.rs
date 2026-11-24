@@ -206,6 +206,7 @@ struct App {
     hover_suppressed_until: Instant,
     trace_frames: bool,
     refresh_scheduled: bool,
+    notice_frames_scheduled: bool,
     last_seat: Option<wl_seat::WlSeat>,
     last_serial: u32,
     last_time: u32,
@@ -385,6 +386,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         hover_suppressed_until: Instant::now(),
         trace_frames: std::env::var_os("DESKTOP_BAR_TRACE_FRAMES").is_some(),
         refresh_scheduled: false,
+        notice_frames_scheduled: false,
         last_seat: None,
         last_serial: 0,
         last_time: 0,
@@ -1064,12 +1066,13 @@ impl App {
                 && let Kind::Shell(model) = &mut f.panel.kind
             {
                 let mut arguments = command[1..].to_vec();
-                if self.modifiers.ctrl
-                    && model.page == shell::Page::Audio
+                if model.page == shell::Page::Audio
                     && let Some(&i) = model.filtered.get(model.selected)
                 {
                     let item = &model.entries[i];
-                    if item.category == "outputs" || item.category == "inputs" {
+                    let switches_default = self.modifiers.ctrl
+                        && (item.category == "outputs" || item.category == "inputs");
+                    if switches_default {
                         arguments = vec![
                             "audio".into(),
                             if item.category == "outputs" {
@@ -1082,10 +1085,13 @@ impl App {
                             String::new(),
                         ];
                     }
+                    model.show_audio_feedback(i, switches_default);
+                    f.canvas.request(f.window.wl_surface(), &self.qh);
                 }
                 model.refreshing = true;
                 self.shell.native_action(arguments, model.generation);
             }
+            self.schedule_notice_frames();
         } else if command
             .first()
             .is_some_and(|value| value == "notification-detail")
@@ -2441,6 +2447,43 @@ impl App {
         self.audio_drag = None;
         if self.floating.as_ref().is_some_and(|f| f.canvas.configured) {
             self.paint_popup();
+        }
+    }
+    /// Redraws the shell only while an action notice flashes or fades.
+    fn schedule_notice_frames(&mut self) {
+        let Some(delay) = self.notice_next_frame() else {
+            return;
+        };
+        if self.notice_frames_scheduled {
+            return;
+        }
+        self.notice_frames_scheduled = self
+            .handle
+            .insert_source(Timer::from_duration(delay), |_, _, app| {
+                if let Some(f) = &mut app.floating
+                    && let Kind::Shell(_) = &f.panel.kind
+                {
+                    f.canvas.request(f.window.wl_surface(), &app.qh);
+                }
+                match app.notice_next_frame() {
+                    Some(delay) => TimeoutAction::ToDuration(delay),
+                    None => {
+                        if let Some(f) = &mut app.floating
+                            && let Kind::Shell(model) = &mut f.panel.kind
+                        {
+                            model.notice = None;
+                        }
+                        app.notice_frames_scheduled = false;
+                        TimeoutAction::Drop
+                    }
+                }
+            })
+            .is_ok();
+    }
+    fn notice_next_frame(&self) -> Option<std::time::Duration> {
+        match &self.floating.as_ref()?.panel.kind {
+            Kind::Shell(model) => model.notice.as_ref()?.next_frame(),
+            _ => None,
         }
     }
     /// Runs the one-second refresh only while a live page is shown, so an

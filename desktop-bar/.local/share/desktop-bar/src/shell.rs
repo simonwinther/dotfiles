@@ -17,7 +17,52 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
+    time::{Duration, Instant},
 };
+
+/// Confirms an audio action on the changed row and in a footer toast.
+#[derive(Clone, Debug)]
+pub struct Notice {
+    pub entry_id: String,
+    pub icon: &'static str,
+    pub message: String,
+    pub warning: bool,
+    pub shown: Instant,
+}
+impl Notice {
+    pub const FLASH: Duration = Duration::from_millis(650);
+    pub const FADE_START: Duration = Duration::from_millis(2200);
+    pub const LIFETIME: Duration = Duration::from_millis(2600);
+    pub fn age(&self) -> Duration {
+        self.shown.elapsed()
+    }
+    pub fn expired(&self) -> bool {
+        self.age() >= Self::LIFETIME
+    }
+    /// Delay until the next frame that changes the notice's appearance.
+    pub fn next_frame(&self) -> Option<Duration> {
+        let age = self.age();
+        let frame = Duration::from_millis(33);
+        if age < Self::FLASH || (Self::FADE_START..Self::LIFETIME).contains(&age) {
+            Some(frame)
+        } else if age < Self::FADE_START {
+            Some(Self::FADE_START - age)
+        } else {
+            None
+        }
+    }
+    fn flash_strength(&self) -> f32 {
+        1.0 - (self.age().as_secs_f32() / Self::FLASH.as_secs_f32()).min(1.0)
+    }
+    fn toast_opacity(&self) -> f32 {
+        let fade = (Self::LIFETIME - Self::FADE_START).as_secs_f32();
+        ((Self::LIFETIME.saturating_sub(self.age())).as_secs_f32() / fade).min(1.0)
+    }
+}
+
+const MUTED_SPEAKER_ICON: &str = "\u{f026}";
+const MUTED_MICROPHONE_ICON: &str = "\u{f131}";
+const CHECK_ICON: &str = "\u{f00c}";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -167,6 +212,7 @@ pub struct Model {
     pub revision: u64,
     pub picker: Option<Arc<crate::picker::Request>>,
     pub clear_after_action: Option<String>,
+    pub notice: Option<Notice>,
 }
 impl Model {
     pub fn new(page: Page, generation: u64, theme: &Theme) -> Self {
@@ -317,6 +363,7 @@ impl Model {
             revision: 0,
             picker: None,
             clear_after_action: None,
+            notice: None,
         };
         model.filter();
         model.select_current();
@@ -464,6 +511,54 @@ impl Model {
             .get(self.selected)
             .map(|&i| self.entries[i].command.clone())
     }
+    /// Applies an audio row action locally so the row changes before the
+    /// sound server round trip, and announces what happened.
+    pub fn show_audio_feedback(&mut self, index: usize, switches_default: bool) {
+        let Some(entry) = self.entries.get(index) else {
+            return;
+        };
+        let category = entry.category.clone();
+        let name = entry.name.clone();
+        let (icon, message, warning) = if switches_default {
+            for item in self.entries.iter_mut().filter(|item| item.category == category) {
+                item.selected = false;
+            }
+            self.entries[index].selected = true;
+            let kind = if category == "outputs" { "Output" } else { "Input" };
+            (CHECK_ICON, format!("{kind} switched to {name}"), false)
+        } else if category == "configuration" {
+            let card = entry.command.get(3).cloned();
+            for item in self
+                .entries
+                .iter_mut()
+                .filter(|item| item.category == category && item.command.get(3) == card.as_ref())
+            {
+                item.selected = false;
+            }
+            self.entries[index].selected = true;
+            (CHECK_ICON, format!("Profile set to {name}"), false)
+        } else if entry.level.is_some() {
+            let entry = &mut self.entries[index];
+            entry.muted = !entry.muted;
+            if let Some(target) = entry.command.get_mut(4) {
+                *target = (!entry.muted).to_string();
+            }
+            if entry.muted {
+                (muted_icon(&category), format!("Muted {name}"), true)
+            } else {
+                (entry_icon(entry), format!("Unmuted {name}"), false)
+            }
+        } else {
+            return;
+        };
+        self.notice = Some(Notice {
+            entry_id: self.entries[index].id.clone(),
+            icon,
+            message,
+            warning,
+            shown: Instant::now(),
+        });
+    }
     pub fn finish_query_action(&mut self, success: bool) {
         if let Some(submitted) = self.clear_after_action.take()
             && success
@@ -593,6 +688,30 @@ impl Model {
         } else {
             vec![]
         };
+        let audio_name_widths: HashMap<usize, f32> = if self.page == Page::Audio {
+            self.filtered
+                .iter()
+                .map(|&index| {
+                    let entry = &self.entries[index];
+                    let limit = if entry.level.is_some() { 30 } else { 48 };
+                    let name: String = entry.name.chars().take(limit).collect();
+                    (index, text.width(&name, 12.0 * s) / s)
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        let badge_widths: HashMap<&str, f32> = ["DEFAULT", "MUTED", "ACTIVE"]
+            .into_iter()
+            .map(|label| (label, text.width(label, 8.5 * s) / s))
+            .collect();
+        let notice = self
+            .notice
+            .as_ref()
+            .filter(|notice| self.page == Page::Audio && !notice.expired());
+        let notice_width = notice
+            .map(|notice| text.width(&notice.message, 10.0 * s) / s)
+            .unwrap_or_default();
         let clip = Rect::new(20.0, 8.0, w - 40.0, h - 16.0).scale(s);
         let mut line =
             |p: &mut tiny_skia::Pixmap, value: &str, x: f32, y: f32, size: f32, color: Color| {
@@ -874,13 +993,52 @@ impl Model {
                         t.accent().alpha(opacity),
                     );
                 }
+                let audio_device = entry.category == "outputs" || entry.category == "inputs";
+                let is_default = audio_device && entry.selected;
+                let is_active_profile = entry.category == "configuration" && entry.selected;
+                let is_muted = entry.level.is_some() && entry.muted;
+                if let Some(notice) = notice.filter(|notice| notice.entry_id == entry.id) {
+                    let tone = if notice.warning { t.red() } else { t.accent() };
+                    let strength = notice.flash_strength();
+                    if strength > 0.0 {
+                        draw::rounded(
+                            p,
+                            Rect::new(18.0, y, w - 36.0, 40.0).scale(s),
+                            10.0 * s,
+                            tone.alpha(0.35 * strength * opacity),
+                        );
+                        draw::outline(
+                            p,
+                            Rect::new(18.0, y, w - 36.0, 40.0).scale(s),
+                            10.0 * s,
+                            1.5 * s,
+                            tone.alpha(strength * opacity),
+                        );
+                    }
+                }
+                let (tile, icon_color) = if is_muted {
+                    (t.red().alpha(0.18 * opacity), t.red().alpha(opacity))
+                } else if is_default || is_active_profile {
+                    (t.accent().alpha(0.22 * opacity), t.accent().alpha(opacity))
+                } else {
+                    (fg.alpha(0.07), dim)
+                };
                 draw::rounded(
                     p,
                     Rect::new(28.0, y + 5.0, 30.0, 30.0).scale(s),
                     8.0 * s,
-                    fg.alpha(0.07),
+                    tile,
                 );
-                if let Some(image) = self.images.get(&entry.image) {
+                if self.page == Page::Audio && (is_muted || audio_device || is_active_profile) {
+                    let icon = if is_muted {
+                        muted_icon(&entry.category)
+                    } else if entry.icon.is_empty() {
+                        entry_icon(entry)
+                    } else {
+                        &entry.icon
+                    };
+                    line(p, icon, 36.0, y + 25.0, 13.0, icon_color);
+                } else if let Some(image) = self.images.get(&entry.image) {
                     let transform = tiny_skia::Transform::from_scale(
                         23.0 * s / image.width() as f32,
                         23.0 * s / image.height() as f32,
@@ -933,6 +1091,33 @@ impl Model {
                 if entry.level.is_none() {
                     line(p, &name, 71.0, y + 17.0, 12.0, fg);
                 }
+                if self.page == Page::Audio {
+                    let mut badge_x =
+                        71.0 + audio_name_widths.get(&index).copied().unwrap_or_default() + 8.0;
+                    let badges = [
+                        (is_default, "DEFAULT", t.accent()),
+                        (is_active_profile, "ACTIVE", t.accent()),
+                        (is_muted, "MUTED", t.red()),
+                    ];
+                    for (_, label, tone) in badges.into_iter().filter(|(shown, ..)| *shown) {
+                        let badge_width = badge_widths[label] + 12.0;
+                        draw::rounded(
+                            p,
+                            Rect::new(badge_x, y + 6.0, badge_width, 15.0).scale(s),
+                            4.0 * s,
+                            tone.alpha(0.22 * opacity),
+                        );
+                        draw::outline(
+                            p,
+                            Rect::new(badge_x, y + 6.0, badge_width, 15.0).scale(s),
+                            4.0 * s,
+                            s,
+                            tone.alpha(0.7 * opacity),
+                        );
+                        line(p, label, badge_x + 6.0, y + 17.0, 8.5, tone.alpha(opacity));
+                        badge_x += badge_width + 6.0;
+                    }
+                }
                 if let Some(level) = entry.level {
                     line(
                         p,
@@ -940,16 +1125,17 @@ impl Model {
                         71.0,
                         y + 17.0,
                         12.0,
-                        fg,
+                        if is_muted { dim } else { fg },
                     );
                     line(
                         p,
-                        if entry.category != "outputs" && entry.category != "inputs" {
-                            "Enter mute · ←/→ level"
-                        } else if entry.selected {
-                            "Default · Ctrl Enter switches"
-                        } else {
-                            "Enter mute · Ctrl Enter switches"
+                        match (audio_device, is_muted, is_default) {
+                            (false, true, _) => "Enter unmute · ←/→ level",
+                            (false, false, _) => "Enter mute · ←/→ level",
+                            (true, true, true) => "Enter unmute",
+                            (true, false, true) => "Enter mute",
+                            (true, true, false) => "Enter unmute · Ctrl+Enter set default",
+                            (true, false, false) => "Enter mute · Ctrl+Enter set default",
                         },
                         71.0,
                         y + 32.0,
@@ -967,9 +1153,17 @@ impl Model {
                         p,
                         Rect::new(x, y + 23.0, 112.0 * level.min(100) as f32 / 100.0, 4.0).scale(s),
                         2.0 * s,
-                        if entry.muted { dim } else { t.accent() },
+                        if is_muted {
+                            t.red().alpha(0.45 * opacity)
+                        } else {
+                            t.accent().alpha(opacity)
+                        },
                     );
-                    line(p, &format!("{level}%"), w - 58.0, y + 28.0, 10.0, dim);
+                    if is_muted {
+                        line(p, "Muted", w - 62.0, y + 28.0, 10.0, t.red().alpha(opacity));
+                    } else {
+                        line(p, &format!("{level}%"), w - 58.0, y + 28.0, 10.0, dim);
+                    }
                 } else {
                     line(p, &detail, 71.0, y + 32.0, 10.0, dim);
                 }
@@ -1002,7 +1196,18 @@ impl Model {
                 dim,
             );
         }
-        if !self.error.is_empty() && !self.filtered.is_empty() && self.page != Page::Controls {
+        if let Some(notice) = notice {
+            let tone = if notice.warning { t.red() } else { t.accent() };
+            let alpha = notice.toast_opacity() * opacity;
+            let toast_width = notice_width + 44.0;
+            let toast = Rect::new((w - toast_width) / 2.0, h - 38.0, toast_width, 26.0);
+            let background = t.color("background", if t.light { "#eff1f5" } else { "#18171f" });
+            draw::rounded(p, toast.scale(s), 13.0 * s, background.alpha(alpha));
+            draw::rounded(p, toast.scale(s), 13.0 * s, tone.alpha(0.2 * alpha));
+            draw::outline(p, toast.scale(s), 13.0 * s, s, tone.alpha(0.8 * alpha));
+            line(p, notice.icon, toast.x + 14.0, h - 20.5, 11.0, tone.alpha(alpha));
+            line(p, &notice.message, toast.x + 32.0, h - 21.0, 10.0, fg.alpha(alpha));
+        } else if !self.error.is_empty() && !self.filtered.is_empty() && self.page != Page::Controls {
             let error: String = self
                 .error
                 .chars()
@@ -1029,6 +1234,24 @@ impl Model {
         if let Some(rect) = self.media_rect() {
             crate::now_playing::draw(p, text, &data.media, rect, fg, s);
         }
+    }
+}
+
+fn microphone_category(category: &str) -> bool {
+    category == "inputs" || category == "recording"
+}
+fn muted_icon(category: &str) -> &'static str {
+    if microphone_category(category) {
+        MUTED_MICROPHONE_ICON
+    } else {
+        MUTED_SPEAKER_ICON
+    }
+}
+fn entry_icon(entry: &Entry) -> &'static str {
+    if microphone_category(&entry.category) {
+        "\u{f130}"
+    } else {
+        "\u{f028}"
     }
 }
 
