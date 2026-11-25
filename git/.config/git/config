@@ -20,6 +20,10 @@
     last = log -1 HEAD
     amend = commit --amend --no-edit
 
+[core]
+	untrackedCache = true    # Cache untracked-file scans in the index (faster status/prompt)
+[index]
+	version = 4              # Smaller, faster-to-read index for newly created repositories
 [init]
 	defaultBranch = master
 [pull]
