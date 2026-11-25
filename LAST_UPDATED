@@ -15,7 +15,7 @@ desktop-bar: 19/11/2026
 desktop-ring: 17/11/2026
 desktop-search: 17/11/2026
 desktop-settings: 19/11/2026
-desktop-tools: 19/11/2026
+desktop-tools: 25/11/2026
 dictate: 17/11/2026
 ferry: 25/10/2026
 file-picker: 17/11/2026
@@ -36,4 +36,4 @@ tmux: 21/11/2026
 wallpapers: 22/10/2026
 window-labels: 22/11/2026
 zathura: 03/10/2026
-zsh: 17/11/2026
+zsh: 25/11/2026
