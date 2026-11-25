@@ -1,6 +1,7 @@
 """Wallpaper component with injected dependencies."""
 from __future__ import annotations
 from dataclasses import dataclass
+import os
 import re
 import bar_config
 from typing import TYPE_CHECKING
@@ -18,6 +19,8 @@ class Wallpaper:
 
     def apply_wallpaper(self, command, image, output, duration) -> None:
         command = list(command)
+        # awww reports the canonical path, so a symlinked library image shows its target.
+        displayed = tuple(f"currently displaying: image: {path}" for path in {str(image), os.path.realpath(image)})
         for attempt in range(2):
             if attempt:
                 # A compositor reload can resize an output after awww accepted the image.
@@ -32,7 +35,7 @@ class Wallpaper:
                            if not output or re.search(r"(?:^|: )" + re.escape(output) + r": ", line)]
                 now = self.ctx.clock.monotonic()
                 if not result.returncode and outputs and all(
-                        line.endswith(f"currently displaying: image: {image}") for line in outputs):
+                        line.endswith(displayed) for line in outputs):
                     if confirmed_since is None:
                         confirmed_since = now
                     # Output reconfiguration can launch a delayed cache restore after acceptance.
