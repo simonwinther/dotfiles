@@ -1,12 +1,19 @@
 """Small on-demand catalogs for the native desktop shell."""
 
-import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
+
+# Imported on first use: desktopctl loads this module for every command.
+DEFERRED_MODULES = frozenset({"hashlib", "shutil", "tempfile"})
+
+
+def __getattr__(name):
+    """Keep deferred modules available as module attributes."""
+    if name in DEFERRED_MODULES:
+        return __import__(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def menus_path(config, environment=None):
@@ -27,6 +34,7 @@ def application_command(command):
         raise ValueError("An application command is required")
     if Path(command[0]).name in {"uwsm-app", "uwsm", "app2unit", "systemd-run"}:
         return command
+    import shutil
     if shutil.which("uwsm-app"):
         return ["uwsm-app", "--", *command]
     if shutil.which("systemd-run"):
@@ -37,6 +45,7 @@ def application_command(command):
 def application_entries(data):
     import configparser
     import locale
+    import shutil
     seen = set()
     result = []
     icons = IconLookup(data)
@@ -110,6 +119,8 @@ class IconLookup:
 
 
 def thumbnail(source, cache, fit=False):
+    import hashlib
+    import tempfile
     source = Path(source).resolve(strict=True)
     stat = source.stat()
     identity = f"{source}:{stat.st_mtime_ns}:{stat.st_size}" + (":fit" if fit else "")
@@ -137,6 +148,8 @@ def thumbnail(source, cache, fit=False):
 
 def cover(url, cache):
     """Fetch bounded artwork only when a player changes its cover URL."""
+    import hashlib
+    import tempfile
     import urllib.parse
     import urllib.request
     parsed = urllib.parse.urlsplit(url)

@@ -4,35 +4,48 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
-import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import re
 import select
-import shlex
-import shutil
 import signal
-import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
-import uuid
 
 import desktop_process as processes
 import bar_config
 import bar_catalog
 
+# Most keybinding commands never need these; functions import them on first use.
+DEFERRED_MODULES = frozenset({"hashlib", "shlex", "shutil", "socket", "tempfile", "uuid"})
+
+
+def __getattr__(name):
+    """Keep deferred modules and the renderer identity available as module attributes."""
+    if name in DEFERRED_MODULES:
+        return __import__(name)
+    if name == "THEME_RENDERER":
+        return theme_renderer()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def runtime_directory():
+    if "XDG_RUNTIME_DIR" in os.environ:
+        return Path(os.environ["XDG_RUNTIME_DIR"])
+    import tempfile
+    return Path(tempfile.gettempdir()) / f"desktop-{os.getuid()}"
+
+
 HOME = Path.home()
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
 DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
 STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "desktop"
-RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", Path(tempfile.gettempdir()) / f"desktop-{os.getuid()}")) / "desktop"
+RUNTIME = runtime_directory() / "desktop"
 SYS_CLASS = Path("/sys/class")
-THEME_RENDERER = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 THEME_FILES = ("clipboard.css", "swayosd.css", "mako.ini", "hyprland.conf", "hyprlock.conf",
                "btop.theme", "eza.yml")
 
@@ -125,6 +138,7 @@ def atomic_write(path: Path, content: str | bytes, mode=0o600):
         return
     if path.is_symlink():
         raise ValueError(f"Refusing to overwrite a link: {path}")
+    import tempfile
     descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
@@ -142,6 +156,7 @@ def atomic_link(path: Path, target: Path):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path.exists() and not path.is_symlink():
         raise ValueError(f"Refusing to replace a file with a link: {path}")
+    import tempfile
     with tempfile.TemporaryDirectory(prefix=f".{path.name}.", dir=path.parent) as directory:
         link = Path(directory) / "link"
         link.symlink_to(target)
@@ -243,6 +258,7 @@ def load_state():
                 write_state(value)
             return value
     backup = None
+    import tempfile
     try:
         descriptor, name = tempfile.mkstemp(prefix="state.json.invalid-", suffix=".json", dir=STATE)
         backup = Path(name)
@@ -300,6 +316,7 @@ def hyprland(request):
     if not signature:
         raise ValueError("Hyprland queries require a Hyprland session")
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    import socket
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(processes.TIMEOUTS["control"])
         connection.connect(str(runtime / "hypr" / signature / ".socket.sock"))
@@ -512,12 +529,23 @@ def prepare_theme(name=None, *, follow_terminal=None):
         return _prepare_theme(state(), name, follow_terminal=follow_terminal)
 
 
+def theme_renderer():
+    """Identify this renderer's source, so a code change invalidates cached themes."""
+    if "THEME_RENDERER" not in globals():
+        import hashlib
+        globals()["THEME_RENDERER"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return globals()["THEME_RENDERER"]
+
+
 def _prepare_theme(value, name=None, *, follow_terminal=None):
+    import hashlib
+    import tempfile
+    import uuid
     defaults = settings()
     name = name or value.get("theme", defaults.get("defaultTheme", "tokyoled"))
     source = theme_path(name)
     inputs = {
-        "renderer": THEME_RENDERER,
+        "renderer": theme_renderer(),
         "name": name,
         "font": value.get("font", defaults.get("defaultFont", "JetBrainsMono Nerd Font")),
         "terminalTheme": value.get("terminalTheme", False) if follow_terminal is None else follow_terminal,
@@ -558,6 +586,7 @@ def _prepare_theme(value, name=None, *, follow_terminal=None):
 
 
 def _cached_theme(generation, key):
+    import hashlib
     try:
         manifest = read_json(generation / ".generation.json")
         return (manifest.get("key") == key and bool(manifest.get("files"))
@@ -574,6 +603,7 @@ def _publish_theme_link(path, target):
     if path.is_symlink() and path.readlink() == target:
         return
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    import tempfile
     with tempfile.TemporaryDirectory(prefix=f".{path.name}.", dir=path.parent) as directory:
         pending = Path(directory) / "link"
         pending.symlink_to(target)
@@ -640,6 +670,7 @@ def _render_theme(target, inputs, c):
 
 
 def notify(title, body=""):
+    import shutil
     if shutil.which("notify-send"):
         run(["notify-send", title, body], check=False)
 
@@ -707,6 +738,7 @@ def theme(args):
                 raise ValueError("Matugen returned an invalid color")
             return value
         stem = re.sub(r"[^a-z0-9]+", "-", image.stem.lower()).strip("-")[:32] or "wallpaper"
+        import hashlib
         name = f"generated-{stem}-{hashlib.sha256(image.read_bytes()).hexdigest()[:8]}-{mode}"
         directory = DATA / "desktop/themes" / name
         palette = {"background": role("background"), "foreground": role("on_surface"), "accent": role("primary"), "cursor": role("primary")}
@@ -863,6 +895,7 @@ def launch(args):
             selector = json.dumps("address:" + found["address"])
             run(["hyprctl", "eval", f'hl.dispatch(hl.dsp.focus({{ window = {selector} }}))'])
         else:
+            import shlex
             command = bar_catalog.application_command([rest[0]] if len(rest) == 1 else shlex.split(rest[1]) if len(rest) == 2 else rest[1:])
             os.execvp(command[0], command)
     elif what in ("audio", "bluetooth", "wifi"):
@@ -1078,7 +1111,7 @@ def brightness(args):
         raise ValueError("brightness requires display|keyboard and an adjustment")
     kind, value = args[:2]
     if kind == "display" and value in ("on", "off"):
-        run(["hyprctl", "dispatch", "dpms", value]); return
+        display_power(value); return
     directory = SYS_CLASS / ("leds" if kind == "keyboard" else "backlight")
     devices = sorted(p.name for p in directory.glob("*") if kind != "keyboard" or "kbd_backlight" in p.name)
     if not devices:
@@ -1107,8 +1140,13 @@ def osd(args):
     return run(command, check=False).returncode
 
 
+def display_power(value, *, check=True):
+    """Hyprland's Lua dispatcher rejects `hyprctl dispatch dpms`; call its dpms dispatcher."""
+    return run(["hyprctl", "eval", f'hl.dispatch(hl.dsp.dpms({{ action = "{value}" }}))'], check=check)
+
+
 def wake():
-    run(["hyprctl", "dispatch", "dpms", "on"], check=False)
+    display_power("on", check=False)
     with contextlib.suppress(ValueError, subprocess.CalledProcessError):
         brightness(["keyboard", "restore"])
 
@@ -1132,6 +1170,7 @@ def lock_worker(args):
     with state_lock("screen-lock", wait=False) as acquired:
         if not acquired:
             return
+        import shutil
         if shutil.which("1password"):
             background(["1password", "--lock"], operation="control")
         run(["hyprctl", "switchxkblayout", "all", "0"], check=False)
@@ -1142,7 +1181,7 @@ def lock_worker(args):
                 if "--only" not in args:
                     time.sleep(3)
                     if child.poll() is None:
-                        run(["hyprctl", "dispatch", "dpms", "off"], check=False)
+                        display_power("off", check=False)
                         with contextlib.suppress(ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
                             brightness(["keyboard", "off"])
                 result = child.wait()
@@ -1213,10 +1252,13 @@ def edit_screenshot(path, editor="satty"):
     if editor == "satty":
         run(["satty", "--filename", path, "--output-filename", path, "--actions-on-enter", "save-to-clipboard", "--save-after-copy", "--copy-command", "wl-copy"])
     else:
+        import shlex
         run([*shlex.split(editor), path], operation="interactive")
 
 
 def save_screenshot(directory: Path, image: bytes) -> Path:
+    import tempfile
+    import uuid
     directory.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".screenshot-", suffix=".tmp", dir=directory)
     try:
@@ -1244,6 +1286,7 @@ RECORDING_STOP_TIMEOUT = 30
 
 def recording_identity(pid):
     """Identify one Linux process incarnation, including its actual executable."""
+    import hashlib
     proc = Path(f"/proc/{pid}")
     # comm may contain spaces and closing parentheses; starttime is field 22.
     fields = (proc / "stat").read_text().rsplit(") ", 1)[1].split()
@@ -1289,6 +1332,7 @@ def recording_process(current):
 
 
 def finish_recording(current, status, error=None):
+    import uuid
     result = {**current, "status": status, "finished_at": time.time()}
     if error:
         result["error"] = error
@@ -1329,6 +1373,8 @@ def stop_recording(current):
 
 
 def start_recording(args):
+    import tempfile
+    import uuid
     directory = HOME / settings().get("recordings", "Videos")
     directory.mkdir(parents=True, exist_ok=True)
     # Rapid stop/start cycles must not reuse an output from the same second.
@@ -1474,6 +1520,7 @@ def reminder(args):
         if not 0 < minutes <= 525600:
             raise ValueError("Reminder delay must be positive and at most one year")
         message = " ".join(args[1:]) or "Reminder"
+        import uuid
         unit = "desktop-reminder-" + uuid.uuid4().hex
         run(["systemd-run", "--user", "--quiet", "--collect", "--unit=" + unit,
              f"--on-active={minutes * 60}s", "notify-send", "Reminder", message])
@@ -1493,6 +1540,7 @@ def share(args):
             raise ValueError("The clipboard has no shareable text or image; choose File instead")
         folder = RUNTIME / "shares"
         folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        import tempfile
         suffix = ".png" if mime == "image/png" else ".jpg" if mime == "image/jpeg" else ".txt"
         descriptor, filename = tempfile.mkstemp(prefix="clipboard-", suffix=suffix, dir=folder)
         path = Path(filename)
@@ -1536,6 +1584,7 @@ def edit_config(args):
         raise ValueError("config: " + ", ".join(choices))
     root = expand(os.environ.get("DOTFILES", HOME / "nixos-config/dotfiles")).resolve()
     if args[0] == "Monitors":
+        import socket
         host = socket.gethostname()
         path = root.parent / "hosts" / (host if host in ("lambda", "desktop") else "desktop") / "monitors.lua"
     else:
@@ -1673,6 +1722,7 @@ def about(args):
             notify("About artwork", "Image converted; open About to preview")
     elif action == "show":
         command = "fastfetch"
+        import shlex
         if state().get("aboutArt") and target.is_file():
             command += " --logo-type file-raw --logo " + shlex.quote(str(target))
         terminal(["--shell", command + "; read -r -n 1 -s"])
@@ -1865,6 +1915,7 @@ def seed_preferences():
 
 def seed_application_preferences():
     marker = STATE / "application-preferences-seeded"
+    import shutil
     if marker.exists() or not all(shutil.which(name) for name in ("dconf", "gsettings")):
         return
     complete = True
@@ -1905,6 +1956,7 @@ def prepare_break_reminders():
 
 
 def integrate():
+    import shutil
     seed_preferences()
     seed_application_preferences()
     prepare_break_reminders()
@@ -1933,6 +1985,7 @@ def session(args):
     if names:
         run(["systemctl", "--user", "import-environment", *names], check=False)
         run(["dbus-update-activation-environment", "--systemd", *names], check=False)
+    import shutil
     if shutil.which("uwsm"):
         run(["uwsm", "finalize", *names], check=False)
     prepare_theme()
@@ -1966,6 +2019,7 @@ def monitor_watch(args):
     if not signature:
         raise ValueError("Monitor watching requires a Hyprland session")
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    import socket
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.connect(str(runtime / "hypr" / signature / ".socket2.sock"))
         with connection.makefile() as events:

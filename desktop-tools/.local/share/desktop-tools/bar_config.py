@@ -1,7 +1,6 @@
 """Shared bar selection and native renderer settings for both command frontends."""
 
 import math
-import socket
 import json
 
 DEFAULT_BAR = "native-clean"
@@ -19,6 +18,7 @@ def selected(preferences):
 
 def open_panel(runtime, panel, preferences, *, force=False):
     """Both styles share the Morphing Notch Bar menu surface."""
+    import socket
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
             client.sendto(panel.encode(), str(runtime / "bar.sock"))
