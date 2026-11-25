@@ -100,8 +100,8 @@ class PromptStartupTests(unittest.TestCase):
             result = run_interactive(root, env,
                                      'print -r -- "$POSH_SESSION_ID"; '
                                      'print -r -- "$__dotfiles_zle_vi_mode_label"; '
-                                     'oh-my-posh print primary --shell zsh --plain; print; '
-                                     'oh-my-posh print right --shell zsh --plain')
+                                     '_omp_precmd; _omp_get_prompt primary --plain; print; '
+                                     '_omp_get_prompt right --plain')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stderr, '')
             lines = result.stdout.splitlines()
@@ -109,6 +109,22 @@ class PromptStartupTests(unittest.TestCase):
             self.assertRegex(lines[0], r'^[0-9a-f-]{36}$')
             ids.append(lines[0])
         self.assertNotEqual(ids[0], ids[1])
+
+    def test_warm_shells_start_without_running_oh_my_posh(self):
+        root, env = make_startup_home(self)
+        log = root / 'oh-my-posh-calls'
+        shim = root / 'bin/oh-my-posh'
+        shim.parent.mkdir()
+        shim.write_text(f'#!/bin/sh\necho "$*" >> {str(log)!r}\n'
+                        f'exec {shutil.which("oh-my-posh")!r} "$@"\n')
+        shim.chmod(0o755)
+        env['PATH'] = f'{shim.parent}:{env.get("PATH", os.defpath)}'
+        for expected_calls in (2, 2):  # generate the cache, then only source it
+            result = run_interactive(root, env, 'print -r -- "$_omp_secondary_prompt"')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, '')
+            self.assertIn('>', result.stdout)
+            self.assertEqual(len(log.read_text().splitlines()), expected_calls)
 
     def test_prompt_hooks_time_commands_without_starting_oh_my_posh(self):
         root, env = make_startup_home(self)

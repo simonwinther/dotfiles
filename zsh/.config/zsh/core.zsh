@@ -1,8 +1,8 @@
 [[ -o interactive ]] || return
 
 # Export
-export PATH="$HOME/sdk/flutter/bin:$PATH"
-export PATH=$HOME/.opencode/bin:$PATH
+# Manually installed SDKs, when present; Nix provides both on NixOS.
+path=( $HOME/.opencode/bin(N/) $HOME/sdk/flutter/bin(N/) $path )
 export CHROME_EXECUTABLE=chromium
 
 # ──────────────────────────── GHCUP ────────────────────────────
@@ -47,19 +47,44 @@ source ~/.config/zsh/tool-init.zsh
 __dotfiles_cached_init zoxide '' init zsh
 
 # ──────────────────────────── OH MY POSH ────────────────────────────
-# Not cached: each init must create a fresh prompt session.
-if (( $+commands[oh-my-posh] )); then
-  eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/custom-respects-waybar.omp.json)"
-  # Time commands with the shell's clock instead of starting oh-my-posh twice
-  # per command. Hooks whose text changed upstream are left untouched.
-  if zmodload zsh/datetime 2>/dev/null &&
-     [[ $functions[_omp_preexec] == *'$($_omp_executable get millis)'* &&
-        $functions[_omp_precmd] == *'$($_omp_executable get millis)'* ]]; then
-    functions[_omp_preexec]=${functions[_omp_preexec]//'$($_omp_executable get millis)'/'${$(( EPOCHREALTIME * 1000 ))%.*}'}
-    functions[_omp_precmd]=${functions[_omp_precmd]//'$($_omp_executable get millis)'/'${$(( EPOCHREALTIME * 1000 ))%.*}'}
+# The full init script is cached so warm shells start no oh-my-posh process
+# before the first prompt, and an upgrade regenerates it (oh-my-posh's own
+# init cache keeps pointing at the old store path). Each shell still gets a
+# fresh prompt session; every prompt names the config because no `init`
+# stored it in that session. If upstream changes the script text this relies
+# on, the cache falls back to a live `oh-my-posh init` on every start.
+__dotfiles_omp_config=~/.config/oh-my-posh/custom-respects-waybar.omp.json
+__dotfiles_omp_bake_init() {
+  emulate -L zsh
+  local script secondary config=${(qqqq)__dotfiles_omp_config}
+  local session_pattern='export POSH_SESSION_ID="*";'
+  local secondary_call='$($_omp_executable print secondary --shell=zsh)'
+  local print_call='$_omp_executable print $type'
+  local stream_call='"$_omp_executable" stream'
+  local millis_call='$($_omp_executable get millis)'
+  IFS= read -r -d '' script
+  local -a lines=( "${(@f)script}" )
+  if [[ -r /proc/sys/kernel/random/uuid && $lines[1] == ${~session_pattern} &&
+        $script == *"$secondary_call"* && $script == *"$print_call "* ]] &&
+     secondary=$("$commands[oh-my-posh]" print secondary --shell=zsh --config "$__dotfiles_omp_config"); then
+    lines[1]='export POSH_SESSION_ID=$(</proc/sys/kernel/random/uuid)'
+    script=${(F)lines}
+    script=${script//"$secondary_call"/${(qqqq)secondary}}
+    script=${script//"$print_call "/"$print_call --config=$config "}
+    script=${script//"$stream_call"/"$stream_call --config=$config"}
+    # Time commands with the shell's clock instead of starting oh-my-posh
+    # twice per command.
+    script=${script//"$millis_call"/'${$(( EPOCHREALTIME * 1000 ))%.*}'}
+    print -r -- 'zmodload zsh/datetime'
+    print -r -- "$script"
+  else
+    print -r -- "eval \"\$(oh-my-posh init zsh --config $config)\""
   fi
-fi
-#eval "$(oh-my-posh init zsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/refs/heads/main/themes/tokyo.omp.json)"
+}
+__dotfiles_cached_init --filter __dotfiles_omp_bake_init oh-my-posh "$__dotfiles_omp_config" \
+  init zsh --print --config "$__dotfiles_omp_config"
+unfunction __dotfiles_omp_bake_init
+unset __dotfiles_omp_config
 
 # ──────────────────────────── HISTORY ────────────────────────────
 HISTFILE=$HOME/.zhistory 
@@ -79,7 +104,7 @@ __dotfiles_cached_init atuin "${ATUIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.conf
 unfunction __dotfiles_cached_init
 
 # ──────────────────────────── TEXINPUTS ────────────────────────────
-export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
+[[ -d $HOME/Desktop/acl-style-files-master ]] && export TEXINPUTS=$HOME/Desktop/acl-style-files-master//:
 
 # Load optional version managers only when first used, and only if installed.
 source ~/.config/zsh/lazy-tools.zsh
