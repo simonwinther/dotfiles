@@ -386,12 +386,16 @@ impl Picker {
             self.complete = false;
             self.scope = scope;
         }
+        self.follow(Scan::start(&self.options)?);
+        Ok(())
+    }
+
+    fn follow(&mut self, scan: Scan) {
         self.jump = None;
         self.pending = None;
         self.error = None;
         self.updating = true;
-        self.scan = Some(Scan::start(&self.options)?);
-        Ok(())
+        self.scan = Some(scan);
     }
 
     fn receive(&mut self, update: Update) {
@@ -946,11 +950,13 @@ impl Drop for PasteMode {
 }
 
 pub(super) fn pick(options: &Options) -> Result<Option<Selection>> {
+    // The cached snapshot loads while the desktop palette is detected.
+    let scan = Scan::start(options)?;
     let mut picker = Picker::new(options);
+    picker.follow(scan);
     ratatui::run(|terminal| {
         execute!(io::stdout(), EnableBracketedPaste)?;
         let _paste = PasteMode;
-        picker.refresh()?;
         let mut redraw = true;
         loop {
             if let Some(scan) = &mut picker.scan {

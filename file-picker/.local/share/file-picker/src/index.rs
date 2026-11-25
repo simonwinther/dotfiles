@@ -615,7 +615,25 @@ pub fn list(options: &Options) -> Result<()> {
     Ok(())
 }
 
+/// Background refreshes start together with the picker window. Their parallel
+/// fd walk would otherwise compete equally with the compositor, terminal and
+/// picker, which share the session's CPU cgroup.
+fn yield_to_interactive_work() {
+    const BACKGROUND_NICE: libc::c_int = 10;
+    unsafe {
+        *libc::__errno_location() = 0;
+        let current = libc::getpriority(libc::PRIO_PROCESS, 0);
+        if *libc::__errno_location() == 0 && current < BACKGROUND_NICE {
+            // Children such as fd inherit the value; failure leaves it unchanged.
+            libc::setpriority(libc::PRIO_PROCESS, 0, BACKGROUND_NICE);
+        }
+    }
+}
+
 pub fn update(options: &Options, wait: bool) -> Result<()> {
+    if !wait {
+        yield_to_interactive_work();
+    }
     let mut index = Index::open(&database_path()?)?;
     let scope = index.scope(options)?;
     let report = index

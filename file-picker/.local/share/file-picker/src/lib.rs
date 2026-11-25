@@ -6,6 +6,7 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -570,11 +571,45 @@ pub fn latest_download(root: &Path) -> Result<PathBuf> {
         .ok_or_else(|| format!("No completed downloads found in {}", root.display()).into())
 }
 
+const HYPRLAND_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn hyprland_socket() -> Option<PathBuf> {
+    let runtime = env::var_os("XDG_RUNTIME_DIR")?;
+    let signature = env::var_os("HYPRLAND_INSTANCE_SIGNATURE")?;
+    Some(
+        PathBuf::from(runtime)
+            .join("hypr")
+            .join(signature)
+            .join(".socket.sock"),
+    )
+}
+
+/// Send a hyprctl request over Hyprland's request socket. Launching hyprctl
+/// costs about 15 ms per call on the picker's critical path; hyprctl remains
+/// the fallback when the socket cannot be reached.
+fn hyprland(json: bool, request: &[&str]) -> Result<Vec<u8>> {
+    if let Some(mut stream) = hyprland_socket().and_then(|path| UnixStream::connect(path).ok()) {
+        stream.set_read_timeout(Some(HYPRLAND_TIMEOUT))?;
+        stream.set_write_timeout(Some(HYPRLAND_TIMEOUT))?;
+        let flags = if json { "j" } else { "" };
+        stream.write_all(format!("{flags}/{}", request.join(" ")).as_bytes())?;
+        let mut reply = Vec::new();
+        stream.read_to_end(&mut reply)?;
+        // hyprctl exits unsuccessfully for these replies.
+        if reply.starts_with(b"error") {
+            return Err("Command failed or timed out".into());
+        }
+        return Ok(reply);
+    }
+    let mut command = Command::new("hyprctl");
+    if json {
+        command.arg("-j");
+    }
+    output_timeout(command.args(request), HYPRLAND_TIMEOUT)
+}
+
 fn active_window_address() -> Result<String> {
-    let data = output_timeout(
-        Command::new("hyprctl").args(["-j", "activewindow"]),
-        Duration::from_secs(2),
-    )?;
+    let data = hyprland(true, &["activewindow"])?;
     let window: serde_json::Value = serde_json::from_slice(&data)?;
     let address = window["address"].as_str().unwrap_or("");
     if address.len() <= 2
@@ -617,11 +652,9 @@ pub fn paste_latest_download() -> Result<()> {
     let dispatcher = format!(
         "hl.dsp.send_shortcut({{ mods = \"CTRL\", key = \"V\", window = \"address:{address}\" }})"
     );
-    let output = output_timeout(
-        Command::new("hyprctl").args(["dispatch", &dispatcher]),
-        Duration::from_secs(2),
-    )?;
-    if output != b"ok\n" {
+    let output = hyprland(false, &["dispatch", &dispatcher])?;
+    // hyprctl ends the socket reply with a newline.
+    if output.trim_ascii_end() != b"ok" {
         return Err("Download copied; automatic paste failed. Paste with Ctrl+V.".into());
     }
     Ok(())
@@ -762,10 +795,7 @@ fn picker_name(options: &Options) -> &'static str {
 const PICKER_CLASS: &str = "file.picker";
 
 fn picker_window(options: &Options) -> Result<Option<String>> {
-    let data = output_timeout(
-        Command::new("hyprctl").args(["-j", "clients"]),
-        Duration::from_secs(2),
-    )?;
+    let data = hyprland(true, &["clients"])?;
     let clients: Vec<serde_json::Value> = serde_json::from_slice(&data)?;
     Ok(clients
         .iter()
@@ -778,10 +808,7 @@ fn picker_window(options: &Options) -> Result<Option<String>> {
 }
 
 fn hypr_eval(code: &str) -> Result<()> {
-    output_timeout(
-        Command::new("hyprctl").args(["eval", code]),
-        Duration::from_secs(2),
-    )?;
+    hyprland(false, &["eval", code])?;
     Ok(())
 }
 
@@ -822,6 +849,10 @@ fn ensure_terminal() -> Result<()> {
     if terminal_running()? {
         return Ok(());
     }
+    start_terminal()
+}
+
+fn start_terminal() -> Result<()> {
     let mut fallback = OsString::from("--command=shell:exec ");
     fallback.push(shell_quote(executable_path()?.as_os_str()));
     let mut command = Command::new("ghostty");
@@ -989,6 +1020,8 @@ fn terminal_dbus_request(request: &Command) -> Result<Command> {
     Ok(command)
 }
 
+const TERMINAL_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Open a disposable floating window through a shared, windowless Ghostty host.
 pub fn window(options: &Options) -> Result<()> {
     let _lock = launch_lock()?;
@@ -1014,10 +1047,16 @@ pub fn window(options: &Options) -> Result<()> {
         .get_args()
         .all(|argument| argument.to_str().is_some());
     let mut standalone = if utf8 {
-        ensure_terminal()?;
-        let mut direct = terminal_dbus_request(&request)?;
-        if output_timeout(&mut direct, Duration::from_secs(3)).is_err() {
-            output_timeout(&mut request, Duration::from_secs(3))?;
+        let deliver = || output_timeout(&mut terminal_dbus_request(&request)?, TERMINAL_TIMEOUT);
+        // The prepared host normally owns its name already. Start it only
+        // after a request finds no owner, instead of checking before each one.
+        let delivered = deliver().is_ok()
+            || (!terminal_running()? && {
+                start_terminal()?;
+                deliver().is_ok()
+            });
+        if !delivered {
+            output_timeout(&mut request, TERMINAL_TIMEOUT)?;
         }
         None
     } else {
