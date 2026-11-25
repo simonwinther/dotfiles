@@ -20,49 +20,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Confirms an audio action on the changed row and in a footer toast.
+/// Confirms an audio action with a short footer message.
 #[derive(Clone, Debug)]
 pub struct Notice {
-    pub entry_id: String,
-    pub icon: &'static str,
     pub message: String,
     pub warning: bool,
     pub shown: Instant,
 }
 impl Notice {
-    pub const FLASH: Duration = Duration::from_millis(650);
-    pub const FADE_START: Duration = Duration::from_millis(2200);
-    pub const LIFETIME: Duration = Duration::from_millis(2600);
-    pub fn age(&self) -> Duration {
-        self.shown.elapsed()
-    }
+    pub const LIFETIME: Duration = Duration::from_millis(2500);
     pub fn expired(&self) -> bool {
-        self.age() >= Self::LIFETIME
+        self.shown.elapsed() >= Self::LIFETIME
     }
-    /// Delay until the next frame that changes the notice's appearance.
+    /// Delay until the message should disappear.
     pub fn next_frame(&self) -> Option<Duration> {
-        let age = self.age();
-        let frame = Duration::from_millis(33);
-        if age < Self::FLASH || (Self::FADE_START..Self::LIFETIME).contains(&age) {
-            Some(frame)
-        } else if age < Self::FADE_START {
-            Some(Self::FADE_START - age)
-        } else {
-            None
-        }
-    }
-    fn flash_strength(&self) -> f32 {
-        1.0 - (self.age().as_secs_f32() / Self::FLASH.as_secs_f32()).min(1.0)
-    }
-    fn toast_opacity(&self) -> f32 {
-        let fade = (Self::LIFETIME - Self::FADE_START).as_secs_f32();
-        ((Self::LIFETIME.saturating_sub(self.age())).as_secs_f32() / fade).min(1.0)
+        Self::LIFETIME.checked_sub(self.shown.elapsed())
     }
 }
 
 const MUTED_SPEAKER_ICON: &str = "\u{f026}";
 const MUTED_MICROPHONE_ICON: &str = "\u{f131}";
-const CHECK_ICON: &str = "\u{f00c}";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -519,41 +496,46 @@ impl Model {
         };
         let category = entry.category.clone();
         let name = entry.name.clone();
-        let (icon, message, warning) = if switches_default {
-            for item in self.entries.iter_mut().filter(|item| item.category == category) {
-                item.selected = false;
-            }
-            self.entries[index].selected = true;
-            let kind = if category == "outputs" { "Output" } else { "Input" };
-            (CHECK_ICON, format!("{kind} switched to {name}"), false)
-        } else if category == "configuration" {
-            let card = entry.command.get(3).cloned();
-            for item in self
-                .entries
-                .iter_mut()
-                .filter(|item| item.category == category && item.command.get(3) == card.as_ref())
-            {
-                item.selected = false;
-            }
-            self.entries[index].selected = true;
-            (CHECK_ICON, format!("Profile set to {name}"), false)
-        } else if entry.level.is_some() {
-            let entry = &mut self.entries[index];
-            entry.muted = !entry.muted;
-            if let Some(target) = entry.command.get_mut(4) {
-                *target = (!entry.muted).to_string();
-            }
-            if entry.muted {
-                (muted_icon(&category), format!("Muted {name}"), true)
+        let (message, warning) =
+            if switches_default {
+                for item in self
+                    .entries
+                    .iter_mut()
+                    .filter(|item| item.category == category)
+                {
+                    item.selected = false;
+                }
+                self.entries[index].selected = true;
+                let kind = if category == "outputs" {
+                    "Output"
+                } else {
+                    "Input"
+                };
+                (format!("{kind} switched to {name}"), false)
+            } else if category == "configuration" {
+                let card = entry.command.get(3).cloned();
+                for item in self.entries.iter_mut().filter(|item| {
+                    item.category == category && item.command.get(3) == card.as_ref()
+                }) {
+                    item.selected = false;
+                }
+                self.entries[index].selected = true;
+                (format!("Profile set to {name}"), false)
+            } else if entry.level.is_some() {
+                let entry = &mut self.entries[index];
+                entry.muted = !entry.muted;
+                if let Some(target) = entry.command.get_mut(4) {
+                    *target = (!entry.muted).to_string();
+                }
+                if entry.muted {
+                    (format!("Muted {name}"), true)
+                } else {
+                    (format!("Unmuted {name}"), false)
+                }
             } else {
-                (entry_icon(entry), format!("Unmuted {name}"), false)
-            }
-        } else {
-            return;
-        };
+                return;
+            };
         self.notice = Some(Notice {
-            entry_id: self.entries[index].id.clone(),
-            icon,
             message,
             warning,
             shown: Instant::now(),
@@ -701,17 +683,10 @@ impl Model {
         } else {
             HashMap::new()
         };
-        let badge_widths: HashMap<&str, f32> = ["DEFAULT", "MUTED", "ACTIVE"]
-            .into_iter()
-            .map(|label| (label, text.width(label, 8.5 * s) / s))
-            .collect();
         let notice = self
             .notice
             .as_ref()
             .filter(|notice| self.page == Page::Audio && !notice.expired());
-        let notice_width = notice
-            .map(|notice| text.width(&notice.message, 10.0 * s) / s)
-            .unwrap_or_default();
         let clip = Rect::new(20.0, 8.0, w - 40.0, h - 16.0).scale(s);
         let mut line =
             |p: &mut tiny_skia::Pixmap, value: &str, x: f32, y: f32, size: f32, color: Color| {
@@ -997,31 +972,13 @@ impl Model {
                 let is_default = audio_device && entry.selected;
                 let is_active_profile = entry.category == "configuration" && entry.selected;
                 let is_muted = entry.level.is_some() && entry.muted;
-                if let Some(notice) = notice.filter(|notice| notice.entry_id == entry.id) {
-                    let tone = if notice.warning { t.red() } else { t.accent() };
-                    let strength = notice.flash_strength();
-                    if strength > 0.0 {
-                        draw::rounded(
-                            p,
-                            Rect::new(18.0, y, w - 36.0, 40.0).scale(s),
-                            10.0 * s,
-                            tone.alpha(0.35 * strength * opacity),
-                        );
-                        draw::outline(
-                            p,
-                            Rect::new(18.0, y, w - 36.0, 40.0).scale(s),
-                            10.0 * s,
-                            1.5 * s,
-                            tone.alpha(strength * opacity),
-                        );
-                    }
-                }
-                let (tile, icon_color) = if is_muted {
-                    (t.red().alpha(0.18 * opacity), t.red().alpha(opacity))
+                let tile = fg.alpha(0.07);
+                let icon_color = if is_muted {
+                    t.red().alpha(opacity)
                 } else if is_default || is_active_profile {
-                    (t.accent().alpha(0.22 * opacity), t.accent().alpha(opacity))
+                    t.accent().alpha(opacity)
                 } else {
-                    (fg.alpha(0.07), dim)
+                    dim
                 };
                 draw::rounded(
                     p,
@@ -1092,30 +1049,16 @@ impl Model {
                     line(p, &name, 71.0, y + 17.0, 12.0, fg);
                 }
                 if self.page == Page::Audio {
-                    let mut badge_x =
+                    let mut tag_x =
                         71.0 + audio_name_widths.get(&index).copied().unwrap_or_default() + 8.0;
-                    let badges = [
-                        (is_default, "DEFAULT", t.accent()),
-                        (is_active_profile, "ACTIVE", t.accent()),
-                        (is_muted, "MUTED", t.red()),
+                    let tags = [
+                        (is_default, "default", t.accent()),
+                        (is_active_profile, "active", t.accent()),
+                        (is_muted, "muted", t.red()),
                     ];
-                    for (_, label, tone) in badges.into_iter().filter(|(shown, ..)| *shown) {
-                        let badge_width = badge_widths[label] + 12.0;
-                        draw::rounded(
-                            p,
-                            Rect::new(badge_x, y + 6.0, badge_width, 15.0).scale(s),
-                            4.0 * s,
-                            tone.alpha(0.22 * opacity),
-                        );
-                        draw::outline(
-                            p,
-                            Rect::new(badge_x, y + 6.0, badge_width, 15.0).scale(s),
-                            4.0 * s,
-                            s,
-                            tone.alpha(0.7 * opacity),
-                        );
-                        line(p, label, badge_x + 6.0, y + 17.0, 8.5, tone.alpha(opacity));
-                        badge_x += badge_width + 6.0;
+                    for (_, label, tone) in tags.into_iter().filter(|(shown, ..)| *shown) {
+                        line(p, label, tag_x, y + 17.0, 10.0, tone.alpha(opacity));
+                        tag_x += label.len() as f32 * 6.5 + 8.0;
                     }
                 }
                 if let Some(level) = entry.level {
@@ -1198,16 +1141,14 @@ impl Model {
         }
         if let Some(notice) = notice {
             let tone = if notice.warning { t.red() } else { t.accent() };
-            let alpha = notice.toast_opacity() * opacity;
-            let toast_width = notice_width + 44.0;
-            let toast = Rect::new((w - toast_width) / 2.0, h - 38.0, toast_width, 26.0);
-            let background = t.color("background", if t.light { "#eff1f5" } else { "#18171f" });
-            draw::rounded(p, toast.scale(s), 13.0 * s, background.alpha(alpha));
-            draw::rounded(p, toast.scale(s), 13.0 * s, tone.alpha(0.2 * alpha));
-            draw::outline(p, toast.scale(s), 13.0 * s, s, tone.alpha(0.8 * alpha));
-            line(p, notice.icon, toast.x + 14.0, h - 20.5, 11.0, tone.alpha(alpha));
-            line(p, &notice.message, toast.x + 32.0, h - 21.0, 10.0, fg.alpha(alpha));
-        } else if !self.error.is_empty() && !self.filtered.is_empty() && self.page != Page::Controls {
+            let message: String = notice
+                .message
+                .chars()
+                .take(((w - 120.0) / 7.0) as usize)
+                .collect();
+            line(p, &message, 26.0, h - 18.0, 10.0, tone.alpha(opacity));
+        } else if !self.error.is_empty() && !self.filtered.is_empty() && self.page != Page::Controls
+        {
             let error: String = self
                 .error
                 .chars()

@@ -2461,7 +2461,7 @@ impl App {
             self.paint_popup();
         }
     }
-    /// Redraws the shell only while an action notice flashes or fades.
+    /// Redraws the shell once an action notice expires.
     fn schedule_notice_frames(&mut self) {
         let Some(delay) = self.notice_next_frame() else {
             return;
