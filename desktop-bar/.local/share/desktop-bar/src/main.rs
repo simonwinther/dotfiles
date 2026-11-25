@@ -192,6 +192,7 @@ struct App {
     text: text::Text,
     data: Data,
     tray: TrayClient,
+    metrics: modules::Metrics,
     workspaces: std::sync::mpsc::Sender<Vec<String>>,
     shell: shell::Service,
     modifiers: Modifiers,
@@ -338,7 +339,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the mask. Otherwise SIGUSR2 can terminate an arbitrary worker instead of
     // reaching calloop's signalfd.
     let signals = Signals::new(&[Signal::SIGUSR2, Signal::SIGTERM, Signal::SIGINT])?;
-    let tray = modules::workers(sender.clone(), theme.text());
+    let (tray, metrics) = modules::workers(sender.clone(), theme.text());
     let workspaces = modules::workspaces::start(sender.clone());
     let shell = shell::Service::start(sender.clone());
     let _server = if args.iter().any(|s| s == "--preview") {
@@ -372,6 +373,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         text,
         data: Data::default(),
         tray,
+        metrics,
         workspaces,
         shell,
         modifiers: Modifiers::default(),
@@ -451,6 +453,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     WaylandSource::new(connection, queue).insert(handle)?;
     while !app.exit {
+        app.sync_metrics_demand();
         event_loop.dispatch(None, &mut app)?;
     }
     if let Some(answers) = picker_answers {
@@ -464,6 +467,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 impl App {
+    /// Samples CPU, memory and disk only while a bar or panel draws them.
+    fn sync_metrics_demand(&mut self) {
+        let visible = self.bars.iter().any(|b| !b.minimal && !b.motion)
+            || self
+                .floating
+                .as_ref()
+                .is_some_and(|f| f.panel.kind.shows_system_metrics());
+        self.metrics.show_detailed(visible);
+    }
     fn controls_kind(&mut self) -> Kind {
         Kind::Shell(Box::new(shell::Model::new(
             shell::Page::Controls,

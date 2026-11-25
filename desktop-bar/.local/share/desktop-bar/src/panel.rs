@@ -59,6 +59,9 @@ impl Kind {
             Self::Calendar | Self::Prompt(_) | Self::Help(_) | Self::Tooltip(_) => false,
         }
     }
+    pub fn shows_system_metrics(&self) -> bool {
+        self.observes(&Update::Cpu(Vec::new()))
+    }
     pub fn uses_clock(&self) -> bool {
         matches!(self, Self::Calendar | Self::Overview(_))
             || matches!(self, Self::Shell(model) if model.page == crate::shell::Page::Controls)
