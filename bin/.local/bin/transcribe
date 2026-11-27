@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Estimate the cost and transcribe a recording with OpenAI."""
+
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+MODEL = "gpt-4o-mini-transcribe"
+USD_PER_MINUTE = 0.003  # developers.openai.com/api/docs/pricing
+DKK_PER_USD = 7.4737 / 1.0975  # ECB reference rates, 2026-11-26
+
+
+def api_key():
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        for line in (config / "dictate/secrets.env").read_text().splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == "OPENAI_API_KEY":
+                key = value.strip().strip("\"'")
+                break
+    if not key or key == "replace_me" or any(c.isspace() for c in key):
+        raise ValueError("Configure OPENAI_API_KEY in the environment or Dictate secrets.")
+    return key
+
+
+def transcribe_part(part, key):
+    # Pass the authorization header on stdin to keep the key out of process listings.
+    result = subprocess.run(
+        ["curl", "--disable", "--silent", "--show-error", "--fail", "--max-time", "600",
+         "--header", "@-", "--form", f"model={MODEL}", "--form", f"file=@{part.name}",
+         "https://api.openai.com/v1/audio/transcriptions"],
+        cwd=part.parent, input=f"Authorization: Bearer {key}\n",
+        text=True, encoding="utf-8", stdout=subprocess.PIPE, check=True,
+    )
+    response = json.loads(result.stdout)
+    if not isinstance(response, dict) or not isinstance(response.get("text"), str):
+        raise ValueError("OpenAI returned a response without transcript text.")
+    return response["text"].strip()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("audio_file", type=Path, metavar="audio-file")
+    source = parser.parse_args().audio_file.absolute()
+    if not source.is_file():
+        raise ValueError(f"Audio file not found: {source}")
+    output = source.with_suffix(".txt")
+    if os.path.lexists(output):
+        raise FileExistsError(f"Output already exists: {output}")
+
+    probe = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=duration:format=duration", "-of", "json", source], text=True,
+    )
+    info = json.loads(probe)
+    if not info.get("streams"):
+        raise ValueError("The file contains no audio stream.")
+    duration = info["streams"][0].get("duration") or info["format"].get("duration")
+    if not duration or duration == "N/A":
+        raise ValueError("Unable to determine audio duration.")
+    minutes = float(duration) / 60
+    if not math.isfinite(minutes) or minutes <= 0:
+        raise ValueError("Invalid audio duration.")
+    usd = minutes * USD_PER_MINUTE
+    print(f"{minutes:.2f} minutes with {MODEL} at {USD_PER_MINUTE} USD/minute")
+    print(f"Estimated cost: {usd:.5f} USD / {usd * DKK_PER_USD:.5f} DKK "
+          f"(1 USD ≈ {DKK_PER_USD:.2f} DKK, ECB 2026-11-26)")
+    print(f"Upload to OpenAI and save to {output}? [y/N] ", end="", flush=True)
+    if sys.stdin.readline().strip().lower() not in {"y", "yes"}:
+        print("Cancelled.")
+        return
+
+    key = api_key()
+    with tempfile.TemporaryDirectory() as work, tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=output.parent, prefix=".transcribe-",
+    ) as transcript:
+        print("Preparing audio…", flush=True)
+        # Five minutes of mono 16 kHz, 16-bit PCM is 9.6 MB, under the 25 MB limit.
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror",
+             "-i", source, "-map", "0:a:0", "-ar", "16000", "-ac", "1",
+             "-c:a", "pcm_s16le", "-f", "segment", "-segment_time", "300",
+             "-reset_timestamps", "1", "part-%09d.wav"], cwd=work, check=True,
+        )
+        parts = sorted(Path(work).glob("part-*.wav"))
+        if not parts or any(part.stat().st_size > 25_000_000 for part in parts):
+            raise ValueError("Could not prepare audio within the upload limit.")
+        for index, part in enumerate(parts, 1):
+            print(f"Transcribing part {index}/{len(parts)}…", flush=True)
+            text = transcribe_part(part, key)
+            if text:
+                transcript.write(text + "\n")
+            part.unlink()
+        transcript.flush()
+        os.link(transcript.name, output)  # Publish atomically without overwriting.
+    print(f"Saved {output}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        sys.exit(f"transcribe: {error}")
+    except KeyboardInterrupt:
+        sys.exit(130)
